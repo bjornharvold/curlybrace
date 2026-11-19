@@ -109,7 +109,8 @@ fn opening_the_builder_creates_it_for_the_selected_collection_and_asks_for_the_c
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: ns()
+                ns: ns(),
+                request: s.indexes.estimate_request
             },
             Command::ListIndexes {
                 session: id,
@@ -332,6 +333,7 @@ fn a_collection_over_one_million_documents_shows_the_build_warning() {
             session: id,
             ns: ns(),
             count,
+            request: 0,
         }),
     );
     assert!(commands.is_empty());
@@ -356,6 +358,7 @@ fn no_warning_at_or_below_the_threshold() {
                 session: id,
                 ns: ns(),
                 count,
+                request: 0,
             }),
         );
         let builder = s.indexes.builder.as_ref().unwrap();
@@ -373,6 +376,7 @@ fn an_estimate_for_another_collection_or_no_builder_is_dropped() {
             session: id,
             ns: Namespace::new("app", "pets"),
             count: 9_000_000,
+            request: 0,
         }),
     );
     assert_eq!(s.indexes.builder.as_ref().unwrap().warning, None);
@@ -383,6 +387,7 @@ fn an_estimate_for_another_collection_or_no_builder_is_dropped() {
             session: id,
             ns: ns(),
             count: 9_000_000,
+            request: 0,
         }),
     );
     assert!(s.indexes.builder.is_none());

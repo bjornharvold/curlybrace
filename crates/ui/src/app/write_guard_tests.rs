@@ -181,6 +181,7 @@ fn no_warning_when_write_would_be_ignored() {
     s.pending = Some(Pending {
         ns: users(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = update(s, insert());
     assert!(commands.is_empty() && s.write_warning.is_none());
@@ -238,6 +239,7 @@ fn confirm_with_a_mutation_in_flight_sends_nothing() {
     s.pending = Some(Pending {
         ns: users(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = update(s, confirm());
     assert!(commands.is_empty() && s.write_warning.is_none());
@@ -367,6 +369,7 @@ fn a_stale_confirm_says_why_the_write_was_not_sent() {
     s.pending = Some(Pending {
         ns: users(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = update(s, confirm());
     assert!(commands.is_empty() && busy(&s));
@@ -406,6 +409,7 @@ fn a_changed_connection_takes_precedence_over_a_write_in_flight() {
     s.pending = Some(Pending {
         ns: users(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = update(s, confirm());
     assert!(commands.is_empty() && changed(&s) && !busy(&s));

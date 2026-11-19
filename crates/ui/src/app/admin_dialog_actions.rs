@@ -11,6 +11,7 @@ use crate::viewmodel::{
     AdminAction, AdminDialog, AdminKind, AdminRequest, FindBarState, IndexesState,
 };
 use curlybrace_core::error::CoreError;
+use curlybrace_core::store::Namespace;
 
 /// The write warning's wording for what the dialog does.
 fn write_kind(kind: AdminKind) -> WriteKind {
@@ -161,6 +162,7 @@ fn confirmed(state: AppState, dialog: AdminDialog) -> Out {
         let pending = Pending {
             ns: dialog.target_ns(),
             editor: None,
+            tab: None,
         };
         if s.active_is_production() {
             let write_warning = Some(ParkedWrite {
@@ -193,17 +195,24 @@ pub(super) fn answered(state: AppState, db: &str) -> AppState {
         pending: None,
         ..state
     };
-    match dialog {
-        Some(d) if hides_selection(&d, &state) => deselected(state),
-        _ => state,
+    let Some(d) = dialog else {
+        return state;
+    };
+    // The session's other tabs lose what the write took away too.
+    let state = super::tab_fanout::dropped(state, |ns| hides(&d, ns));
+    match hides_selection(&d, &state) {
+        true => deselected(state),
+        false => state,
     }
 }
 
 /// Whether the finished write took away the collection (or database) that is open.
 fn hides_selection(dialog: &AdminDialog, state: &AppState) -> bool {
-    let Some(open) = state.selected_ns() else {
-        return false;
-    };
+    state.selected_ns().is_some_and(|open| hides(dialog, open))
+}
+
+/// Whether the finished write took away `open`.
+fn hides(dialog: &AdminDialog, open: &Namespace) -> bool {
     match dialog.kind {
         AdminKind::DropDatabase => open.db == dialog.db,
         AdminKind::DropCollection | AdminKind::Rename => {

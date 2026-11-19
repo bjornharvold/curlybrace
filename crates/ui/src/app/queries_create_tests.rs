@@ -130,7 +130,8 @@ fn create_index_opens_the_builder_with_the_shape_s_keys() {
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: ns()
+                ns: ns(),
+                request: s.indexes.estimate_request
             },
             Command::ListIndexes {
                 session: id,
@@ -260,12 +261,13 @@ fn a_list_that_is_already_loaded_is_not_asked_for_again() {
         .clone()
         .with_indexes(vec![listed(&[("other", KeyKind::Asc)])]);
     let s = AppState { indexes: held, ..s };
-    let (_, commands) = create(s, "h1");
+    let (s, commands) = create(s, "h1");
     assert_eq!(
         shown(&commands),
         shown(&[Command::EstimatedCount {
             session: id,
-            ns: ns()
+            ns: ns(),
+            request: s.indexes.estimate_request
         }])
     );
 }

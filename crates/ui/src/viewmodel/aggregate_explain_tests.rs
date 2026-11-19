@@ -31,14 +31,14 @@ fn loading() -> (ExplainUi, u64) {
 fn a_run_is_numbered_shows_the_plan_tab_and_waits() {
     let ui = ExplainUi::default().with_verbosity(ExplainVerbosity::ExecutionStats);
     let (next, request, verbosity) = ui.begun(pipeline(), &PipelineOptions::default());
-    assert_eq!(request, 1);
+    assert_ne!(request, 0, "0 is never a request number");
     assert_eq!(verbosity, ExplainVerbosity::ExecutionStats);
     assert_eq!(next.tab, ResultTab::Plan);
     assert!(next.is_loading());
-    assert!(next.awaits(1));
+    assert!(next.awaits(request));
     let (again, second, _) = next.begun(pipeline(), &PipelineOptions::default());
-    assert_eq!(second, 2, "a newer run is a newer number");
-    assert!(!again.awaits(1), "the older answer is stale now");
+    assert!(second > request, "a newer run is a newer number");
+    assert!(!again.awaits(request), "the older answer is stale now");
 }
 
 #[test]

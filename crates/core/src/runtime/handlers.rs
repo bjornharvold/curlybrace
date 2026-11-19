@@ -20,7 +20,7 @@ use super::profiler_handlers::{
 };
 use super::session::Session;
 use super::tunneling::{
-    AttemptCurrent, ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
+    AttemptCurrent, ConnectionCurrent, SshSecretSource, open_tunnel_if_configured,
 };
 use super::{Command, Event, SessionId, Shared};
 use super::{aggregate_count, aggregate_explain, aggregate_preview, aggregate_run};
@@ -199,7 +199,9 @@ async fn run(
     let is_write = command.is_write();
     // An explain that outruns the bound is a missing verdict, not a failure: kept to answer it.
     let explain_target = match &command {
-        Command::ExplainFind { ns, query, .. } => Some((ns.clone(), query.clone())),
+        Command::ExplainFind {
+            ns, query, request, ..
+        } => Some((ns.clone(), query.clone(), *request)),
         _ => None,
     };
     // Likewise a guard check: its timeout is an outcome, answered under the request's number.
@@ -261,11 +263,12 @@ async fn run(
     }
     // No ping settle for an explain: `Unreachable` would mark the session lost and raise a
     // banner, and a slow `executionStats` run says nothing about the server.
-    if let (true, Some((ns, query))) = (timed_out, explain_target) {
+    if let (true, Some((ns, query, request))) = (timed_out, explain_target) {
         return Ok(Event::Explain {
             session: id,
             ns,
             query,
+            request,
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
@@ -372,16 +375,21 @@ async fn data_command(
             let names = store.list_collections(&db).await?;
             Event::Collections { session, db, names }
         }
-        Command::Find { ns, query, .. } => {
+        Command::Find {
+            ns, query, request, ..
+        } => {
             let page = store.find(&ns, &query).await?;
             Event::Results {
                 session,
                 ns,
                 query,
                 page,
+                request,
             }
         }
-        Command::ExplainFind { ns, query, .. } => {
+        Command::ExplainFind {
+            ns, query, request, ..
+        } => {
             // Both the server call and the classification fold into the outcome: a miss verdict
             // is advice, not a failure, so nothing here may reach `Event::Failed`.
             let outcome = match store.explain_find(&ns, &query).await {
@@ -399,6 +407,7 @@ async fn data_command(
                 ns,
                 query,
                 outcome,
+                request,
             }
         }
         Command::GuardCheck {
@@ -512,9 +521,14 @@ async fn data_command(
         Command::QueryShapes {
             ns, range, request, ..
         } => query_shapes(session, history, ns, range, request).await?,
-        Command::EstimatedCount { ns, .. } => {
+        Command::EstimatedCount { ns, request, .. } => {
             let count = store.estimated_count(&ns).await?;
-            Event::EstimatedCount { session, ns, count }
+            Event::EstimatedCount {
+                session,
+                ns,
+                count,
+                request,
+            }
         }
         Command::CreateIndex { ns, spec, .. } => {
             store.create_index(&ns, &spec).await?;
@@ -691,86 +705,6 @@ pub(super) async fn read_password(
     tokio::task::spawn_blocking(move || secrets.get(&key))
         .await
         .map_err(|_| CoreError::Secret("secret lookup failed".into()))?
-}
-
-/// Runs one connection test in its own task, apart from the epoch machinery. The work runs in an
-/// inner task so a panic still produces exactly one answer.
-pub(super) fn spawn_test(
-    shared: Arc<Shared>,
-    events: tokio::sync::mpsc::UnboundedSender<Event>,
-    repaint: super::Repaint,
-    request_id: u64,
-    cfg: ConnectionConfig,
-    secrets: super::TestSecrets,
-) {
-    // A newer test ends the previous one's flag, so only one test's question is ever live. A test
-    // is never replaced by a Connect/Disconnect, so only this flag decides its currentness.
-    let flag = JobFlag::new();
-    let previous = shared
-        .latest_test
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(flag.clone());
-    if let Some(previous) = previous {
-        previous.end();
-    }
-    tokio::spawn(async move {
-        let work = tokio::spawn(async move { test_connection(&shared, cfg, secrets, flag).await });
-        let outcome = work
-            .await
-            .unwrap_or_else(|_| Err(CoreError::Database("internal error".into())));
-        if events
-            .send(Event::TestConnection {
-                request_id,
-                outcome,
-            })
-            .is_ok()
-        {
-            repaint();
-        }
-    });
-}
-
-async fn test_connection(
-    shared: &Arc<Shared>,
-    cfg: ConnectionConfig,
-    secrets: super::TestSecrets,
-    flag: JobFlag,
-) -> Result<super::TestReport> {
-    // Ends the test however it ends (answer, error, timeout, panic, cancellation): a host-key
-    // answer arriving later is rejected, so nothing reaches known_hosts.
-    let _end = flag.end_on_drop();
-    cfg.validate()?;
-    let limit = shared.config.connect_timeout;
-    bounded(limit, async {
-        let password = match &secrets.password {
-            super::PasswordChoice::Typed(p) => Some(p.expose().to_owned()),
-            super::PasswordChoice::Without => None,
-            super::PasswordChoice::Stored => read_password(shared, &cfg).await?,
-        };
-        let job: Arc<dyn Currentness> = Arc::new(flag.clone());
-        let ssh_secret = match &secrets.ssh_secret {
-            super::PasswordChoice::Typed(s) => SshSecretSource::Typed(s.expose()),
-            super::PasswordChoice::Without => SshSecretSource::Without,
-            super::PasswordChoice::Stored => SshSecretSource::Stored,
-        };
-        let tunnel = open_tunnel_if_configured(shared, job, &cfg, ssh_secret).await?;
-        let addr = tunnel.as_ref().map(|t| t.local_addr());
-        let store = shared
-            .connector
-            .connect(&cfg, password.as_deref(), addr)
-            .await?;
-        let server_version = store.server_version().await?;
-        // Dropped here, before the answer: a test leaves no client and no tunnel behind.
-        drop(store);
-        drop(tunnel);
-        Ok(super::TestReport {
-            server_version,
-            tls: cfg.tls.enabled,
-            authenticated: cfg.auth != crate::connection::AuthMechanism::None,
-        })
-    })
-    .await
 }
 
 /// The bound a command runs under. An index build and a collection duplicate (a full copy, then

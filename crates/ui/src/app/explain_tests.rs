@@ -81,6 +81,7 @@ pub(super) fn explained(
         ns,
         query,
         outcome,
+        request: state.verdict_request,
     };
     update(state, Input::Event(event)).0
 }
@@ -112,11 +113,13 @@ fn run_issues_find_and_explain_and_sets_pending() {
                 ns: n1,
                 query: q1,
                 session: s1,
+                ..
             },
             Command::ExplainFind {
                 ns: n2,
                 query: q2,
                 session: s2,
+                ..
             },
         ] => {
             assert_eq!((n1, q1, s1), (&ns(), &query_a(), &EMBEDDED_SESSION));
@@ -428,6 +431,7 @@ fn an_explain_for_a_background_session_lands_in_its_parked_view() {
         ns: ns(),
         query: query_a(),
         outcome: Ok(verdict()),
+        request: 0,
     };
     let (s, _) = update(s, Input::Event(event));
     assert_eq!(s.active, Some(a));

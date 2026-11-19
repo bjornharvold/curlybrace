@@ -134,14 +134,17 @@ pub(super) fn run(state: AppState, query: Query, explain_enabled: bool) -> super
             commands,
         );
     }
+    let request = super::request_numbers::next();
     commands.push(Command::ExplainFind {
         session: state.session_id(),
         ns,
         query: query.clone(),
+        request,
     });
     (
         AppState {
             verdict: VerdictState::Pending { query },
+            verdict_request: request,
             ..state
         },
         commands,

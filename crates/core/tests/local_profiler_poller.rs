@@ -234,6 +234,7 @@ async fn poller_records_app_queries_into_history() {
             filter: doc! { "c": 99 },
             ..Query::default()
         },
+        request: 0,
     };
     env.answer(find, "own find").await;
     let explain = Command::ExplainFind {
@@ -243,6 +244,7 @@ async fn poller_records_app_queries_into_history() {
             filter: doc! { "c": 98 },
             ..Query::default()
         },
+        request: 0,
     };
     let event = env.answer(explain, "own explain").await;
     assert!(
@@ -308,6 +310,7 @@ async fn typed_explain_is_recorded_as_a_typed_shape() {
         session: env.session,
         ns: env.ns(),
         query,
+        request: 0,
     };
     let verdict = match env.answer(command, "explain").await {
         Event::Explain { outcome, .. } => outcome.expect("explain"),

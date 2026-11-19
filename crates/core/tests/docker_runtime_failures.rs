@@ -46,6 +46,7 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
         session: cfg.id,
         ns: ns.clone(),
         query: Query::default(),
+        request: 0,
     };
 
     rt.tx.send(Command::Connect(cfg.clone())).unwrap();

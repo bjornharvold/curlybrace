@@ -168,6 +168,11 @@ pub(super) fn profiling_answered(
     db: String,
     outcome: Result<ProfilingState, CoreError>,
 ) -> Out {
+    // The level is a property of the database: the session's other tabs on it show it too.
+    let state = match &outcome {
+        Ok(level) => super::tab_fanout::profiling_level(state, &db, level),
+        Err(_) => state,
+    };
     let wrote = state.indexes.queries.in_flight == Some(InFlight::Write(db.clone()));
     let read = state.indexes.queries.in_flight == Some(InFlight::Read(db.clone()));
     let state = match (wrote, read) {

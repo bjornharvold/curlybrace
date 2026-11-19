@@ -18,7 +18,7 @@ fn opening_the_queries_view_asks_for_profiling_state_and_shapes() {
     let (s, id) = plain();
     let (s, commands) = queries(s, QueriesAction::Open);
     assert_eq!(s.indexes.view, IndexesView::Queries);
-    assert_eq!(s.indexes.queries.request, 1);
+    assert_ne!(s.indexes.queries.request, 0, "the read is numbered");
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Loading);
     assert_eq!(
         shown(&commands),
@@ -27,7 +27,7 @@ fn opening_the_queries_view_asks_for_profiling_state_and_shapes() {
                 session: id,
                 ns: ns(),
                 range: ChartRange::Day,
-                request: 1
+                request: s.indexes.queries.request
             },
             Command::ProfilingState {
                 session: id,
@@ -72,12 +72,14 @@ fn opening_needs_a_connection_but_not_a_writable_one() {
 #[test]
 fn refresh_and_range_change_bump_the_request() {
     let (s, id) = ready(flags(false, false), 0);
+    let ready_request = s.indexes.queries.request;
     let (s, commands) = queries(s, QueriesAction::Refresh);
-    assert_eq!(s.indexes.queries.request, 2);
+    let refreshed = s.indexes.queries.request;
+    assert!(refreshed > ready_request, "a refresh is a new request");
     assert_eq!(commands.len(), 2);
     let (s, _) = event(s, answer(id, "app", Ok(level(0))));
     let (s, commands) = queries(s, QueriesAction::SetRange(ChartRange::Week));
-    assert_eq!(s.indexes.queries.request, 3);
+    assert!(s.indexes.queries.request > refreshed, "a new range too");
     assert_eq!(s.indexes.queries.range, ChartRange::Week);
     assert_eq!(
         shown(&commands[..1]),
@@ -85,7 +87,7 @@ fn refresh_and_range_change_bump_the_request() {
             session: id,
             ns: ns(),
             range: ChartRange::Week,
-            request: 3
+            request: s.indexes.queries.request
         }])
     );
 }
@@ -251,11 +253,12 @@ fn a_successful_set_updates_the_state_and_closes_the_prompt() {
 #[test]
 fn stale_query_shapes_answer_is_dropped() {
     let (s, id) = opened(flags(false, false));
+    let awaited = s.indexes.queries.request;
     // Wrong request.
-    let (s, _) = event(s, shapes_event(id, ChartRange::Day, 99, &["a"]));
+    let (s, _) = event(s, shapes_event(id, ChartRange::Day, u64::MAX, &["a"]));
     assert!(s.indexes.queries.shapes.is_empty());
     // Wrong range.
-    let (s, _) = event(s, shapes_event(id, ChartRange::Month, 1, &["a"]));
+    let (s, _) = event(s, shapes_event(id, ChartRange::Month, awaited, &["a"]));
     assert!(s.indexes.queries.shapes.is_empty());
     // Wrong namespace.
     let other = Event::QueryShapes {
@@ -263,18 +266,18 @@ fn stale_query_shapes_answer_is_dropped() {
         ns: Namespace::new("app", "other"),
         range: ChartRange::Day,
         shapes: vec![shape("a")],
-        request: 1,
+        request: awaited,
     };
     let (s, _) = event(s, other);
     assert!(s.indexes.queries.shapes.is_empty());
     assert!(s.indexes.queries.loading);
     // The awaited one.
-    let (s, _) = event(s, shapes_event(id, ChartRange::Day, 1, &["a", "b"]));
+    let (s, _) = event(s, shapes_event(id, ChartRange::Day, awaited, &["a", "b"]));
     assert_eq!(s.indexes.queries.shapes.len(), 2);
     assert!(!s.indexes.queries.loading);
     // After a refresh the older answer is stale.
     let (s, _) = queries(s, QueriesAction::Refresh);
-    let (s, _) = event(s, shapes_event(id, ChartRange::Day, 1, &["old"]));
+    let (s, _) = event(s, shapes_event(id, ChartRange::Day, awaited, &["old"]));
     assert_eq!(s.indexes.queries.shapes.len(), 2);
     assert_eq!(s.indexes.queries.shapes[0].hash, "a");
 }
@@ -294,6 +297,7 @@ fn profiler_unavailable_outcomes_keep_the_view_usable() {
         CoreError::Unsupported(PROFILER_MONGOS_MESSAGE.into()),
     ] {
         let (s, id) = opened(flags(false, false));
+        let awaited = s.indexes.queries.request;
         let (s, commands) = event(s, answer(id, "app", Err(error.clone())));
         assert!(commands.is_empty());
         assert_eq!(
@@ -302,7 +306,7 @@ fn profiler_unavailable_outcomes_keep_the_view_usable() {
         );
         assert!(s.banner.is_none(), "never a banner");
         // The shapes still arrive and refresh still works.
-        let (s, _) = event(s, shapes_event(id, ChartRange::Day, 1, &["a"]));
+        let (s, _) = event(s, shapes_event(id, ChartRange::Day, awaited, &["a"]));
         assert_eq!(s.indexes.queries.shapes.len(), 1);
         let (_, commands) = queries(s, QueriesAction::Refresh);
         assert_eq!(commands.len(), 2);
@@ -367,13 +371,15 @@ fn a_failed_shapes_read_is_inline_and_settles_only_the_awaited_request() {
         request,
         error: failure(),
     };
+    let older = s.indexes.queries.request;
     // An older request's failure changes nothing.
     let (s, _) = queries(s, QueriesAction::Refresh);
-    let (s, _) = event(s, failed(1));
+    let newest = s.indexes.queries.request;
+    let (s, _) = event(s, failed(older));
     assert!(s.indexes.queries.loading);
     assert_eq!(s.indexes.queries.shapes_error, None);
     // The awaited one settles with an inline error and no banner.
-    let (s, commands) = event(s, failed(2));
+    let (s, commands) = event(s, failed(newest));
     assert!(commands.is_empty());
     assert!(!s.indexes.queries.loading);
     assert_eq!(s.indexes.queries.shapes_error, Some(failure()));

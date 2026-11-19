@@ -89,6 +89,8 @@ pub enum Banner {
     /// The user confirmed a production write whose connection changed (another session, a
     /// reconnect or a lost connection) in the meantime, so nothing was sent.
     WriteNotSentConnectionChanged,
+    /// The user confirmed a production write whose tab was closed meanwhile, so nothing was sent.
+    WriteNotSentTabClosed,
     /// The user confirmed a production write while another write was still in flight.
     WriteNotSentBusy,
     /// Create index... was pressed for a query or verdict that no longer suggests an index (the
@@ -96,25 +98,44 @@ pub enum Banner {
     IndexSuggestionGone,
 }
 
+/// The failure contexts of the document and index writes of a collection view: the one list that
+/// the banner rule below, the error wording in `reducer::specific` and the routing of a write's
+/// failure to its tab (`is_tab_write_context`) all read.
+pub fn is_row_or_index_write(context: &str) -> bool {
+    matches!(
+        context,
+        "insert"
+            | "replace"
+            | "delete"
+            | "clone"
+            | "create_index"
+            | "drop_index"
+            | "set_index_hidden"
+            | "set_index_ttl"
+    )
+}
+
+/// The failure contexts of every write a tab sends: the above, the profiler change and an
+/// aggregation run. Their failure follows `Pending::tab` to the tab that sent the write.
+pub fn is_tab_write_context(context: &str) -> bool {
+    is_row_or_index_write(context) || matches!(context, "set_profiling_level" | "aggregate_run")
+}
+
 impl Banner {
     /// A failed data command of a session (not a connect, not a local operation).
     pub fn is_data_failure(&self) -> bool {
+        // The row and index writes come from the one list in `is_row_or_index_write`.
+        if matches!(self, Banner::Failure { context, .. } if is_row_or_index_write(context)) {
+            return true;
+        }
         matches!(
             self,
             Banner::Failure {
                 context: "find"
-                    | "insert"
-                    | "replace"
-                    | "delete"
-                    | "clone"
                     | "list_databases"
                     | "list_collections"
                     | "list_indexes"
                     | "index_history"
-                    | "create_index"
-                    | "drop_index"
-                    | "set_index_hidden"
-                    | "set_index_ttl"
                     // `bulk_cancel` is deliberately absent: its failure raises a banner while
                     // the flow stays open, and a later connect must not withdraw it.
                     | "bulk_count"
@@ -162,18 +183,29 @@ pub struct EditorKey {
     pub text: String,
 }
 
+impl EditorKey {
+    /// Whether `editor` still holds what this key was saved from.
+    pub fn held_by(&self, editor: &EditorState) -> bool {
+        editor.original_id == self.original_id && editor.text == self.text
+    }
+}
+
 /// The single mutating command in flight.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
     pub ns: Namespace,
     /// Set for editor saves, so a failure only lands in the editor it came from.
     pub editor: Option<EditorKey>,
+    /// The tab the write was sent from: its editor is the one the answer closes, and its page is
+    /// the one that is stale afterwards. `None` for a write no tab owns (an administration write)
+    /// or in a session that has no tab.
+    pub tab: Option<super::tabs::TabId>,
 }
 
 /// The whole UI state.
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
-/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
+/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `issued_request`, `verdict_request`, `page_query`,
 /// `loading_page`, `page`, `page_key`, `verdict`, `guard`, `tree`, `view_mode`, `tab`, `indexes`, `aggregate`, `aggregate_view`, `editor`,
 /// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
 /// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
@@ -191,6 +223,11 @@ pub struct AppState {
     pub active: Option<Uuid>,
     /// The views of the open sessions that are not active.
     pub parked: BTreeMap<Uuid, SessionView>,
+    /// The open tabs: their order, owners and recency (see `tabs`).
+    pub tabs: super::tab_strip::TabStrip,
+    /// The tabs that are not the current tab of their session, boxed: `AppState` is moved by
+    /// value through every reducer step.
+    pub parked_tabs: BTreeMap<super::tabs::TabId, Box<super::tabs::TabView>>,
     /// Counts connect/disconnect requests sent to the runtime; it mirrors the runtime's own
     /// request counter (bumped once for EVERY Connect/Disconnect command sent, starting at 0,
     /// and the UI is its only sender).
@@ -223,6 +260,11 @@ pub struct AppState {
     pub find: FindBarState,
     /// The latest requested query; only used to recognise stale `Results`.
     pub issued_query: Query,
+    /// The number the latest find was sent with: only the answer that echoes it is the awaited
+    /// one, so two finds of the same query (or of two tabs) are told apart.
+    pub issued_request: u64,
+    /// The number the latest explain of the run was sent with.
+    pub verdict_request: u64,
     /// The query that produced the page on screen (paging and re-fetch after edits use it).
     pub page_query: Query,
     /// A find is in flight and no page is shown yet.
@@ -404,6 +446,8 @@ impl AppState {
             loading: BTreeSet::new(),
             find: FindBarState::default(),
             issued_query: Query::default(),
+            issued_request: 0,
+            verdict_request: 0,
             page_query: Query::default(),
             loading_page: false,
             page: None,
@@ -425,6 +469,8 @@ impl AppState {
             open: Vec::new(),
             active: None,
             parked: BTreeMap::new(),
+            tabs: self.tabs.cleared(),
+            parked_tabs: BTreeMap::new(),
             failure: None,
             topology: None,
             production: false,

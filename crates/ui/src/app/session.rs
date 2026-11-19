@@ -26,6 +26,8 @@ pub struct SessionView {
     pub loading: BTreeSet<String>,
     pub find: FindBarState,
     pub issued_query: Query,
+    pub issued_request: u64,
+    pub verdict_request: u64,
     pub page_query: Query,
     pub loading_page: bool,
     pub page: Option<Page>,
@@ -72,7 +74,7 @@ pub fn session_display_name(state: &AppState, id: Uuid, i18n: &I18n) -> Option<S
 /// What a session's Aggregate tab keeps through a lost connection or a reconnect: the draft with
 /// its preview made stale (it ran against the connection that is gone), and the view's typing and
 /// mode.
-fn carried_aggregate(
+pub(super) fn carried_aggregate(
     draft: &AggregateState,
     view: &AggregateView,
 ) -> (Box<AggregateState>, Box<AggregateView>) {
@@ -111,6 +113,8 @@ impl AppState {
             loading: std::mem::take(&mut self.loading),
             find: std::mem::take(&mut self.find),
             issued_query: std::mem::take(&mut self.issued_query),
+            issued_request: std::mem::take(&mut self.issued_request),
+            verdict_request: std::mem::take(&mut self.verdict_request),
             page_query: std::mem::take(&mut self.page_query),
             loading_page: std::mem::take(&mut self.loading_page),
             page: self.page.take(),
@@ -143,6 +147,8 @@ impl AppState {
             loading,
             find,
             issued_query,
+            issued_request,
+            verdict_request,
             page_query,
             loading_page,
             page,
@@ -169,6 +175,8 @@ impl AppState {
         self.loading = loading;
         self.find = find;
         self.issued_query = issued_query;
+        self.issued_request = issued_request;
+        self.verdict_request = verdict_request;
         self.page_query = page_query;
         self.loading_page = loading_page;
         self.page = page;
@@ -337,6 +345,10 @@ impl AppState {
         if !next.open.contains(&id) {
             next.open.push(id);
         }
+        // Every open session has one tab; a reconnect keeps it.
+        if next.tabs.current_of(id).is_none() {
+            next.tabs = std::mem::take(&mut next.tabs).opened_for(id, None).0;
+        }
         if next.active == Some(id) {
             next.restore_view(view);
             return next;
@@ -369,6 +381,8 @@ impl AppState {
             aggregate_view,
             ..SessionView::default()
         });
+        // The session's other tabs lose what they showed as well, and keep their drafts.
+        super::tab_fanout::connection_lost(&mut next, session);
         next
     }
 
@@ -402,6 +416,7 @@ impl AppState {
             .shell_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
+        next = next.tabs_dropped_for(id);
         next.selection = std::mem::take(&mut next.selection).without_session(id);
         next.pending_paste = next
             .pending_paste

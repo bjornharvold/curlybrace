@@ -121,7 +121,11 @@ mod tests {
                 ns: ns.clone(),
                 id: Bson::Int32(1),
             },
-            pending: Some(Pending { ns, editor: None }),
+            pending: Some(Pending {
+                ns,
+                editor: None,
+                tab: None,
+            }),
             kind,
             epoch: 1,
         }

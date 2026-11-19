@@ -304,11 +304,13 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             session,
             ns: mock_namespace(),
             query: Query::default(),
+            request: 0,
         },
         Command::ExplainFind {
             session,
             ns: mock_namespace(),
             query: Query::default(),
+            request: 0,
         },
         Command::AggregateExplain {
             session,
@@ -340,6 +342,7 @@ fn read_commands(session: SessionId) -> Vec<Command> {
         Command::EstimatedCount {
             session,
             ns: mock_namespace(),
+            request: 0,
         },
         Command::CollectionStats {
             session,

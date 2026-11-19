@@ -36,6 +36,7 @@ fn open_does_nothing_while_a_write_is_in_flight_or_parked() {
     s.pending = Some(Pending {
         ns: ns(),
         editor: None,
+        tab: None,
     });
     let (s, cmds) = act(s, BulkAction::Open(BulkKind::Delete));
     assert!(s.bulk.is_none() && cmds.is_empty());

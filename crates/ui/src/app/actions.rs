@@ -105,10 +105,12 @@ fn load_collections(state: AppState, db: String) -> Out {
 /// Selects the collection, resets paging to the default query and fetches the first page.
 fn open(state: AppState, ns: Namespace) -> Out {
     let query = Query::default();
+    let request = super::request_numbers::next();
     let command = Command::Find {
         session: state.session_id(),
         ns: ns.clone(),
         query: query.clone(),
+        request,
     };
     // `pending` is deliberately kept: a mutation still in flight blocks a second submit even
     // after the user switched collections.
@@ -118,6 +120,7 @@ fn open(state: AppState, ns: Namespace) -> Out {
         sidebar: state.sidebar.selecting(ns),
         find: FindBarState::default(),
         issued_query: query.clone(),
+        issued_request: request,
         page_query: query,
         loading_page: true,
         page: None,
@@ -229,13 +232,16 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
     let Some(ns) = state.selected_ns().cloned() else {
         return (state, Vec::new());
     };
+    let request = super::request_numbers::next();
     let command = Command::Find {
         session: state.session_id(),
         ns,
         query: query.clone(),
+        request,
     };
     let next = AppState {
         issued_query: query,
+        issued_request: request,
         loading_page: true,
         ..state
     };
@@ -368,6 +374,8 @@ pub(super) fn mutation(
         let pending = Pending {
             ns: ns.clone(),
             editor,
+            // The tab the write is sent from: its editor is the one its answer closes.
+            tab: s.current_tab_of(s.session_id()),
         };
         let command = build(s.session_id(), ns);
         if guard == Guard::Warn && s.active_is_production() {

@@ -161,6 +161,8 @@ pub(super) fn history_read(
 /// An index write succeeded: the write in flight is settled, then the collection on screen is
 /// listed again, any other is left alone.
 pub(super) fn changed(state: AppState, ns: Namespace) -> Out {
+    // A write sent from a parked tab is settled there; the other tabs on `ns` are stale.
+    let state = super::tab_fanout::index_written(state, &ns);
     let state = write::write_finished(state, &ns);
     match state.indexes.ns.as_ref() == Some(&ns) && state.selected_ns() == Some(&ns) {
         true => request(state),

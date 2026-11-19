@@ -141,6 +141,7 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
             session: cfg.id,
             ns: ns.clone(),
             query: query.clone(),
+            request: 0,
         })
         .unwrap();
     match next_event(&mut rt.rx, wait, "results").await {
@@ -149,7 +150,9 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
             ns: got,
             query: echoed,
             page,
+            request,
         } => {
+            assert_eq!(request, 0, "the answer echoes the request");
             assert_eq!((got, echoed), (ns, query));
             assert!(!page.docs.is_empty());
         }

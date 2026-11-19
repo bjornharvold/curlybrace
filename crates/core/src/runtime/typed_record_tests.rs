@@ -98,6 +98,7 @@ fn explain(session: SessionId) -> Command {
         session,
         ns: mock_namespace(),
         query: typed_query(),
+        request: 0,
     }
 }
 
@@ -276,6 +277,7 @@ fn explain_with(session: SessionId, options: crate::pipeline_options::PipelineOp
             options,
             ..typed_query()
         },
+        request: 0,
     }
 }
 

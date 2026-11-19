@@ -44,6 +44,7 @@ fn users() -> Namespace {
 /// `id` open and active with a page of users on screen.
 fn browsing(state: AppState, id: Uuid) -> AppState {
     let s = update(state, Input::Sidebar(SidebarAction::Open(users()))).0;
+    let request = s.issued_request;
     ev(
         s,
         Event::Results {
@@ -55,6 +56,7 @@ fn browsing(state: AppState, id: Uuid) -> AppState {
                 skip: 0,
                 has_more: false,
             },
+            request,
         },
     )
     .0

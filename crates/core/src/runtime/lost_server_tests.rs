@@ -90,6 +90,7 @@ async fn failed_find(store: SuspectStore) -> CoreError {
         session,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .await
 }
@@ -111,9 +112,16 @@ async fn failed(store: SuspectStore, make: impl FnOnce(SessionId) -> Command) ->
     );
     h.tx.send(Command::Connect(cfg.clone())).unwrap();
     assert!(matches!(next(&mut h).await, Event::Connected { .. }));
-    h.tx.send(make(cfg.id)).unwrap();
+    let command = make(cfg.id);
+    let sent = command.request();
+    h.tx.send(command).unwrap();
     match next(&mut h).await {
         Event::Failed { error, .. } => error,
+        // A numbered read (the find) fails with its number, which must be the one it sent.
+        Event::RequestFailed { error, request, .. } => {
+            assert_eq!(Some(request), sent, "the failure echoes the request");
+            error
+        }
         other => panic!("unexpected {other:?}"),
     }
 }

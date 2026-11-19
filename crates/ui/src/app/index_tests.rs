@@ -100,24 +100,43 @@ fn opening_the_tab_sends_list_indexes_and_index_history_for_the_selected_collect
     let (s, commands) = open_tab(connected());
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Day, 1))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            ns(),
+            ChartRange::Day,
+            s.indexes.request
+        ))
     );
     assert_eq!(s.tab, CollectionTab::Indexes);
     assert_eq!(s.indexes.ns, Some(ns()));
     assert!(s.indexes.loading);
 
+    let opened = s.indexes.request;
     let (s, commands) = update(s, Input::Indexes(IndexesAction::SetRange(ChartRange::Week)));
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Week, 2))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            ns(),
+            ChartRange::Week,
+            s.indexes.request
+        ))
     );
+    assert!(s.indexes.request > opened, "a new range is a new request");
     assert_eq!(s.indexes.range, ChartRange::Week);
 
-    let (_, commands) = update(s, Input::Indexes(IndexesAction::Refresh));
+    let ranged = s.indexes.request;
+    let (s, commands) = update(s, Input::Indexes(IndexesAction::Refresh));
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Week, 3))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            ns(),
+            ChartRange::Week,
+            s.indexes.request
+        ))
     );
+    assert!(s.indexes.request > ranged, "a refresh is a new request");
 }
 
 #[test]
@@ -125,7 +144,12 @@ fn switching_to_the_indexes_tab_behaves_like_opening_it() {
     let (s, commands) = update(connected(), Input::Tab(CollectionTab::Indexes));
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Day, 1))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            ns(),
+            ChartRange::Day,
+            s.indexes.request
+        ))
     );
     assert_eq!(s.tab, CollectionTab::Indexes);
 
@@ -151,13 +175,14 @@ fn switching_to_the_aggregate_tab_sends_nothing_and_keeps_the_draft() {
 #[test]
 fn a_matching_answer_is_applied() {
     let (s, _) = open_tab(connected());
+    let request = s.indexes.request;
     let (s, _) = event(
         s,
         Event::Indexes {
             session: EMBEDDED_SESSION,
             ns: ns(),
             indexes: vec![listed("a_1")],
-            request: 1,
+            request,
         },
     );
     let (s, _) = event(
@@ -167,7 +192,7 @@ fn a_matching_answer_is_applied() {
             ns: ns(),
             range: ChartRange::Day,
             series: vec![series_of("a_1")],
-            request: 1,
+            request,
         },
     );
     assert_eq!(s.indexes.indexes, vec![listed("a_1")]);
@@ -178,13 +203,14 @@ fn a_matching_answer_is_applied() {
 #[test]
 fn a_result_for_another_collection_or_range_is_dropped() {
     let (s, _) = open_tab(connected());
+    let request = s.indexes.request;
     let (s, _) = event(
         s,
         Event::Indexes {
             session: EMBEDDED_SESSION,
             ns: other_ns(),
             indexes: vec![listed("stale")],
-            request: 1,
+            request,
         },
     );
     let (s, _) = event(
@@ -194,7 +220,7 @@ fn a_result_for_another_collection_or_range_is_dropped() {
             ns: other_ns(),
             range: ChartRange::Day,
             series: vec![series_of("stale")],
-            request: 1,
+            request,
         },
     );
     let (s, _) = event(
@@ -204,7 +230,7 @@ fn a_result_for_another_collection_or_range_is_dropped() {
             ns: ns(),
             range: ChartRange::Month,
             series: vec![series_of("stale")],
-            request: 1,
+            request,
         },
     );
     assert!(s.indexes.indexes.is_empty());
@@ -215,13 +241,14 @@ fn a_result_for_another_collection_or_range_is_dropped() {
 #[test]
 fn switching_collection_resets_the_indexes_state() {
     let (s, _) = open_tab(connected());
+    let request = s.indexes.request;
     let (s, _) = event(
         s,
         Event::Indexes {
             session: EMBEDDED_SESSION,
             ns: ns(),
             indexes: vec![listed("a_1")],
-            request: 1,
+            request,
         },
     );
     let s = AppState {
@@ -252,7 +279,12 @@ fn switching_collection_resets_the_indexes_state() {
     );
     assert_eq!(
         shown(&commands[1..]),
-        shown(&reads(EMBEDDED_SESSION, other_ns(), ChartRange::Week, 2))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            other_ns(),
+            ChartRange::Week,
+            s.indexes.request
+        ))
     );
     assert!(matches!(commands[0], Command::Find { .. }));
 }
@@ -377,7 +409,12 @@ fn an_index_change_refreshes_the_current_collection_only() {
     );
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Day, 2))
+        shown(&reads(
+            EMBEDDED_SESSION,
+            ns(),
+            ChartRange::Day,
+            s.indexes.request
+        ))
     );
 
     let (_, commands) = event(
@@ -480,17 +517,20 @@ fn history_of(request: u64, names: &[&str]) -> Event {
 #[test]
 fn an_older_listing_arriving_last_does_not_replace_the_newer_one() {
     let (s, _) = open_tab(connected());
+    let first = s.indexes.request;
     let (s, commands) = update(s, Input::Indexes(IndexesAction::Refresh));
+    let second = s.indexes.request;
+    assert!(second > first);
     assert_eq!(
         shown(&commands),
-        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Day, 2))
+        shown(&reads(EMBEDDED_SESSION, ns(), ChartRange::Day, second))
     );
 
     // The second request answers first; the first one's answer follows and is stale.
-    let (s, _) = event(s, listing(2, &["a_1", "b_1"]));
-    let (s, _) = event(s, history_of(2, &["a_1", "b_1"]));
-    let (s, _) = event(s, listing(1, &["a_1"]));
-    let (s, _) = event(s, history_of(1, &["a_1"]));
+    let (s, _) = event(s, listing(second, &["a_1", "b_1"]));
+    let (s, _) = event(s, history_of(second, &["a_1", "b_1"]));
+    let (s, _) = event(s, listing(first, &["a_1"]));
+    let (s, _) = event(s, history_of(first, &["a_1"]));
 
     assert_eq!(s.indexes.indexes, vec![listed("a_1"), listed("b_1")]);
     assert_eq!(s.indexes.series, vec![series_of("a_1"), series_of("b_1")]);
@@ -500,14 +540,16 @@ fn an_older_listing_arriving_last_does_not_replace_the_newer_one() {
 #[test]
 fn an_older_answer_does_not_end_the_wait_for_the_newer_one() {
     let (s, _) = open_tab(connected());
+    let first = s.indexes.request;
     let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+    let second = s.indexes.request;
 
-    let (s, _) = event(s, listing(1, &["a_1"]));
-    let (s, _) = event(s, history_of(1, &["a_1"]));
+    let (s, _) = event(s, listing(first, &["a_1"]));
+    let (s, _) = event(s, history_of(first, &["a_1"]));
 
     assert!(s.indexes.indexes.is_empty() && s.indexes.series.is_empty());
     assert!(s.indexes.loading, "request 2 is still awaited");
-    let (s, _) = event(s, listing(2, &["a_1", "b_1"]));
+    let (s, _) = event(s, listing(second, &["a_1", "b_1"]));
     assert_eq!(s.indexes.indexes.len(), 2);
     assert!(!s.indexes.loading);
 }
@@ -515,14 +557,16 @@ fn an_older_answer_does_not_end_the_wait_for_the_newer_one() {
 #[test]
 fn a_request_number_is_never_reused_across_collections() {
     let (s, _) = open_tab(connected());
+    let first_visit = s.indexes.request;
     let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(other_ns())));
+    let between = s.indexes.request;
     let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(ns())));
-    assert_eq!(
-        s.indexes.request, 3,
-        "one per request, kept across collections"
+    assert!(
+        first_visit < between && between < s.indexes.request,
+        "a new number per request, kept across collections"
     );
     // The answer of the first visit to `ns` is not the awaited one of the second.
-    let (s, _) = event(s, listing(1, &["stale"]));
+    let (s, _) = event(s, listing(first_visit, &["stale"]));
     assert!(s.indexes.indexes.is_empty());
 }
 
@@ -535,19 +579,22 @@ fn read_failed(request: u64, context: &'static str) -> Event {
     }
 }
 
-/// Request 1 answered, request 2 (a refresh) still in flight.
-fn awaiting_the_second_request() -> AppState {
+/// The first request answered, the second (a refresh) still in flight: the state and the two
+/// numbers, first then second.
+fn awaiting_the_second_request() -> (AppState, u64, u64) {
     let (s, _) = open_tab(connected());
+    let first = s.indexes.request;
     let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
-    event(s, listing(1, &["old"])).0
+    let second = s.indexes.request;
+    (event(s, listing(first, &["old"])).0, first, second)
 }
 
 #[test]
 fn a_late_failure_of_an_older_request_neither_ends_the_wait_nor_raises_a_banner() {
     for context in ["list_indexes", "index_history"] {
-        let s = awaiting_the_second_request();
+        let (s, first, _) = awaiting_the_second_request();
         let before = s.indexes.clone();
-        let (after, commands) = event(s, read_failed(1, context));
+        let (after, commands) = event(s, read_failed(first, context));
         assert!(commands.is_empty());
         assert!(after.indexes.loading, "request 2 is still awaited");
         assert_eq!(
@@ -562,8 +609,9 @@ fn a_late_failure_of_an_older_request_neither_ends_the_wait_nor_raises_a_banner(
 fn a_failure_of_the_newest_request_settles_it_and_raises_the_banner() {
     let (s, _) = open_tab(connected());
     let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+    let newest = s.indexes.request;
 
-    let (s, _) = event(s, read_failed(2, "list_indexes"));
+    let (s, _) = event(s, read_failed(newest, "list_indexes"));
 
     assert!(!s.indexes.loading);
     assert_eq!(
@@ -578,11 +626,11 @@ fn a_failure_of_the_newest_request_settles_it_and_raises_the_banner() {
 #[test]
 fn a_late_lost_connection_failure_of_an_older_request_still_reaches_connection_lost() {
     for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
-        let s = awaiting_the_second_request();
+        let (s, first, _) = awaiting_the_second_request();
         let late = Event::RequestFailed {
             session: EMBEDDED_SESSION,
             context: "list_indexes",
-            request: 1,
+            request: first,
             error: error.clone(),
         };
 
@@ -605,11 +653,13 @@ fn late_lost(request: u64, error: CoreError) -> Event {
 fn a_late_lost_connection_of_an_older_request_is_ignored_once_a_newer_one_was_answered() {
     for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
         let (s, _) = open_tab(connected());
+        let first = s.indexes.request;
         let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
-        let (s, _) = event(s, listing(2, &["a_1"]));
+        let second = s.indexes.request;
+        let (s, _) = event(s, listing(second, &["a_1"]));
         let before = s.indexes.clone();
 
-        let (after, commands) = event(s, late_lost(1, error.clone()));
+        let (after, commands) = event(s, late_lost(first, error.clone()));
 
         assert!(commands.is_empty());
         assert_eq!(after.failure, None, "{error:?}: the session just answered");
@@ -621,12 +671,13 @@ fn a_late_lost_connection_of_an_older_request_is_ignored_once_a_newer_one_was_an
 #[test]
 fn a_late_lost_connection_with_a_prompt_open_does_not_end_the_wait_for_the_newest_request() {
     let (s, _) = open_tab(connected());
-    let (s, _) = event(s, listing(1, &["a_1"]));
+    let first = s.indexes.request;
+    let (s, _) = event(s, listing(first, &["a_1"]));
     let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
     let mut s = s;
     s.indexes.ttl_prompt = Some(TtlPrompt::new("a_1".into(), Some(100)));
 
-    let (after, _) = event(s, late_lost(1, CoreError::Unreachable));
+    let (after, _) = event(s, late_lost(first, CoreError::Unreachable));
 
     assert!(after.indexes.loading, "request 2 is still awaited");
 }

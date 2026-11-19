@@ -51,6 +51,9 @@ pub struct IndexesState {
     /// arrives later carries a smaller one and is dropped. It only grows, even across
     /// collections, so a number is never sent twice.
     pub request: u64,
+    /// The number the open builder's `EstimatedCount` was sent with (`0` when none was): the
+    /// answer to it is routed to the tab that sent it.
+    pub estimate_request: u64,
     /// The newest request number the server has answered, for this or an older request. A
     /// lost-connection failure of a request older than this one is a late echo of an outage the
     /// session has since recovered from.
@@ -88,6 +91,7 @@ impl Default for IndexesState {
             range: ChartRange::Day,
             loading: false,
             request: 0,
+            estimate_request: 0,
             answered: 0,
             sampler: None,
             builder: None,
@@ -117,11 +121,16 @@ impl IndexesState {
         }
     }
 
-    /// The same state after the server answered request `request` (current or stale).
+    /// The same state after the server answered request `request` (current or stale). A number
+    /// this state never sent (an answer that reached it for another tab's request) proves
+    /// nothing about what it asked, so it leaves the mark alone.
     pub fn answered_request(self, request: u64) -> Self {
-        Self {
-            answered: self.answered.max(request),
-            ..self
+        match request <= self.request {
+            true => Self {
+                answered: self.answered.max(request),
+                ..self
+            },
+            false => self,
         }
     }
 
@@ -130,7 +139,7 @@ impl IndexesState {
     pub fn requested(self) -> Self {
         Self {
             loading: true,
-            request: self.request + 1,
+            request: crate::app::request_numbers::next(),
             ..self
         }
     }

@@ -67,8 +67,16 @@ pub(super) fn open_checked(
             true => base.awaiting_list(),
             false => base,
         };
-        let indexes = base.with_builder(Some(builder));
-        let count = Command::EstimatedCount { session, ns };
+        let estimate_request = super::request_numbers::next();
+        let indexes = crate::viewmodel::IndexesState {
+            estimate_request,
+            ..base.with_builder(Some(builder))
+        };
+        let count = Command::EstimatedCount {
+            session,
+            ns,
+            request: estimate_request,
+        };
         (
             AppState { indexes, ..s },
             [Some(count), list].into_iter().flatten().collect(),

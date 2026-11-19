@@ -86,6 +86,7 @@ async fn query_on(rt: &mut RuntimeHandle, session: SessionId, field: &str) {
                 filter: doc! { field: value },
                 ..Query::default()
             },
+            request: 0,
         };
         answer(rt, command, "query").await;
     }

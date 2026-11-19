@@ -82,6 +82,12 @@ fn ran(run: u64, outcome: Result<Option<u64>, CoreError>) -> Event {
     }
 }
 
+/// The answer to the run `s` has in flight (the number it sent), with `outcome`.
+fn answered(s: AppState, outcome: Result<Option<u64>, CoreError>) -> Out {
+    let run = s.aggregate.run.run;
+    ev(s, ran(run, outcome))
+}
+
 fn run_commands(commands: &[Command]) -> Vec<&Command> {
     commands
         .iter()
@@ -98,7 +104,7 @@ fn clicking_run_opens_the_dialog_and_asks_for_the_target_count() {
     assert_eq!(dialog.stage, "$out");
     assert!(matches!(
         commands.as_slice(),
-        [Command::EstimatedCount { session, ns }] if *session == EMBEDDED_SESSION && *ns == dest()
+        [Command::EstimatedCount { session, ns, .. }] if *session == EMBEDDED_SESSION && *ns == dest()
     ));
     assert!(run_commands(&commands).is_empty());
 }
@@ -125,6 +131,7 @@ fn the_count_answer_fills_the_dialog() {
             session: EMBEDDED_SESSION,
             ns: dest(),
             count: 12,
+            request: 0,
         },
     );
     assert!(commands.is_empty());
@@ -140,6 +147,7 @@ fn the_count_of_another_collection_does_not_fill_the_dialog() {
             session: EMBEDDED_SESSION,
             ns: people(),
             count: 99,
+            request: 0,
         },
     );
     assert_eq!(s.aggregate.run.dialog.unwrap().count, CountState::Loading);
@@ -216,8 +224,9 @@ fn the_matching_name_sends_exactly_one_run() {
     let pipeline = vec![bson::doc! { "$match": {} }, bson::doc! { "$out": "dest" }];
     assert!(matches!(
         commands.as_slice(),
-        [Command::AggregateRun { session, ns, pipeline: sent, run: 1, .. }]
+        [Command::AggregateRun { session, ns, pipeline: sent, run, .. }]
             if *session == EMBEDDED_SESSION && *ns == people() && *sent == pipeline
+                && *run == s.aggregate.run.run && *run != 0
     ));
     assert_eq!(s.aggregate.run.status, RunStatus::Running);
     assert!(s.aggregate.run.dialog.is_none());
@@ -272,6 +281,7 @@ fn another_write_in_flight_blocks_the_run() {
     s.pending = Some(crate::app::state::Pending {
         ns: people(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = act(s, A::RunConfirmed);
     assert!(commands.is_empty());
@@ -377,7 +387,7 @@ fn losing_the_connection_closes_the_dialog() {
 
 #[test]
 fn success_shows_the_target_and_its_count() {
-    let (s, commands) = ev(running(), ran(1, Ok(Some(7))));
+    let (s, commands) = answered(running(), Ok(Some(7)));
     assert_eq!(
         s.aggregate.run.status,
         RunStatus::Done {
@@ -402,7 +412,7 @@ fn success_shows_the_target_and_its_count() {
 
 #[test]
 fn a_success_without_a_count_is_still_a_success() {
-    let (s, _) = ev(running(), ran(1, Ok(None)));
+    let (s, _) = answered(running(), Ok(None));
     assert_eq!(
         s.aggregate.run.status,
         RunStatus::Done {
@@ -418,7 +428,7 @@ fn a_target_the_sidebar_lists_does_not_refresh_it() {
     s.sidebar = s
         .sidebar
         .with_collections("app", vec!["people".into(), "dest".into()]);
-    let (s, commands) = ev(s, ran(1, Ok(Some(7))));
+    let (s, commands) = answered(s, Ok(Some(7)));
     assert!(commands.is_empty());
     assert!(matches!(s.aggregate.run.status, RunStatus::Done { .. }));
 }
@@ -426,7 +436,7 @@ fn a_target_the_sidebar_lists_does_not_refresh_it() {
 #[test]
 fn a_failed_run_shows_the_error_inline_and_does_not_refresh_the_sidebar() {
     let error = CoreError::Database("boom".into());
-    let (s, commands) = ev(running(), ran(1, Err(error.clone())));
+    let (s, commands) = answered(running(), Err(error.clone()));
     assert_eq!(s.aggregate.run.status, RunStatus::Failed(error));
     assert!(s.pending.is_none());
     assert!(s.banner.is_none());
@@ -435,7 +445,7 @@ fn a_failed_run_shows_the_error_inline_and_does_not_refresh_the_sidebar() {
 
 #[test]
 fn a_timeout_is_an_unknown_outcome_not_a_failure() {
-    let (s, _) = ev(running(), ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    let (s, _) = answered(running(), Err(CoreError::WriteOutcomeUnknown));
     assert_eq!(s.aggregate.run.status, RunStatus::Unknown);
     assert!(s.pending.is_none());
 }
@@ -516,20 +526,20 @@ fn another_failure_of_the_command_is_shown_with_the_run() {
 
 #[test]
 fn a_stale_answer_changes_nothing() {
-    let (after, commands) = ev(running(), ran(7, Ok(Some(1))));
+    let (after, commands) = ev(running(), ran(u64::MAX, Ok(Some(1))));
     assert_eq!(after.aggregate.run.status, RunStatus::Running);
     assert!(after.pending.is_some());
     assert!(commands.is_empty());
     // An answer after the run was settled does not overwrite it either.
-    let (done, _) = ev(after, ran(1, Ok(Some(1))));
+    let (done, _) = answered(after, Ok(Some(1)));
     let settled = done.aggregate.run.status.clone();
-    let (again, _) = ev(done, ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    let (again, _) = answered(done, Err(CoreError::WriteOutcomeUnknown));
     assert_eq!(again.aggregate.run.status, settled);
 }
 
 #[test]
 fn an_answer_with_no_run_in_flight_is_dropped() {
-    let (s, commands) = ev(ready(), ran(1, Ok(Some(1))));
+    let (s, commands) = ev(ready(), ran(u64::MAX, Ok(Some(1))));
     assert_eq!(s.aggregate.run.status, RunStatus::Idle);
     assert!(commands.is_empty());
 }
@@ -552,7 +562,7 @@ fn merging() -> AppState {
 #[test]
 fn a_failed_merge_says_the_target_may_hold_part_of_the_result() {
     let error = CoreError::Database("boom".into());
-    let (done, commands) = ev(merging(), ran(1, Err(error.clone())));
+    let (done, commands) = answered(merging(), Err(error.clone()));
     assert_eq!(
         done.aggregate.run.status,
         RunStatus::FailedPartial(error.clone())
@@ -574,7 +584,7 @@ fn a_failed_merge_says_the_target_may_hold_part_of_the_result() {
 
 #[test]
 fn an_unknown_outcome_refreshes_the_sidebar_like_a_success() {
-    let (s, commands) = ev(running(), ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    let (s, commands) = answered(running(), Err(CoreError::WriteOutcomeUnknown));
     assert_eq!(s.aggregate.run.status, RunStatus::Unknown);
     assert!(
         commands
@@ -592,7 +602,7 @@ fn a_run_onto_the_open_collection_fetches_the_documents_again() {
         let (s, _) = act(s, A::RunConfirmed);
         let event = Event::AggregateRan {
             session: EMBEDDED_SESSION,
-            run: 1,
+            run: s.aggregate.run.run,
             ns: people(),
             target: people(),
             outcome,
@@ -609,7 +619,7 @@ fn a_run_onto_the_open_collection_fetches_the_documents_again() {
         );
     }
     // Another target leaves the open documents alone; a failure does too.
-    let (_, commands) = ev(running(), ran(1, Ok(Some(1))));
+    let (_, commands) = answered(running(), Ok(Some(1)));
     assert!(!commands.iter().any(|c| matches!(c, Command::Find { .. })));
     let commands = onto_self(Err(CoreError::Database("x".into())));
     assert!(commands.is_empty());
@@ -634,12 +644,18 @@ fn a_target_in_another_database_needs_the_qualified_name() {
 
 #[test]
 fn a_late_answer_of_an_earlier_run_does_not_settle_the_next_run() {
-    let (s, _) = ev(running(), ran(1, Ok(Some(1))));
+    let started = running();
+    let first = started.aggregate.run.run;
+    let (s, _) = answered(started, Ok(Some(1)));
     let (s, _) = act(s, A::RunClicked);
     let (s, _) = act(s, A::RunTyped("dest".into()));
     let (s, _) = act(s, A::RunConfirmed);
-    assert_eq!(s.aggregate.run.run, 2);
-    let (s, _) = ev(s, ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    assert!(
+        s.aggregate.run.run > first,
+        "the next run has a newer number"
+    );
+    // The earlier run's answer arrives now: it is not the awaited one.
+    let (s, _) = ev(s, ran(first, Err(CoreError::WriteOutcomeUnknown)));
     assert_eq!(s.aggregate.run.status, RunStatus::Running);
     assert!(s.pending.is_some());
 }
@@ -676,13 +692,15 @@ fn a_run_in_a_server_source_database_opens_no_dialog() {
 
 #[test]
 fn run_numbers_do_not_repeat() {
-    let (s, _) = ev(running(), ran(1, Ok(Some(1))));
+    let started = running();
+    let first = started.aggregate.run.run;
+    let (s, _) = answered(started, Ok(Some(1)));
     let (s, _) = act(s, A::RunClicked);
     let (s, _) = act(s, A::RunTyped("dest".into()));
     let (_, commands) = act(s, A::RunConfirmed);
     assert!(matches!(
         commands.as_slice(),
-        [Command::AggregateRun { run: 2, .. }]
+        [Command::AggregateRun { run, .. }] if *run > first
     ));
 }
 

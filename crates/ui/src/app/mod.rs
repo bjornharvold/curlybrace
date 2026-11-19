@@ -74,6 +74,7 @@ mod queries_create;
 pub mod reducer;
 mod reducer_dispatch;
 mod reducer_lost;
+pub mod request_numbers;
 pub mod sampling_settings;
 pub mod session;
 mod session_actions;
@@ -83,6 +84,10 @@ mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
 pub mod state;
+mod tab_fanout;
+mod tab_routing;
+pub mod tab_strip;
+pub mod tabs;
 mod tool_picker;
 mod tool_probe;
 pub mod tool_settings;
@@ -150,14 +155,6 @@ pub fn runtime_config(
         history_path,
         snapshot_dir,
         ..RuntimeConfig::default()
-    }
-}
-
-/// The history purges that follow a delete: none unless the delete was saved to disk.
-fn purges_after(saved: bool, before: &[uuid::Uuid], state: &AppState) -> Vec<Command> {
-    match saved {
-        true => connection_ops::purge_removed(before, state),
-        false => Vec::new(),
     }
 }
 
@@ -576,7 +573,7 @@ impl CurlybraceApp {
                 // After the disconnect, so the session's sampler is stopped before its history
                 // goes. A purge cannot be undone, so it follows only a delete that reached the
                 // disk: if the write failed the connection returns at the next launch.
-                self.send(purges_after(saved, &before, &self.state));
+                self.send(connection_ops::purges_after(saved, &before, &self.state));
                 self.forget_tools_of_removed(saved, &before);
                 self.forget_pipelines_of_removed(saved, &before);
             }
@@ -612,7 +609,7 @@ impl CurlybraceApp {
                 // Today a folder delete only moves its connections to the top level, so this
                 // purges nothing; it keeps the history of any connection a delete removes,
                 // under the same rule: only once the list was written.
-                self.send(purges_after(saved, &before, &self.state));
+                self.send(connection_ops::purges_after(saved, &before, &self.state));
                 self.forget_tools_of_removed(saved, &before);
                 self.forget_pipelines_of_removed(saved, &before);
             }

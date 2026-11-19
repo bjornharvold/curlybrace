@@ -7,8 +7,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::session::Session;
 use super::{
-    Command, CoreError, Event, Repaint, SessionId, Shared, compare, copy, handlers, indexes,
-    profiler_handlers, profiler_start, shell_handlers, snapshots,
+    Command, CoreError, Event, Repaint, SessionId, Shared, compare, connection_test, copy,
+    handlers, indexes, profiler_handlers, profiler_start, shell_handlers, snapshots,
 };
 
 /// Runs one command in its own task. The work runs in an inner task so a
@@ -34,7 +34,7 @@ pub(super) fn dispatch(
         secrets,
     } = command
     {
-        handlers::spawn_test(shared, events, repaint, request_id, cfg, secrets);
+        connection_test::spawn(shared, events, repaint, request_id, cfg, secrets);
         return;
     }
     // Synchronous, so a write sent after the lock is already refused. No session, no epoch, no

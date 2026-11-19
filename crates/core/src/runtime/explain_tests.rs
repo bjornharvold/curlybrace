@@ -64,11 +64,15 @@ async fn connected(store: InMemoryStore, read_only: bool) -> (RuntimeHandle, Ses
     (h, cfg.id)
 }
 
+/// The number `explain_command` sends; the answer must echo it.
+const EXPLAIN_REQUEST: u64 = 41;
+
 fn explain_command(session: SessionId) -> Command {
     Command::ExplainFind {
         session,
         ns: mock_namespace(),
         query: filtered(),
+        request: EXPLAIN_REQUEST,
     }
 }
 
@@ -83,8 +87,10 @@ async fn explain_find_answers_with_a_verdict() {
             ns,
             query,
             outcome,
+            request,
         } => {
             assert_eq!(s, session);
+            assert_eq!(request, EXPLAIN_REQUEST, "the answer echoes the request");
             assert_eq!(ns, mock_namespace());
             assert_eq!(query, filtered());
             let verdict = outcome.expect("a verdict");

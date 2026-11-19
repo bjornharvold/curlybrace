@@ -258,7 +258,8 @@ fn create_index_opens_the_builder_pre_filled() {
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: people()
+                ns: people(),
+                request: s.indexes.estimate_request
             },
             // The collection's indexes were never listed, so the builder gets the list too.
             Command::ListIndexes {
@@ -315,6 +316,7 @@ fn listed_and_writing(ns: &Namespace) -> AppState {
     s.pending = Some(crate::app::state::Pending {
         ns: ns.clone(),
         editor: None,
+        tab: None,
     });
     s
 }

@@ -43,6 +43,7 @@ fn an_open_flow_or_an_in_flight_write_is_busy_for_both() {
     s.pending = Some(Pending {
         ns: ns(),
         editor: None,
+        tab: None,
     });
     assert_eq!(s.bulk_entry(), BulkEntry::Busy);
     assert!(!opens(s));

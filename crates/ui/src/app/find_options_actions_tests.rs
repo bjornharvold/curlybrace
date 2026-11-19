@@ -113,6 +113,7 @@ fn an_answer_for_other_options_is_stale() {
             skip: 0,
             has_more: false,
         },
+        request: 0,
     };
     let (s, _) = update(s, Input::Event(stale));
     assert_ne!(s.page_query.options, hinted("b_1"));

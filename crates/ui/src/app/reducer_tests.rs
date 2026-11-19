@@ -87,6 +87,7 @@ fn pending_from(editor: Option<&EditorState>) -> Option<Pending> {
             original_id: e.original_id.clone(),
             text: e.text.clone(),
         }),
+        tab: None,
     })
 }
 
@@ -165,6 +166,7 @@ fn results_replace_page_bump_tree_and_memoise_key() {
             ns: ns(),
             query: q,
             page: page.clone(),
+            request: 0,
         },
     );
     assert!(cmds.is_empty());
@@ -184,6 +186,7 @@ fn results_for_another_namespace_are_ignored() {
             ns: Namespace::new("app", "pets"),
             query: Query::default(),
             page: page_of(vec![], false, 0),
+            request: 0,
         },
     );
     assert_eq!(s.page, before);
@@ -204,6 +207,7 @@ fn results_for_an_older_query_are_ignored() {
             ns: ns(),
             query: Query::default(),
             page: page_of(vec![], false, 0),
+            request: 0,
         },
     );
     assert_eq!(s.page, before);
@@ -515,6 +519,7 @@ fn results_for(s: &AppState, has_more: bool) -> Event {
         ns: ns(),
         query: s.issued_query.clone(),
         page: page_of(vec![mock_doc_with_id(1_i32)], has_more, s.issued_query.skip),
+        request: s.issued_request,
     }
 }
 
@@ -583,6 +588,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
     // The re-fetch is what results are matched against now, so the edited page is accepted.
     assert_eq!(s.issued_query, Query::default());
     let edited = page_of(vec![doc! {"_id": 1_i32, "name": "edited"}], false, 0);
+    let request = s.issued_request;
     let (s, _) = event(
         s,
         Event::Results {
@@ -590,6 +596,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
             ns: ns(),
             query: Query::default(),
             page: edited.clone(),
+            request,
         },
     );
     assert_eq!(s.page, Some(edited));

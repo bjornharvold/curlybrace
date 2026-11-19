@@ -6,11 +6,11 @@ fn requests_are_numbered_above_the_base_and_never_reused() {
     assert!(ui.wants_list());
     let (ui, first) = ui.requested();
     assert!(is_hint_request(first));
-    assert_eq!(first, HINT_REQUEST_BASE);
+    assert!(first > HINT_REQUEST_BASE, "numbered above the base");
     assert_eq!(ui.list, HintList::Loading { request: first });
     assert!(!ui.wants_list());
     let (_, second) = ui.reset().requested();
-    assert_eq!(second, first + 1);
+    assert!(second > first, "never reused");
     assert!(!is_hint_request(0));
     assert!(!is_hint_request(1_000_000));
 }

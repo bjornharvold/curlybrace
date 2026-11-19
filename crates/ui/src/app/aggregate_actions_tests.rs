@@ -148,9 +148,10 @@ fn an_edit_sends_the_edited_stage() {
 
 #[test]
 fn a_change_that_changes_nothing_sends_nothing() {
-    let before = (*with_two_stages().aggregate).clone();
     for action in [A::MoveUp(0), A::MoveDown(1), A::Select(1), A::Remove(9)] {
-        let (s, c) = act(with_two_stages(), action.clone());
+        let start = with_two_stages();
+        let before = (*start.aggregate).clone();
+        let (s, c) = act(start, action.clone());
         assert!(c.is_empty(), "{action:?}");
         assert_eq!(*s.aggregate, before, "{action:?}");
     }
@@ -225,8 +226,9 @@ fn asking_for_the_mode_already_shown_keeps_the_draft() {
     assert!(c.is_empty());
     assert_eq!(s.aggregate.text, "typed");
 
-    let before = (*with_two_stages().aggregate).clone();
-    let (s, c) = act(with_two_stages(), A::SetMode(Mode::Stages));
+    let start = with_two_stages();
+    let before = (*start.aggregate).clone();
+    let (s, c) = act(start, A::SetMode(Mode::Stages));
     assert!(c.is_empty());
     assert_eq!(*s.aggregate, before);
 }

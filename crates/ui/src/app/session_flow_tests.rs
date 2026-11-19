@@ -58,12 +58,39 @@ fn page_of(who: &str) -> Page {
     }
 }
 
+/// The answer to the newest find of `session`, whichever view holds it.
+fn ev_results(state: AppState, session: Uuid, who: &str) -> Out {
+    let request = match state.active == Some(session) {
+        true => state.issued_request,
+        false => state.parked.get(&session).map_or(0, |v| v.issued_request),
+    };
+    let event = match results(session, who) {
+        Event::Results {
+            session,
+            ns,
+            query,
+            page,
+            ..
+        } => Event::Results {
+            session,
+            ns,
+            query,
+            page,
+            request,
+        },
+        other => other,
+    };
+    ev(state, event)
+}
+
+/// An answer that no find was sent for (request 0).
 fn results(session: Uuid, who: &str) -> Event {
     Event::Results {
         session,
         ns: users(),
         query: Query::default(),
         page: page_of(who),
+        request: 0,
     }
 }
 
@@ -209,10 +236,10 @@ fn the_same_namespace_on_two_sessions_never_crosses() {
         }),
     );
     assert_eq!(s.active, Some(a));
-    let (s, _) = ev(s, results(b, "b"));
+    let (s, _) = ev_results(s, b, "b");
     assert_eq!(who(&s.page), None, "a's page is not b's answer");
     assert_eq!(who(&s.parked[&b].page), Some("b".into()));
-    let (s, _) = ev(s, results(a, "a"));
+    let (s, _) = ev_results(s, a, "a");
     assert_eq!(who(&s.page), Some("a".into()));
     assert_eq!(
         who(&s.parked[&b].page),
@@ -328,7 +355,7 @@ fn a_connect_failure_marks_only_that_root_failed() {
     let (s, ids) = app(&["a", "b"]);
     let (a, b) = (ids[0], ids[1]);
     let s = open_users(opened(s, a));
-    let (s, _) = ev(s, results(a, "a"));
+    let (s, _) = ev_results(s, a, "a");
     let (s, _) = update(s, Input::Connect(b));
     let (s, cmds) = ev(s, refused(b, 2));
     assert!(cmds.is_empty());

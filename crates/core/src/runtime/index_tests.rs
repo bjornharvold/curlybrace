@@ -152,6 +152,7 @@ async fn estimated_count_answers_with_the_collections_document_count() {
     let command = Command::EstimatedCount {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
+        request: 0,
     };
     assert_eq!(
         (command.context(), command.is_write(), command.session()),
@@ -164,6 +165,7 @@ async fn estimated_count_answers_with_the_collections_document_count() {
             session: EMBEDDED_SESSION,
             ns: ns("testdb"),
             count: 1,
+            request: 0,
         }
     );
 }
@@ -433,6 +435,7 @@ async fn every_command_still_yields_exactly_one_event_except_sampler_and_compare
         Command::EstimatedCount {
             session,
             ns: ns("testdb"),
+            request: 0,
         },
     ];
     commands.extend(index_writes(session));

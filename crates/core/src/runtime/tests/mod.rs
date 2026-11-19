@@ -104,6 +104,9 @@ fn counter() -> (Arc<AtomicUsize>, Arc<dyn Fn() + Send + Sync>) {
     )
 }
 
+/// The number the finds of these tests send; a failure of one echoes it.
+const FIND_REQUEST: u64 = 9;
+
 async fn next(h: &mut RuntimeHandle) -> Event {
     tokio::time::timeout(WAIT, h.rx.recv())
         .await
@@ -126,6 +129,7 @@ fn one_of_each() -> Vec<Command> {
             session: EMBEDDED_SESSION,
             ns: ns.clone(),
             query: Query::default(),
+            request: FIND_REQUEST,
         },
         Command::Insert {
             session: EMBEDDED_SESSION,
@@ -208,6 +212,7 @@ async fn find_returns_results_with_same_ns_and_query() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: query.clone(),
+        request: 7,
     })
     .unwrap();
     match next(&mut h).await {
@@ -216,7 +221,9 @@ async fn find_returns_results_with_same_ns_and_query() {
             ns,
             query: q,
             page,
+            request,
         } => {
+            assert_eq!(request, 7, "the answer echoes the request");
             assert_eq!(ns, mock_namespace());
             assert_eq!(q, query);
             assert_eq!(page.docs.len(), 2);
@@ -304,13 +311,24 @@ async fn failing_store_fails_all_seven_store_commands_with_matching_context() {
         "clone",
     ];
     for (cmd, ctx) in one_of_each().into_iter().zip(expected) {
+        let sent = cmd.request();
         h.tx.send(cmd).unwrap();
         match next(&mut h).await {
             Event::Failed {
                 session: EMBEDDED_SESSION,
                 context,
                 error,
-            } => {
+            } if sent.is_none() => {
+                assert_eq!(context, ctx);
+                assert_eq!(error, CoreError::Database("down".into()));
+            }
+            // A numbered read (the find) fails as a `RequestFailed` echoing its number.
+            Event::RequestFailed {
+                session: EMBEDDED_SESSION,
+                context,
+                request,
+                error,
+            } if sent == Some(request) => {
                 assert_eq!(context, ctx);
                 assert_eq!(error, CoreError::Database("down".into()));
             }
@@ -400,13 +418,15 @@ async fn slow_store_times_out_within_override() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: FIND_REQUEST,
     })
     .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: EMBEDDED_SESSION,
             context: "find",
+            request: FIND_REQUEST,
             error: CoreError::Database("timeout".into())
         }
     );
@@ -425,6 +445,7 @@ async fn slow_command_does_not_block_others() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .unwrap();
     h.tx.send(Command::ListDatabases {

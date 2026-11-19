@@ -162,10 +162,16 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
             )
         }
         (WriteWarningAction::Confirm, Some(parked)) => {
-            let banner = Some(match connection_unchanged(&state, &parked) {
-                true => Banner::WriteNotSentBusy,
-                false => Banner::WriteNotSentConnectionChanged,
-            });
+            let banner = Some(
+                match (
+                    connection_unchanged(&state, &parked),
+                    tab_still_open(&state, &parked),
+                ) {
+                    (true, true) => Banner::WriteNotSentBusy,
+                    (true, false) => Banner::WriteNotSentTabClosed,
+                    (false, _) => Banner::WriteNotSentConnectionChanged,
+                },
+            );
             (AppState { banner, ..state }, Vec::new())
         }
         // A cancelled profiler change may leave a read that waited for it: ask for it now.
@@ -187,9 +193,16 @@ pub(super) fn connection_unchanged(state: &AppState, parked: &ParkedWrite) -> bo
         && state.latest_requested_epoch == parked.epoch
 }
 
+/// The tab the write was parked from is still open: a write whose tab was closed meanwhile is not
+/// sent (the person confirmed a warning about a view that is gone).
+fn tab_still_open(state: &AppState, parked: &ParkedWrite) -> bool {
+    let tab = parked.pending.as_ref().and_then(|p| p.tab);
+    tab.is_none_or(|tab| state.tabs.owner.contains_key(&tab))
+}
+
 /// The parked write still targets the live active session and nothing else is being written.
 fn still_valid(state: &AppState, parked: &ParkedWrite) -> bool {
-    connection_unchanged(state, parked) && state.pending.is_none()
+    connection_unchanged(state, parked) && tab_still_open(state, parked) && state.pending.is_none()
 }
 
 #[cfg(test)]
