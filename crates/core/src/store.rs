@@ -182,6 +182,11 @@ pub struct ProfileRead {
     /// profiling level is set (a secondary's profile is not read). Empty when the server does not name itself (a standalone
     /// mongod or a mongos): an unknown node, which callers key as host `""`.
     pub host: String,
+    /// The server's own clock (`hello`'s `localTime`, Unix ms), read from the same `hello` that
+    /// names the node, so it costs no call. `None` when the reply carries none. The poller
+    /// moves a watermark that is ahead of it back (a mark ahead of the server's clock would
+    /// make every read return nothing).
+    pub server_now_millis: Option<i64>,
 }
 
 /// The most entries one `read_profile` returns.

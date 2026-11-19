@@ -160,3 +160,23 @@ fn v2_file_without_the_mark_table_gets_it() {
     let mut conn = Connection::open(&path).unwrap();
     prepare(&mut conn).unwrap();
 }
+
+#[test]
+fn lower_profile_mark_lowers_every_mark_ahead_and_keeps_the_rest() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let other_node = ProfileMark {
+        host: "node-b:27017".into(),
+        ..mark(2_000)
+    };
+    db.record_page(&[], Some(&mark(9_000))).unwrap();
+    db.record_page(&[], Some(&other_node)).unwrap();
+    db.lower_profile_mark(conn_id(1), "shop", 5_000).unwrap();
+    assert_eq!(db.profile_mark(conn_id(1), "shop").unwrap(), Some(5_000));
+    let behind = count(
+        &db,
+        "SELECT ts_millis FROM profile_mark WHERE host = 'node-b:27017'",
+    );
+    assert_eq!(behind, 2_000, "a mark behind is never raised");
+    db.lower_profile_mark(conn_id(2), "shop", 1).unwrap();
+    assert_eq!(db.profile_mark(conn_id(1), "shop").unwrap(), Some(5_000));
+}

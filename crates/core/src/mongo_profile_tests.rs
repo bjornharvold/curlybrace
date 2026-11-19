@@ -84,6 +84,15 @@ fn profiling_state_without_a_numeric_was_is_an_error() {
 }
 
 #[test]
+fn hello_now_reads_local_time() {
+    let reply = doc! { "me": "n:1", "localTime": DateTime::from_millis(1_700_000_000_456) };
+    assert_eq!(hello_now(&reply), Some(1_700_000_000_456));
+    assert_eq!(hello_now(&doc! {}), None);
+    assert_eq!(hello_now(&doc! { "localTime": "yesterday" }), None);
+    assert_eq!(hello_now(&doc! { "localTime": Bson::Int64(5) }), None);
+}
+
+#[test]
 fn hello_host_comes_from_me() {
     assert_eq!(hello_host(&doc! { "me": "node1:27017" }), "node1:27017");
     assert_eq!(hello_host(&doc! {}), "");

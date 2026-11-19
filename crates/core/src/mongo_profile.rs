@@ -104,6 +104,15 @@ pub(crate) fn hello_host(reply: &Document) -> String {
     reply.get_str("me").unwrap_or_default().to_owned()
 }
 
+/// The server's clock from a `hello` reply (`localTime`, Unix ms); `None` when absent or not a
+/// date.
+pub(crate) fn hello_now(reply: &Document) -> Option<i64> {
+    reply
+        .get_datetime("localTime")
+        .ok()
+        .map(|time| time.timestamp_millis())
+}
+
 /// The state after `{profile: level}`: the reply's `was` is the PREVIOUS level, so the new
 /// level is the one asked for; the reply's `slowms` is the threshold.
 pub(crate) fn parse_set_reply(reply: &Document, level: i32) -> ProfilingState {
@@ -198,7 +207,8 @@ async fn find_profile(db: &Database, query: ProfileQuery) -> Result<Vec<Document
 /// Reads the entries strictly newer than `since_ts_millis`. A missing collection finds nothing.
 /// Only the count of unparseable entries is logged: an entry holds the query's literal values.
 pub(crate) async fn read_profile(db: &Database, since_ts_millis: i64) -> Result<ProfileRead> {
-    let host = hello_host(&run(db, doc! { "hello": 1 }, primary()).await?);
+    let hello = run(db, doc! { "hello": 1 }, primary()).await?;
+    let (host, server_now_millis) = (hello_host(&hello), hello_now(&hello));
     let docs = find_profile(db, since_query(since_ts_millis)).await?;
     let oldest = find_profile(db, oldest_query()).await?;
     let page = summarize_page(&docs);
@@ -211,6 +221,7 @@ pub(crate) async fn read_profile(db: &Database, since_ts_millis: i64) -> Result<
         newest_ts_millis: page.newest_ts_millis,
         skipped: page.skipped,
         host,
+        server_now_millis,
     })
 }
 

@@ -51,6 +51,20 @@ impl HistoryDb {
         tx.commit().map_err(sql_err)
     }
 
+    /// Lowers every stored mark of `db` that is ahead of `to_millis` to it. A mark only follows
+    /// pages forward, so this is how one that outran the server's clock comes back; marks at or
+    /// behind `to_millis` stay.
+    pub fn lower_profile_mark(&self, connection: Uuid, db: &str, to_millis: i64) -> Result<()> {
+        self.lock()
+            .execute(
+                "UPDATE profile_mark SET ts_millis = ?1
+                 WHERE connection = ?2 AND db = ?3 AND ts_millis > ?1",
+                params![to_millis, connection.to_string(), db],
+            )
+            .map(|_| ())
+            .map_err(sql_err)
+    }
+
     /// The newest stored mark of `db` over all nodes, if any.
     pub fn profile_mark(&self, connection: Uuid, db: &str) -> Result<Option<i64>> {
         self.lock()

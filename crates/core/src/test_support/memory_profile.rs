@@ -21,6 +21,8 @@ pub(super) struct ScriptedProfile {
     /// Timestamps (ms) of documents the real store would fail to parse.
     unparseable: Vec<i64>,
     error: Option<CoreError>,
+    /// The server clock (ms) the reads report, when scripted.
+    server_now_millis: Option<i64>,
 }
 
 pub(super) type ProfileMap = BTreeMap<String, ScriptedProfile>;
@@ -46,6 +48,14 @@ impl InMemoryStore {
     /// Scripts the profiler level `db` starts at.
     pub fn with_profiling_level(self, db: &str, level: i32) -> Self {
         self.script(db, |p| ScriptedProfile { level, ..p })
+    }
+
+    /// Scripts the server clock (Unix ms) the reads of `db` report as `server_now_millis`.
+    pub fn with_profile_server_now(self, db: &str, now_millis: i64) -> Self {
+        self.script(db, |p| ScriptedProfile {
+            server_now_millis: Some(now_millis),
+            ..p
+        })
     }
 
     /// Makes every profiler call for `db` fail with `error`.
@@ -113,6 +123,7 @@ pub(super) fn read(map: &ProfileMap, db: &str, since_ts_millis: i64) -> Result<P
         entries: rows.iter().filter_map(|(_, e)| e.cloned()).collect(),
         oldest_ts_millis: oldest,
         host: FAKE_HOST.into(),
+        server_now_millis: p.server_now_millis,
     })
 }
 
@@ -123,6 +134,7 @@ fn empty_read() -> ProfileRead {
         newest_ts_millis: None,
         skipped: 0,
         host: FAKE_HOST.into(),
+        server_now_millis: None,
     }
 }
 
