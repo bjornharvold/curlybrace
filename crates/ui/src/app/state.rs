@@ -191,6 +191,11 @@ pub struct AppState {
     pub active: Option<Uuid>,
     /// The views of the open sessions that are not active.
     pub parked: BTreeMap<Uuid, SessionView>,
+    /// The open tabs: their order, owners and recency (see `tabs`).
+    pub tabs: super::tab_strip::TabStrip,
+    /// The tabs that are not the current tab of their session, boxed: `AppState` is moved by
+    /// value through every reducer step.
+    pub parked_tabs: BTreeMap<super::tabs::TabId, Box<super::tabs::TabView>>,
     /// Counts connect/disconnect requests sent to the runtime; it mirrors the runtime's own
     /// request counter (bumped once for EVERY Connect/Disconnect command sent, starting at 0,
     /// and the UI is its only sender).
@@ -432,6 +437,8 @@ impl AppState {
             open: Vec::new(),
             active: None,
             parked: BTreeMap::new(),
+            tabs: Default::default(),
+            parked_tabs: BTreeMap::new(),
             failure: None,
             topology: None,
             production: false,

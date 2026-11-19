@@ -84,6 +84,8 @@ mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
 pub mod state;
+pub mod tab_strip;
+pub mod tabs;
 mod tool_picker;
 mod tool_probe;
 pub mod tool_settings;

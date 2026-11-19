@@ -345,6 +345,10 @@ impl AppState {
         if !next.open.contains(&id) {
             next.open.push(id);
         }
+        // Every open session has one tab; a reconnect keeps it.
+        if next.tabs.current_of(id).is_none() {
+            next.tabs = std::mem::take(&mut next.tabs).opened_for(id, None).0;
+        }
         if next.active == Some(id) {
             next.restore_view(view);
             return next;
@@ -410,6 +414,7 @@ impl AppState {
             .shell_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
+        next = next.tabs_dropped_for(id);
         next.selection = std::mem::take(&mut next.selection).without_session(id);
         next.pending_paste = next
             .pending_paste
