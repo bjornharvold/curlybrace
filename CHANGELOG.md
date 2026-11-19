@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/bjornharvold/curlybrace/compare/v0.16.0...v0.17.0) (2026-11-19)
+
+
+### Features
+
+* **explain:** a field order verdict for an index used in the wrong order ([#185](https://github.com/bjornharvold/curlybrace/issues/185)) ([c2cfb27](https://github.com/bjornharvold/curlybrace/commit/c2cfb275edf742503ac8439dd35d8524d6a3d24e))
+* **queries:** create an index from a query that misses one, and show the last run ([#183](https://github.com/bjornharvold/curlybrace/issues/183)) ([78813ba](https://github.com/bjornharvold/curlybrace/commit/78813baa2f9245dc8908ff672f55abda0c9a4692))
+* **queries:** record explained pipelines, keep only known operators, fix the profiler clock ([#186](https://github.com/bjornharvold/curlybrace/issues/186)) ([7dcbd8b](https://github.com/bjornharvold/curlybrace/commit/7dcbd8b3ea55f97e790cf6412cea1db4835f91fc))
+
 ## [0.16.0](https://github.com/bjornharvold/curlybrace/compare/v0.15.0...v0.16.0) (2026-11-18)
 
 
