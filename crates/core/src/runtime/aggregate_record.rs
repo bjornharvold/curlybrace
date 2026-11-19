@@ -58,7 +58,9 @@ pub(super) fn pipeline_verdict(plan: &AggPlanOutcome, shape: &Shape) -> Option<V
     }
     let input = plan.input.as_ref()?;
     let scan = has_stage(input, COLLSCAN);
-    let sorted = has_stage(input, SORT);
+    // The shape holds a `$sort` only when it follows the `$match` directly. Another SORT in the
+    // plan (a later `$sort`, a pushed-down stage) is not the shape's, so it is not judged.
+    let sorted = has_stage(input, SORT) && shape.sort().is_some();
     Some(
         if has_stage(input, EOF) || (scan && input.docs_examined == Some(0)) {
             VerdictKind::EmptyCollection
@@ -79,33 +81,40 @@ pub(super) fn pipeline_verdict(plan: &AggPlanOutcome, shape: &Shape) -> Option<V
 /// The shape the profiler would record for this pipeline: its leading `$match` and the `$sort`
 /// right after it. `None` when the pipeline does not start with a `$match`.
 fn pipeline_shape(ns: &Namespace, stages: &[Document]) -> Option<Shape> {
-    let pipeline: Vec<Bson> = stages.iter().cloned().map(Bson::Document).collect();
+    // Only the first two stages can be part of a shape: copy no more than that.
+    let pipeline: Vec<Bson> = stages.iter().take(2).cloned().map(Bson::Document).collect();
     from_profile_command(
         "command",
         &doc! { "aggregate": ns.collection.as_str(), "pipeline": pipeline },
     )
 }
 
-/// Records the explained pipeline's shape with the verdict of its input plan, in the background.
-/// Nothing is recorded under a hint or a collation (they describe those options, not the shape),
-/// for a pipeline with no leading `$match`, or when the plan cannot be judged.
+/// The shape to record for an explained pipeline, built before the stages are handed to the
+/// store. `None` under a hint or a collation (they describe those options, not the shape) and
+/// for a pipeline with no leading `$match`.
+pub(super) fn shape_to_record(
+    ns: &Namespace,
+    stages: &[Document],
+    options: &PipelineOptions,
+) -> Option<Shape> {
+    if options.hint.is_some() || options.collation.is_some() {
+        return None;
+    }
+    pipeline_shape(ns, stages)
+}
+
+/// Records `shape` with the verdict of the explained plan, in the background. Nothing is
+/// recorded when the plan cannot be judged.
 pub(super) fn record_pipeline(
     history: &Arc<HistoryDb>,
     session: SessionId,
     ns: &Namespace,
-    stages: &[Document],
-    options: &PipelineOptions,
+    shape: &Shape,
     explain: &Document,
     now: &dyn Fn() -> i64,
 ) {
-    if options.hint.is_some() || options.collation.is_some() {
-        return;
-    }
-    let Some(shape) = pipeline_shape(ns, stages) else {
+    let Some(kind) = pipeline_verdict(&parse_aggregate_explain(explain), shape) else {
         return;
     };
-    let Some(kind) = pipeline_verdict(&parse_aggregate_explain(explain), &shape) else {
-        return;
-    };
-    record_typed_shape(history, session, ns, &shape, kind, now);
+    record_typed_shape(history, session, ns, shape, kind, now);
 }

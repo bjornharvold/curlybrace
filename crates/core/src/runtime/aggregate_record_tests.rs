@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bson::{Document, doc};
 
-use super::aggregate_record::{pipeline_verdict, record_pipeline};
+use super::aggregate_record::{pipeline_verdict, record_pipeline, shape_to_record};
 use super::*;
 use crate::clock;
 use crate::connection::ConnectionConfig;
@@ -95,6 +95,26 @@ fn sort_in_input_plan_is_sort_not_covered() {
     assert_eq!(
         verdict_of(&sort_explain(), &shape),
         Some(VerdictKind::SortNotCovered)
+    );
+}
+
+#[test]
+fn a_sort_the_shape_does_not_hold_is_not_judged() {
+    // The `$sort` is not right after the `$match`: the shape has no sort, so a SORT in the plan
+    // cannot be blamed on it.
+    let shape = profiler_shape(&[
+        doc! { "$match": { "email": SECRET } },
+        doc! { "$addFields": { "x": 1 } },
+        doc! { "$sort": { "age": -1 } },
+    ]);
+    assert!(shape.sort().is_none());
+    assert_eq!(
+        verdict_of(&sort_explain(), &shape),
+        Some(VerdictKind::IndexUsed)
+    );
+    assert_eq!(
+        verdict_of(&collscan_explain(), &shape),
+        Some(VerdictKind::CollectionScan)
     );
 }
 
@@ -355,12 +375,12 @@ async fn nothing_about_the_pipeline_is_logged() {
     let history = Arc::new(HistoryDb::open_in_memory().unwrap());
     history.exec_for_tests("ALTER TABLE shape RENAME TO shape_gone");
     let ns: Namespace = mock_namespace();
+    let shape = shape_to_record(&ns, &stages(), &PipelineOptions::default()).unwrap();
     record_pipeline(
         &history,
         SessionId::from_u128(7),
         &ns,
-        &stages(),
-        &PipelineOptions::default(),
+        &shape,
         &collscan_explain(),
         &|| 1_800_000_000,
     );

@@ -214,16 +214,7 @@ async fn run(
     // And an aggregate count: a slow count says nothing about the server either.
     let count_timeout = aggregate_count::timeout_answer(id, &command);
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
-    let run_namespaces = match &command {
-        Command::AggregateRun {
-            ns, pipeline, run, ..
-        } => Some((
-            *run,
-            ns.clone(),
-            aggregate_run::target_namespace(ns, pipeline),
-        )),
-        _ => None,
-    };
+    let run_namespaces = aggregate_run::run_namespaces(&command);
     // A profiler command is the one write whose read-only refusal is not decided here: the store
     // wrapper is the authority and its refusal is the outcome. Every other check (session,
     // currency, generation) still applies to it, `execute` turns its failures into outcomes.
@@ -431,8 +422,17 @@ async fn data_command(
             options,
             ..
         } => aggregate_preview::run(session, &*store, request, ns, pipeline, &options).await?,
-        command @ Command::AggregateExplain { .. } => {
-            aggregate_explain::run(session, &*store, history.as_ref(), command).await?
+        Command::AggregateExplain {
+            request,
+            ns,
+            stages,
+            verbosity,
+            options,
+            ..
+        } => {
+            let h = history.as_ref();
+            let (store, opts) = (&*store, &options);
+            aggregate_explain::run(session, store, h, request, ns, stages, verbosity, opts).await?
         }
         Command::AggregateCount {
             request,
