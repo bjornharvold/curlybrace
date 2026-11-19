@@ -179,12 +179,10 @@ impl AppState {
             return self;
         };
         if self.tabs.current.get(&session) == Some(&tab) {
-            let Some(other) = self
-                .tabs
-                .of_session(session)
-                .into_iter()
-                .find(|t| *t != tab)
-            else {
+            // The strip's rule: the right neighbour takes over, else the left one; only a tab with a
+            // parked view can (a sibling without one would make this loop). With none, the tab
+            // stays open and nothing changes.
+            let Some(other) = self.successor_of(session, tab) else {
                 return self;
             };
             // The swap works on the foreground, so the session must be the active one while it
@@ -228,7 +226,24 @@ impl AppState {
             return self;
         };
         let activated = self.activated(session);
-        activated.tab_made_current(session, tab)
+        let mut next = activated.tab_made_current(session, tab);
+        // The person looks at it now: it is the active tab and the most recent one.
+        next.tabs = std::mem::take(&mut next.tabs).activated(tab);
+        next
+    }
+
+    /// The tab of `session` that takes over when its current tab `tab` closes: the right
+    /// neighbour in strip order, else the left one, among those that have a parked view.
+    fn successor_of(&self, session: Uuid, tab: TabId) -> Option<TabId> {
+        let siblings = self.tabs.of_session(session);
+        let at = siblings.iter().position(|t| *t == tab)?;
+        let right = siblings.get(at + 1);
+        let left = at.checked_sub(1).and_then(|p| siblings.get(p));
+        [right, left]
+            .into_iter()
+            .flatten()
+            .find(|t| self.parked_tabs.contains_key(t))
+            .copied()
     }
 
     /// The swap itself, for a tab of `session`, which must be the active session.

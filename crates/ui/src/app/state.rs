@@ -183,6 +183,13 @@ pub struct EditorKey {
     pub text: String,
 }
 
+impl EditorKey {
+    /// Whether `editor` still holds what this key was saved from.
+    pub fn held_by(&self, editor: &EditorState) -> bool {
+        editor.original_id == self.original_id && editor.text == self.text
+    }
+}
+
 /// The single mutating command in flight.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {

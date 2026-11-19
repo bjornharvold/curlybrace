@@ -185,10 +185,7 @@ pub(super) fn written(mut state: AppState, ns: &Namespace) -> (AppState, bool) {
     let current_may_close = writer.is_none() || writer == current;
     if let (Some(tab), Some(key)) = (writer, pending.and_then(|p| p.editor)) {
         if let Some(view) = state.parked_tabs.get_mut(&tab) {
-            let holds = view
-                .editor
-                .as_ref()
-                .is_some_and(|e| e.original_id == key.original_id && e.text == key.text);
+            let holds = view.editor.as_ref().is_some_and(|e| key.held_by(e));
             if holds {
                 view.editor = None;
             }

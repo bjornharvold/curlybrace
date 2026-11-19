@@ -179,8 +179,10 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
             let background = state.active != Some(session);
             // An answer to a parked tab's request goes to that tab, not to the current one.
             let owner = super::tab_routing::owner_of(&state, session, &ev);
-            let mut ev = ev;
-            super::tab_routing::check(&state, session, owner, &mut ev);
+            let Some(ev) = super::tab_routing::check(&state, session, owner, ev) else {
+                // The answer of a request nobody awaits any more.
+                return (state, Vec::new());
+            };
             state.with_session_tab(session, owner, |s| on_session_event(s, ev, background))
         }
         (_, None) => (state, Vec::new()),
@@ -593,9 +595,7 @@ pub(super) fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) ->
 /// True when the open editor still holds what `pending` was saved from.
 fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
     match (&state.editor, pending.and_then(|p| p.editor.as_ref())) {
-        (Some(editor), Some(key)) => {
-            editor.original_id == key.original_id && editor.text == key.text
-        }
+        (Some(editor), Some(key)) => key.held_by(editor),
         _ => false,
     }
 }

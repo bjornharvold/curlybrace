@@ -130,8 +130,8 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     let Some(session) = ev.session() else {
         return (state, Vec::new());
     };
-    let lost = lost_server(&state, &ev);
     let owner = super::tab_routing::owner_of(&state, session, &ev);
+    let lost = lost_server(&state, owner, &ev);
     let (state, commands) = state.with_session_tab(session, owner, |s| match (&s.status, ev) {
         (
             ConnStatus::Connected,
@@ -163,7 +163,11 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
 /// The error of a count failure that says the server is gone, for the request its connected
 /// session still awaits or a cancelled count of it still out (its held start must not go out
 /// into the dead connection); `None` for anything else (a late echo of an older request included).
-fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
+fn lost_server(
+    state: &AppState,
+    owner: Option<super::tabs::TabId>,
+    ev: &Event,
+) -> Option<CoreError> {
     let Event::RequestFailed {
         session,
         request,
@@ -174,7 +178,7 @@ fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
         return None;
     };
     // The draft of the tab the request belongs to (a parked tab's, when it awaits it).
-    let draft = super::tab_routing::draft_for(state, *session, ev);
+    let draft = super::tab_routing::draft_for(state, *session, owner);
     let awaited = draft.is_some_and(|d| d.counts.awaits(*request) || d.counts.lingers(*request));
     let connected = state.status_of(*session) == Some(ConnStatus::Connected);
     (awaited && connected).then(|| error.clone())
