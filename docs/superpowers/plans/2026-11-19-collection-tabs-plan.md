@@ -533,6 +533,14 @@ pub fn labels(state: &AppState, i18n: &I18n) -> Vec<(TabId, TabLabel)>; // strip
 
 The slice 1 list, plus the new accessibility, layout and snapshot tests, plus `local_tabs_flows` on a throwaway mongod. Size: L (about 1600 lines).
 
+**Deliberate changes of behaviour in slice 2** (each pinned by a test):
+- A lost connection keeps every tab (collection, find bar, sub-tab, draft, editor) instead of clearing the view.
+- A bulk write or run that finishes after a reconnect does not re-read the page: the loss made the tab dormant, and a dormant tab sends no find but through its Run (it is marked stale). Pinned by `a_bulk_write_finishing_after_a_reconnect_leaves_the_dormant_tab_to_its_run`.
+- A dormant Indexes tab lists its indexes on Run (its Indexes view shows a Run button); an edit that sends an Aggregate preview wakes a dormant tab.
+- Empty tabs that are not shown are closed (a session's only tab stays), and the 20-tab limit counts shown tabs.
+- Close and Switch shortcuts work without a connection; New needs one.
+- A focused text field (even scrolled out of view) disables the tab shortcuts.
+
 ---
 
 ## Slice 3: split view (branch `feat/159-split`)

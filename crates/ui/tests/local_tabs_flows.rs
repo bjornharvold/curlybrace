@@ -14,7 +14,6 @@ use curlybrace_ui::app::state::ConnStatus;
 use curlybrace_ui::app::tab_actions::TabAction;
 use curlybrace_ui::app::tabs::Freshness;
 use curlybrace_ui::viewmodel::{DocAction, EditorAction, FindAction};
-use std::time::{Duration, Instant};
 use support::actions::*;
 use support::fixture::Fixture;
 use support::wait::{SHORT, settle, wait_until};
@@ -128,8 +127,9 @@ impl Server {
             .expect("count the profile")
     }
 
-    /// Whether the slow `$where` find is still running on the server.
+    /// Whether the slow `$where` find on `things` of the test's database is still running.
     fn slow_find_running(&self) -> bool {
+        let ns = format!("{}.{THINGS}", self.db);
         let admin = self.client.database("admin");
         let reply = self
             .handle
@@ -140,11 +140,13 @@ impl Server {
             })
             .expect("currentOp");
         reply.get_array("inprog").is_ok_and(|ops| {
-            ops.iter().any(|op| {
-                op.as_document()
-                    .and_then(|d| d.get_document("command").ok())
-                    .and_then(|c| c.get_document("filter").ok())
-                    .is_some_and(|filter| filter.contains_key("$where"))
+            ops.iter().filter_map(|op| op.as_document()).any(|op| {
+                op.get_str("ns") == Ok(ns.as_str())
+                    && op
+                        .get_document("command")
+                        .ok()
+                        .and_then(|c| c.get_document("filter").ok())
+                        .is_some_and(|filter| filter.contains_key("$where"))
             })
         })
     }
@@ -243,6 +245,7 @@ fn closing_a_tab_drops_its_late_answer() {
     f.harness
         .state_mut()
         .dispatch(Input::Find(FindAction::Run(slow)));
+    let slow_request = f.harness.state().state().issued_request;
     // The server has started it...
     wait_until(&mut f.harness, "the slow find on the server", SHORT, |_| {
         server.slow_find_running()
@@ -251,28 +254,46 @@ fn closing_a_tab_drops_its_late_answer() {
     tab(&mut f, TabAction::Activate(words));
     tab(&mut f, TabAction::Close(things));
     assert!(!f.harness.state().state().tabs.owner.contains_key(&things));
-    // The server finishes and its answer is sent; then the app has had time to read it.
+    // The server finishes the find and its answer is queued for the app...
     wait_until(
         &mut f.harness,
         "the server to finish the find",
         SHORT,
         |_| !server.slow_find_running(),
     );
-    let answered_by = Instant::now() + Duration::from_millis(500);
-    wait_until(
-        &mut f.harness,
-        "the answer to have been read",
-        SHORT,
-        |_| Instant::now() >= answered_by,
-    );
+    // ... and the answers come in the order the runtime sent them: a find sent now from the open
+    // tab is answered after the closed tab's, so its answer is the proof that the late one was
+    // read (and dropped) by the app, with no fixed wait.
+    let marker = Query {
+        skip: 1,
+        ..Query::default()
+    };
+    f.harness
+        .state_mut()
+        .dispatch(Input::Find(FindAction::Run(marker)));
+    let marker_request = f.harness.state().state().issued_request;
+    assert_ne!(marker_request, slow_request);
+    wait_until(&mut f.harness, "the marker find's answer", SHORT, |h| {
+        let s = h.state().state();
+        !s.loading_page && s.page.as_ref().map(|p| p.docs.len()) == Some(2)
+    });
     let s = f.harness.state().state();
+    // What the drop leaves behind: the closed tab's request number is in no state.
+    assert!(s.issued_request != slow_request && s.verdict_request != slow_request);
+    assert!(
+        s.parked_tabs
+            .values()
+            .all(|view| view.issued_request != slow_request),
+        "a parked tab still awaits the closed tab's find"
+    );
     assert_eq!(s.status, ConnStatus::Connected);
     assert!(s.banner.is_none(), "a late answer raised {:?}", s.banner);
     assert_eq!(
         s.page.as_ref().map(|p| p.docs.len()),
-        Some(3),
-        "the open tab is untouched"
+        Some(2),
+        "the open tab shows its own marker find (3 documents, one skipped)"
     );
+    assert_eq!(s.find.text.filter, "", "its find bar is untouched");
     assert_eq!(s.selected_ns().map(|n| n.collection.as_str()), Some(WORDS));
     assert_eq!(s.tabs_of(session(&f)).len(), 1);
     assert!(!s.loading_page, "no read is left waiting in the open tab");

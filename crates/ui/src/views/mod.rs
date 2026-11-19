@@ -92,6 +92,7 @@ pub mod sidebar_drag;
 pub mod sidebar_roots;
 pub mod sidebar_tabs;
 pub mod tab_dormant;
+pub mod tab_marks;
 pub mod tab_shortcuts;
 pub mod tab_strip;
 pub mod tab_strip_menu;

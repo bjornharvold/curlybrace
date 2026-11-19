@@ -192,6 +192,7 @@ pub fn show_sessions_panel(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
+    super::tab_strip_panel::take_shortcuts(ctx, state, out);
     egui::SidePanel::left("sidebar")
         .resizable(true)
         .default_width(SIDEBAR_DEFAULT_WIDTH)

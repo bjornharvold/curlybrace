@@ -53,6 +53,27 @@ fn a_duplicate_does_not_take_the_sources_run_answer() {
 }
 
 #[test]
+fn the_source_parked_still_gets_its_run_answer_while_the_copy_is_shown() {
+    let t = two_tabs();
+    let source = t.s.active_tab().expect("source");
+    let s = running(t.s);
+    let (s, _) = tabs(s, TabAction::Duplicate(source));
+    let copy = s.active_tab().expect("copy");
+    assert_ne!(copy, source, "the copy is shown, the source is parked");
+    let s = ev(s, ran(t.a));
+    assert_ne!(
+        parked(&s, source).aggregate.run.status,
+        RunStatus::Running,
+        "the answer reached the tab that ran, though it is parked"
+    );
+    assert_eq!(
+        s.aggregate.run.status,
+        RunStatus::Idle,
+        "the copy is untouched"
+    );
+}
+
+#[test]
 fn a_new_tab_needs_a_connected_session() {
     use crate::app::state::ConnStatus;
     for status in [ConnStatus::Failed, ConnStatus::Connecting] {

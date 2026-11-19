@@ -138,12 +138,33 @@ fn the_shortcuts_stay_off_the_shell_and_compare_pages() {
 }
 
 #[test]
-fn the_shortcuts_stay_off_a_session_that_is_not_connected() {
+fn a_new_tab_needs_a_connection_but_close_and_switch_do_not() {
     for status in [ConnStatus::Failed, ConnStatus::Connecting] {
-        let mut page = two_tabs();
+        let mut page = browse_page(SIZE_1000, |state| {
+            browsing_with_tabs(state, &["invoices"]);
+        });
         app_state(&mut page).status = status;
         page.harness.run_steps(3);
+        // Cmd+T has nothing to read from: it does nothing.
         press(&mut page, Modifiers::COMMAND, Key::T);
         assert_eq!(tab_count(&page), 2, "{status:?}");
+        // Cmd+W closes the dormant-to-be tab even though the connection is down.
+        press(&mut page, Modifiers::COMMAND, Key::W);
+        assert_eq!(tab_count(&page), 1, "Cmd+W while {status:?}");
     }
+}
+
+#[test]
+fn after_a_lost_connection_the_shortcuts_still_reach_another_connections_tab() {
+    let mut page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &["invoices"]);
+        support::tabs_shots::background_session(state, "Staging", "orders", (false, false));
+    });
+    let other = *app_state(&mut page).tabs.order.last().expect("a tab");
+    app_state(&mut page).status = ConnStatus::Failed;
+    page.harness.run_steps(3);
+    // Cmd+9 is the last tab: the other connection's, which is still connected.
+    press(&mut page, Modifiers::COMMAND, Key::Num9);
+    assert_eq!(app_state(&mut page).active_tab(), Some(other));
+    assert_eq!(app_state(&mut page).status, ConnStatus::Connected);
 }

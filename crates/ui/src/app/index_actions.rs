@@ -164,7 +164,8 @@ pub(super) fn changed(state: AppState, ns: Namespace) -> Out {
     // A write sent from a parked tab is settled there; the other tabs on `ns` are stale.
     let state = super::tab_fanout::index_written(state, &ns);
     let state = write::write_finished(state, &ns);
-    // A dormant tab lists its indexes when it is run, not because another tab wrote.
+    // A dormant tab lists its indexes when it is run (`tab_actions::run`, from the Run button its
+    // Indexes view shows), not because another tab wrote.
     match state.indexes.ns.as_ref() == Some(&ns) && state.selected_ns() == Some(&ns) {
         true if state.dormant_active() => (state.current_marked_stale(), Vec::new()),
         true => request(state),

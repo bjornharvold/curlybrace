@@ -123,6 +123,98 @@ fn a_dormant_aggregate_tab_waits_for_an_edit_or_refresh_before_its_first_preview
     assert!(s.aggregate.in_flight.is_some());
 }
 
+/// A parked tab with a one-stage Aggregate draft, dormant after a lost connection and a
+/// reconnect, then shown.
+fn dormant_aggregate_shown() -> (AppState, TabId) {
+    use crate::app::AggregateAction;
+    use crate::app::tabs::test_support::{act, ev};
+    use crate::viewmodel::CollectionTab;
+    use curlybrace_core::error::CoreError;
+    let t = two_tabs();
+    let (s, _) = act(t.s, t.second, Input::Tab(CollectionTab::Aggregate));
+    let (s, _) = act(
+        s,
+        t.second,
+        Input::Aggregate(AggregateAction::AddStage("$match".into())),
+    );
+    let lost = Event::Failed {
+        session: t.a,
+        context: "find",
+        error: CoreError::Unreachable,
+    };
+    let s = ev(s, lost);
+    let (s, _) = update(s, Input::Connect(t.a));
+    let epoch = s.epoch_counter;
+    let connected = Event::Connected {
+        session: t.a,
+        epoch,
+        topology: None,
+    };
+    let s = ev(s, connected);
+    let (s, _) = tabs(s, TabAction::Activate(t.second));
+    (s, t.second)
+}
+
+#[test]
+fn editing_a_dormant_aggregate_draft_wakes_the_tab() {
+    use crate::app::AggregateAction;
+    let (s, second) = dormant_aggregate_shown();
+    assert_eq!(s.freshness_of(second), Freshness::Dormant);
+    let (s, _) = update(
+        s,
+        Input::Aggregate(AggregateAction::AddStage("$limit".into())),
+    );
+    assert!(s.aggregate.in_flight.is_some(), "the edit sent a preview");
+    assert_eq!(
+        s.freshness_of(second),
+        Freshness::Fresh,
+        "a tab that sent a read is no longer waiting for Run"
+    );
+}
+
+#[test]
+fn run_lets_the_next_show_of_the_aggregate_tab_preview_again() {
+    let (mut s, second) = dormant_aggregate_shown();
+    s.explain.guard = false;
+    assert!(!s.aggregate.wants_auto_refresh(s.aggregate_view.auto_sent));
+    let (s, _) = tabs(s, TabAction::Run(second));
+    assert!(
+        s.aggregate.wants_auto_refresh(s.aggregate_view.auto_sent),
+        "as for a fresh tab"
+    );
+}
+
+#[test]
+fn run_on_a_dormant_indexes_tab_lists_its_indexes() {
+    use crate::viewmodel::CollectionTab;
+    let t = two_tabs();
+    let first = t.s.active_tab().expect("first");
+    let (s, _) = update(t.s, Input::Tab(CollectionTab::Indexes));
+    let mut s = s;
+    s.tabs = std::mem::take(&mut s.tabs).made_dormant([first]);
+    s.explain.guard = false;
+    let changed = Event::IndexChanged {
+        session: t.a,
+        ns: users(),
+    };
+    let (s, commands) = update(s, Input::Event(changed));
+    assert!(
+        !commands
+            .iter()
+            .any(|c| matches!(c, Command::ListIndexes { .. })),
+        "nothing is listed for a dormant tab: {commands:?}"
+    );
+    assert!(s.tabs.stale.contains(&first));
+    let (s, commands) = tabs(s, TabAction::Run(first));
+    assert!(
+        commands
+            .iter()
+            .any(|c| matches!(c, Command::ListIndexes { ns, .. } if *ns == users())),
+        "Run lists the indexes the tab shows: {commands:?}"
+    );
+    assert!(!s.tabs.stale.contains(&first), "and the list is on its way");
+}
+
 #[test]
 fn run_clears_the_stale_mark_it_wakes() {
     // A parked tab that is dormant and was marked stale by a write, then run.

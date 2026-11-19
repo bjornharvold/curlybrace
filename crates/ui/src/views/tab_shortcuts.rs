@@ -33,6 +33,14 @@ const DIGITS: [Key; 9] = [
     Key::Num9,
 ];
 
+/// Whether the widget with the keyboard is a text field, scrolled into view or not: egui keeps a
+/// `TextEditState` for every text edit it has drawn, and no other widget has one. (The IME
+/// rectangle egui reports for a focused field is only reported while the field is visible.)
+pub fn text_has_focus(ctx: &Context) -> bool {
+    ctx.memory(|m| m.focused())
+        .is_some_and(|id| eframe::egui::TextEdit::load_state(ctx, id).is_some())
+}
+
 /// What the keys pressed this frame ask for (usually nothing). Each key is consumed.
 pub fn tab_shortcuts(ctx: &Context, enabled: bool) -> Vec<TabAction> {
     if !enabled {

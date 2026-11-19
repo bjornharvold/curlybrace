@@ -344,7 +344,18 @@ fn run(state: AppState, tab: TabId) -> Out {
     }
     let state = shown(state, tab);
     match submit_find(&state.find) {
-        Ok(query) => gated(state, |s| super::guard_actions::run(s, query)),
+        Ok(query) => gated(state, |s| {
+            let indexes = s.tab == CollectionTab::Indexes;
+            let (s, mut commands) = super::guard_actions::run(s, query);
+            // On the Indexes sub-tab the list is what the tab shows: Run reads it too (the page
+            // behind the Documents sub-tab is read as ever).
+            if indexes && s.status == ConnStatus::Connected {
+                let (s, more) = super::index_actions::switch_tab(s, CollectionTab::Indexes);
+                commands.extend(more);
+                return (s, commands);
+            }
+            (s, commands)
+        }),
         Err(find) => (AppState { find, ..state }, Vec::<Command>::new()),
     }
 }

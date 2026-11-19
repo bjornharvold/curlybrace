@@ -44,9 +44,10 @@ impl AppState {
             .and_then(|session| self.tabs.current.get(&session).copied())
     }
 
-    /// Whether any dialog of the state is open: the one list the tab shortcuts and the strip
-    /// read, so a dialog cannot be forgotten in two places. (A dialog that lives outside the
-    /// state, the SSH host-key question, is caught by egui's modal layer instead.)
+    /// Whether any dialog of the state is open: the one list the tab shortcuts read
+    /// (`tab_strip_panel::shortcuts_enabled`), so a dialog is named in one place. A dialog that
+    /// lives outside the state, the SSH host-key question, is caught there by egui's modal layer
+    /// instead.
     pub fn any_dialog_open(&self) -> bool {
         self.editor.is_some()
             || self.indexes.has_prompt()
@@ -70,7 +71,16 @@ impl AppState {
             // Its read is on its way: whatever made it dormant or stale is answered by it.
             Some(tab) if self.tabs.dormant.contains(&tab) || self.tabs.stale.contains(&tab) => {
                 let tabs = self.tabs.clone().awakened(tab).with_stale(tab, false);
-                AppState { tabs, ..self }
+                // Awake, the Aggregate tab previews on its next show as a fresh tab does.
+                let aggregate_view = Box::new(crate::viewmodel::aggregate_view::AggregateView {
+                    auto_sent: None,
+                    ..(*self.aggregate_view).clone()
+                });
+                AppState {
+                    tabs,
+                    aggregate_view,
+                    ..self
+                }
             }
             _ => self,
         }

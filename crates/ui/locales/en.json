@@ -1908,6 +1908,7 @@
     "move_left": "Move left",
     "move_right": "Move right",
     "new_tab": "New tab",
+    "new_tab_disabled": "New tab (needs a connection)",
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
     "state": {

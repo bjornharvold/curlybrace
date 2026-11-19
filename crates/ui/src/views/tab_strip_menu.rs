@@ -3,7 +3,6 @@ use crate::I18n;
 use crate::app::tab_actions::TabAction;
 use crate::app::tabs::TabId;
 use crate::theme::{icons, text_button};
-use crate::views::connection_badge::show_badge;
 use crate::views::tab_strip::StripView;
 use eframe::egui::{self, Ui, WidgetInfo, WidgetType};
 
@@ -65,9 +64,11 @@ pub fn all_tabs_menu(ui: &mut Ui, view: &StripView<'_>, i18n: &I18n) -> Option<T
     button.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, name.clone()));
     let mut chosen = None;
     egui::Popup::menu(&button).show(|ui| {
+        // Wide enough for the longest title and its marks: no entry is cut.
+        ui.set_min_width(220.0);
         for (tab, label) in view.labels {
             ui.horizontal(|ui| {
-                show_badge(ui, &label.badge, i18n);
+                crate::views::tab_marks::show_marks(ui, &label.badge, i18n);
                 let current = view.active == Some(*tab);
                 // 24 pt tall, WCAG 2.2's smallest target.
                 let entry = ui.add(

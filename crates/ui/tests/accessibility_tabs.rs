@@ -69,19 +69,17 @@ fn the_tabs_are_children_of_the_tab_list_in_the_tree() {
 
 #[test]
 fn all_tabs_menu_entries_of_duplicates_are_told_apart() {
-    let mut page = page_with_tabs(&["invoices"]);
-    // A second tab on the same collection.
-    let first = state(&page).active_tab().expect("tab");
-    page.harness
-        .state_mut()
-        .dispatch(curlybrace_ui::app::reducer::Input::Tabs(
-            curlybrace_ui::app::tab_actions::TabAction::Duplicate(first),
-        ));
-    page.harness.run_steps(3);
+    // A second tab on the same collection, put together without a read: a duplicate's find would
+    // go to a runtime that never connected the fixture's session and fail it under load.
+    let mut page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &[]);
+        let session = state.active.expect("session");
+        parked_tab(state, session, "crm", "customers");
+    });
     page.harness
         .get_by_role_and_label(Role::Button, t("tabs.all_tabs"))
         .click();
-    page.harness.run_steps(3);
+    page.harness.run_steps(6);
     let names: Vec<String> = page
         .harness
         .query_all_by_label_contains("customers, tab")

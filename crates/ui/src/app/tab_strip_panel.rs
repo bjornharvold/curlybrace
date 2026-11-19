@@ -3,7 +3,7 @@
 //! shortcuts work either way.
 use super::panels::UiEvent;
 use super::reducer::Input;
-use super::state::{AppState, ConnStatus, Workspace};
+use super::state::{AppState, Workspace};
 use crate::I18n;
 use crate::theme::ROW_GAP;
 use crate::viewmodel::tab_title::labels;
@@ -14,9 +14,16 @@ use eframe::egui;
 /// Whether a text field had the keyboard in the last frame, kept in egui's frame memory.
 const TEXT_FOCUS: &str = "curlybrace.tabs.text_focus_last_frame";
 
-pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
-    let wanted = tab_shortcuts(ui.ctx(), shortcuts_enabled(ui.ctx(), state));
+/// The tab shortcuts of this frame. Read from the sessions panel, which is drawn whenever a
+/// session is open, not from the Browse page: after a lost connection the page shown is the
+/// connection manager, and Close and Switch must still work (only New needs a connection, and the
+/// reducer refuses it).
+pub(super) fn take_shortcuts(ctx: &egui::Context, state: &AppState, out: &mut Vec<UiEvent>) {
+    let wanted = tab_shortcuts(ctx, shortcuts_enabled(ctx, state));
     out.extend(wanted.into_iter().map(tabs_input));
+}
+
+pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
     let shown = labels(state, i18n);
     if shown.len() < 2 {
         return;
@@ -26,26 +33,30 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
         active: state.active_tab(),
         limit_reached: state.tabs.notice.is_some(),
         can_reopen: !state.tabs.closed.is_empty(),
+        can_open: state.status == super::state::ConnStatus::Connected,
     };
     let actions = show_tab_strip(ui, &view, i18n);
     out.extend(actions.into_iter().map(tabs_input));
     ui.add_space(ROW_GAP);
 }
 
-/// The shortcuts act on the Browse page of a connected session, with no dialog open (a state
-/// dialog, or any egui modal: the SSH host-key question has no state) and no text field holding
-/// the keyboard (typing in the Filter field is never taken).
+/// The shortcuts act in the Browse workspace, with no dialog open (a state dialog, or any egui
+/// modal: the SSH host-key question has no state) and no text field holding the keyboard (typing
+/// in the Filter field is never taken). A connection is not needed: only New needs one.
 fn shortcuts_enabled(ctx: &egui::Context, state: &AppState) -> bool {
     state.workspace == Workspace::Browse
-        && state.status == ConnStatus::Connected
         && !state.any_dialog_open()
         && ctx.memory(|m| m.top_modal_layer().is_none())
         && !text_focused(ctx)
 }
 
+/// A text field has the keyboard: the focused widget is one (even scrolled out of view), or egui
+/// reported an IME rectangle for one in the last frame.
 fn text_focused(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(TEXT_FOCUS)))
-        .unwrap_or(false)
+    crate::views::tab_shortcuts::text_has_focus(ctx)
+        || ctx
+            .data(|d| d.get_temp::<bool>(egui::Id::new(TEXT_FOCUS)))
+            .unwrap_or(false)
 }
 
 /// Called once at the end of every frame, when every widget has been drawn: egui reports an IME
