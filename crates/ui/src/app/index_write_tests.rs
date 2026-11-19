@@ -110,7 +110,7 @@ fn opening_the_builder_creates_it_for_the_selected_collection_and_asks_for_the_c
             Command::EstimatedCount {
                 session: id,
                 ns: ns(),
-                request: 0
+                request: s.indexes.estimate_request
             },
             Command::ListIndexes {
                 session: id,

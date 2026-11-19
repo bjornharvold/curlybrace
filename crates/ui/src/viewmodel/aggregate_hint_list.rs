@@ -28,8 +28,6 @@ pub enum HintList {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HintListUi {
     pub list: HintList,
-    /// The offset of the next request number; it only grows, so a number is never reused.
-    next: u64,
 }
 
 impl HintListUi {
@@ -40,11 +38,10 @@ impl HintListUi {
 
     /// The list is being read under a new request number.
     pub fn requested(self) -> (Self, u64) {
-        let request = HINT_REQUEST_BASE + self.next;
+        let request = HINT_REQUEST_BASE + crate::app::request_numbers::next();
         (
             Self {
                 list: HintList::Loading { request },
-                next: self.next + 1,
             },
             request,
         )
@@ -54,7 +51,6 @@ impl HintListUi {
     pub fn from_names(self, names: Vec<String>) -> Self {
         Self {
             list: HintList::Loaded(names.into()),
-            ..self
         }
     }
 
@@ -78,7 +74,6 @@ impl HintListUi {
     pub fn unavailable(self) -> Self {
         Self {
             list: HintList::Failed,
-            ..self
         }
     }
 
@@ -94,7 +89,6 @@ impl HintListUi {
     pub fn reset(self) -> Self {
         Self {
             list: HintList::NotAsked,
-            ..self
         }
     }
 

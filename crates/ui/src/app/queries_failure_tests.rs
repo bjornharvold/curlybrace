@@ -54,7 +54,7 @@ fn refresh_during_a_write_does_not_resend_the_profiling_read_but_refreshes_shape
     let (s, commands) = queries(s, QueriesAction::Refresh);
     assert!(
         matches!(commands.as_slice(), [Command::QueryShapes { session, request, .. }]
-            if *session == id && *request == before + 1)
+            if *session == id && *request > before)
     );
     let (s, commands) = queries(s, QueriesAction::SetRange(ChartRange::Week));
     assert_eq!(commands.len(), 1);
@@ -296,7 +296,7 @@ fn query_shapes_unreachable_still_marks_the_connection_lost() {
     let failed = Event::RequestFailed {
         session: id,
         context: "query_shapes",
-        request: 1,
+        request: s.indexes.queries.request,
         error: CoreError::Unreachable,
     };
     let (s, _) = event(s, failed);

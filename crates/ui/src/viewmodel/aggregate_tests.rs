@@ -104,7 +104,8 @@ fn remove_after_the_selection_keeps_it() {
 
 #[test]
 fn remove_out_of_range_changes_nothing() {
-    assert_eq!(three().remove(9), three());
+    let s = three();
+    assert_eq!(s.clone().remove(9), s);
 }
 
 #[test]
@@ -144,14 +145,16 @@ fn toggle_flips_enabled_and_keeps_the_selection_valid() {
     assert_eq!(s.selected, 1);
     let s = s.toggle(1);
     assert!(s.stages[1].enabled);
-    assert_eq!(three().toggle(5), three());
+    let t = three();
+    assert_eq!(t.clone().toggle(5), t);
 }
 
 #[test]
 fn edit_replaces_the_text() {
     let s = three().edit(0, r#"{"$match": {"a": 1}}"#);
     assert_eq!(s.stages[0].text, r#"{"$match": {"a": 1}}"#);
-    assert_eq!(three().edit(9, "x"), three());
+    let t = three();
+    assert_eq!(t.clone().edit(9, "x"), t);
 }
 
 #[test]

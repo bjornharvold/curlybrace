@@ -88,7 +88,7 @@ impl AggregateState {
     /// "modified" answer. A running count sequence ends (its results stay, marked out of date).
     pub(super) fn changed(self) -> Self {
         Self {
-            request: self.request.wrapping_add(1),
+            request: crate::app::request_numbers::next(),
             saved: self.saved.with_modified_forgotten(),
             run: self.run.dialog_closed(),
             counts: self.counts.cancelled(),
@@ -292,7 +292,7 @@ impl AggregateState {
     /// to send, or `None` when nothing is sent: a pipeline with no runnable stage resets the pane to
     /// idle (dropping the old documents), any other refusal is shown as `Failed`.
     pub fn begin_preview(self) -> (Self, Option<(u64, Vec<Document>)>) {
-        let request = self.request.wrapping_add(1);
+        let request = crate::app::request_numbers::next();
         let sent_options = self.options.clone();
         let plan = preview_pipeline(&self.stages, self.selected, PREVIEW_LIMIT);
         let last = self.preview.clone().into_last();

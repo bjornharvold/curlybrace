@@ -23,11 +23,15 @@ fn editor(text: &str) -> EditorState {
 }
 
 /// An Aggregate draft that tells session `n` apart: `n` stages, the first edited, mid-text-mode.
+/// Its request number is `n` too: the real ones come from one process-wide source, so two drafts
+/// built alike would differ by it, and these tests compare drafts built apart.
 fn draft(n: i32) -> AggregateState {
     let stages = (0..n).fold(AggregateState::default(), |d, _| d.add_stage("$match"));
-    stages
+    let mut draft = stages
         .edit(0, &format!("{{\"$match\": {{\"n\": {n}}}}}"))
-        .to_text()
+        .to_text();
+    draft.request = n as u64;
+    draft
 }
 
 /// A fully populated view, so a lost field shows up as a difference.
@@ -57,6 +61,8 @@ fn busy_view(n: i32) -> SessionView {
             skip: 3 + n as u64,
             ..Query::default()
         },
+        issued_request: 40 + n as u64,
+        verdict_request: 50 + n as u64,
         page_query: Query {
             skip: 5 + n as u64,
             ..Query::default()
@@ -144,6 +150,8 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         loading: s.loading.clone(),
         find: s.find.clone(),
         issued_query: s.issued_query.clone(),
+        issued_request: s.issued_request,
+        verdict_request: s.verdict_request,
         page_query: s.page_query.clone(),
         loading_page: s.loading_page,
         page: s.page.clone(),

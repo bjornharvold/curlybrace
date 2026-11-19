@@ -393,14 +393,10 @@ fn stale_answers_transcript_is_unchanged() {
                 ..Query::default()
             }))
         }),
-        step("older results", move |_, _| {
-            event(Event::Results {
-                session: a,
-                ns: users(),
-                query: Query::default(),
-                page: page(people(7), 0, false),
-                request: 0,
-            })
+        // The run is held back by the guard, so the newest find is still the one that opened the
+        // collection: its answer (echoing its own number) is the awaited one and is applied.
+        step("older results", move |_, c| {
+            event(found_for(a, c, people(7), false))
         }),
         step("indexes tab", |_, _| Input::Tab(CollectionTab::Indexes)),
         step("refresh the indexes", |_, _| {

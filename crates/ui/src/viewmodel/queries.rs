@@ -151,7 +151,7 @@ impl QueriesState {
         Self {
             loading: true,
             shapes_error: None,
-            request: self.request + 1,
+            request: crate::app::request_numbers::next(),
             ..self
         }
     }

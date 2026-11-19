@@ -250,9 +250,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             (next, Vec::new())
         }
         Event::Results {
-            ns, query, page, ..
+            ns,
+            query,
+            page,
+            request,
+            ..
         } => {
-            let current = state.selected_ns() == Some(&ns) && state.issued_query == query;
+            let current = state.selected_ns() == Some(&ns)
+                && state.issued_query == query
+                && state.issued_request == request;
             (
                 if current {
                     results_replaced(state, query, page)

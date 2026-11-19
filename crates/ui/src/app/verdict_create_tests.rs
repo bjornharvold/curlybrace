@@ -91,7 +91,7 @@ fn create_from_verdict_carries_keys_and_the_query_s_collation() {
             Command::EstimatedCount {
                 session: id,
                 ns: ns(),
-                request: 0
+                request: s.indexes.estimate_request
             },
             Command::ListIndexes {
                 session: id,

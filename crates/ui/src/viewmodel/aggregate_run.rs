@@ -98,6 +98,9 @@ pub struct RunUi {
     pub status: RunStatus,
     /// The number of the newest run sent; an answer to another number is stale.
     pub run: u64,
+    /// The number the open dialog's `EstimatedCount` was sent with (`0` when none was): the answer
+    /// to it is routed to the tab that sent it.
+    pub count_request: u64,
     /// The write stage of the run in flight or last sent (`"$out"` or `"$merge"`).
     pub stage: String,
 }

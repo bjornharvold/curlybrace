@@ -75,6 +75,14 @@ pub(super) fn saved_ids(state: &AppState) -> Vec<Uuid> {
     state.conn.connections.iter().map(|c| c.id).collect()
 }
 
+/// The history purges that follow a delete: none unless the delete was saved to disk.
+pub(super) fn purges_after(saved: bool, before: &[Uuid], state: &AppState) -> Vec<Command> {
+    match saved {
+        true => purge_removed(before, state),
+        false => Vec::new(),
+    }
+}
+
 /// One `PurgeHistory` for every id in `before` that is no longer a saved connection, each once:
 /// the usage history of a connection that is gone has no one left to read it. Only deletes call
 /// this; closing a session, importing and saving never remove an id.

@@ -86,12 +86,16 @@ fn clicked(state: AppState) -> Out {
         typed: String::new(),
         count: CountState::Loading,
     };
+    let count_request = super::request_numbers::next();
     let count = Command::EstimatedCount {
         session: state.session_id(),
         ns: dialog.target_ns(),
-        request: 0,
+        request: count_request,
     };
-    let run = state.aggregate.run.clone().opened(dialog);
+    let run = RunUi {
+        count_request,
+        ..state.aggregate.run.clone().opened(dialog)
+    };
     (with_run(state, run), vec![count])
 }
 
@@ -124,7 +128,7 @@ fn confirmed(state: AppState) -> Out {
         return (state, Vec::new());
     };
     let options = state.aggregate.options.clone();
-    let run = state.aggregate.run.run.wrapping_add(1);
+    let run = crate::app::request_numbers::next();
     let stage = plan.stage.clone();
     let (next, commands) = mutation(
         state,

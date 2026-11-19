@@ -10,12 +10,10 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{PipelineOptions, Stage};
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The request number the next count gets, for the whole process: a view that is dropped and
-/// built again (a closed session opened anew) starts with no memory of the numbers it gave out,
-/// and a late answer of one of them must never match a count of the new view.
-static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
+// The request numbers come from `app::request_numbers`, one source for the whole process: a view
+// that is dropped and built again (a closed session opened anew) starts with no memory of the
+// numbers it gave out, and a late answer of one of them must never match a count of the new view.
 
 /// A stage waiting for its turn.
 struct Queued {
@@ -238,7 +236,7 @@ impl CountsUi {
         let Some(entry) = queue.get(next) else {
             return (self, None);
         };
-        let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
+        let request = crate::app::request_numbers::next();
         let send = CountSend {
             request,
             stage_index: entry.index,

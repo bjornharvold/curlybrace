@@ -518,7 +518,7 @@ fn results_for(s: &AppState, has_more: bool) -> Event {
         ns: ns(),
         query: s.issued_query.clone(),
         page: page_of(vec![mock_doc_with_id(1_i32)], has_more, s.issued_query.skip),
-        request: 0,
+        request: s.issued_request,
     }
 }
 
@@ -587,6 +587,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
     // The re-fetch is what results are matched against now, so the edited page is accepted.
     assert_eq!(s.issued_query, Query::default());
     let edited = page_of(vec![doc! {"_id": 1_i32, "name": "edited"}], false, 0);
+    let request = s.issued_request;
     let (s, _) = event(
         s,
         Event::Results {
@@ -594,7 +595,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
             ns: ns(),
             query: Query::default(),
             page: edited.clone(),
-            request: 0,
+            request,
         },
     );
     assert_eq!(s.page, Some(edited));

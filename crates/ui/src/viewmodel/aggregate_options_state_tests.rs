@@ -65,7 +65,10 @@ fn a_valid_change_applies_through_changed() {
     )));
     let (next, applied) = edited.options_applied();
     assert_eq!(applied, Applied::Changed);
-    assert_eq!(next.request, before.wrapping_add(1));
+    assert!(
+        next.request > before,
+        "a change makes the older answers stale"
+    );
     assert_eq!(
         next.options.read_preference,
         Some(ReadPreferenceMode::Secondary)

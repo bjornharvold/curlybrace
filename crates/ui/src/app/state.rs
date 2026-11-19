@@ -173,7 +173,7 @@ pub struct Pending {
 /// The whole UI state.
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
-/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
+/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `issued_request`, `verdict_request`, `page_query`,
 /// `loading_page`, `page`, `page_key`, `verdict`, `guard`, `tree`, `view_mode`, `tab`, `indexes`, `aggregate`, `aggregate_view`, `editor`,
 /// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
 /// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
@@ -223,6 +223,11 @@ pub struct AppState {
     pub find: FindBarState,
     /// The latest requested query; only used to recognise stale `Results`.
     pub issued_query: Query,
+    /// The number the latest find was sent with: only the answer that echoes it is the awaited
+    /// one, so two finds of the same query (or of two tabs) are told apart.
+    pub issued_request: u64,
+    /// The number the latest explain of the run was sent with.
+    pub verdict_request: u64,
     /// The query that produced the page on screen (paging and re-fetch after edits use it).
     pub page_query: Query,
     /// A find is in flight and no page is shown yet.
@@ -404,6 +409,8 @@ impl AppState {
             loading: BTreeSet::new(),
             find: FindBarState::default(),
             issued_query: Query::default(),
+            issued_request: 0,
+            verdict_request: 0,
             page_query: Query::default(),
             loading_page: false,
             page: None,

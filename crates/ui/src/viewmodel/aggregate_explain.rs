@@ -134,7 +134,7 @@ impl ExplainUi {
         pipeline: impl Into<Fingerprint>,
         options: &PipelineOptions,
     ) -> (Self, u64, ExplainVerbosity) {
-        let request = self.request.wrapping_add(1);
+        let request = crate::app::request_numbers::next();
         let verbosity = self.verbosity;
         let next = Self {
             state: ExplainState::Loading {
@@ -197,7 +197,7 @@ impl ExplainUi {
         Self {
             state: ExplainState::Idle,
             tab: ResultTab::Preview,
-            request: self.request.wrapping_add(1),
+            request: crate::app::request_numbers::next(),
             ..self
         }
     }

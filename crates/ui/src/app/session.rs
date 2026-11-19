@@ -26,6 +26,8 @@ pub struct SessionView {
     pub loading: BTreeSet<String>,
     pub find: FindBarState,
     pub issued_query: Query,
+    pub issued_request: u64,
+    pub verdict_request: u64,
     pub page_query: Query,
     pub loading_page: bool,
     pub page: Option<Page>,
@@ -111,6 +113,8 @@ impl AppState {
             loading: std::mem::take(&mut self.loading),
             find: std::mem::take(&mut self.find),
             issued_query: std::mem::take(&mut self.issued_query),
+            issued_request: std::mem::take(&mut self.issued_request),
+            verdict_request: std::mem::take(&mut self.verdict_request),
             page_query: std::mem::take(&mut self.page_query),
             loading_page: std::mem::take(&mut self.loading_page),
             page: self.page.take(),
@@ -143,6 +147,8 @@ impl AppState {
             loading,
             find,
             issued_query,
+            issued_request,
+            verdict_request,
             page_query,
             loading_page,
             page,
@@ -169,6 +175,8 @@ impl AppState {
         self.loading = loading;
         self.find = find;
         self.issued_query = issued_query;
+        self.issued_request = issued_request;
+        self.verdict_request = verdict_request;
         self.page_query = page_query;
         self.loading_page = loading_page;
         self.page = page;
