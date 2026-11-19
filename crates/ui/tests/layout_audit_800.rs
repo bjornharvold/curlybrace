@@ -11,6 +11,7 @@ use curlybrace_ui::app::CurlybraceApp;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::theme;
+use curlybrace_ui::viewmodel::split_layout::Orientation;
 use eframe::egui::{self, Rect, accesskit::Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -19,7 +20,7 @@ use support::compare_states::{Through, compare_state};
 use support::indexes_shots::{indexes_tab, queries_view, queries_view_field_order};
 use support::shell_shots::empty as shell_empty;
 use support::shots::{browsing, build_app};
-use support::tabs_shots::six_tabs;
+use support::tabs_shots::{six_tabs, split_two};
 
 const SMALL: egui::Vec2 = egui::vec2(800.0, 500.0);
 /// The smallest a button, field or tab may be, tall (points): the 28 pt controls less a few
@@ -360,6 +361,18 @@ fn browse_with_six_tabs_and_the_all_tabs_menu_open() {
         .collect();
     assert_eq!(menu.len(), 6, "one entry per tab: {menu:?}");
     audit_controls("six tabs, all-tabs menu", menu);
+}
+
+/// A split view at the smallest window has no room for two panes: one pane under a chip, held to
+/// the same rules as any page (the chip's button is a 24 pt target, nothing overlaps).
+#[test]
+fn browse_split_falls_back_to_one_pane_with_a_chip() {
+    let page = page(vec![], |state| split_two(state, Orientation::SideBySide));
+    audit("split, one pane and a chip", &page);
+    page.harness.get_by_role_and_label(
+        Role::Button,
+        &I18n::english().t("tabs.split.single_show_other"),
+    );
 }
 
 #[test]

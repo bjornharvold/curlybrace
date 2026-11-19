@@ -35,6 +35,8 @@ pub struct StripView<'a> {
     pub can_reopen: bool,
     /// A new tab can be opened (it reads its collection: not without a connection).
     pub can_open: bool,
+    /// Whether the view is split, and how.
+    pub split: crate::views::split_panes::SplitButtons,
 }
 
 /// Draws the strip in one row of `CONTROL_HEIGHT`; returns what the person did.
@@ -44,6 +46,9 @@ pub fn show_tab_strip(ui: &mut Ui, view: &StripView<'_>, i18n: &I18n) -> Vec<Tab
     ui.allocate_ui_with_layout(size, Layout::right_to_left(Align::Center), |ui| {
         actions.extend(all_tabs_menu(ui, view, i18n));
         actions.extend(new_tab_button(ui, view.can_open, i18n));
+        actions.extend(crate::views::split_panes::split_buttons(
+            ui, view.split, i18n,
+        ));
         if view.limit_reached {
             let max = MAX_TABS.to_string();
             let notice = ui.label(i18n.t_with("tabs.limit_reached", &[("max", &max)]));
@@ -149,7 +154,8 @@ fn show_tab(
     }
     response.context_menu(|ui| {
         let entry = (tab, at, view.labels.len());
-        actions.extend(tab_context_menu(ui, entry, view.can_reopen, i18n));
+        let flags = (view.can_reopen, view.split.on);
+        actions.extend(tab_context_menu(ui, entry, flags, i18n));
     });
     if response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);

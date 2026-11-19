@@ -3,10 +3,14 @@
 //! tab. Included from `snapshots.rs` (which is at its size limit) so CI compiles and runs them
 //! with the other screenshots.
 use crate::support::shots::Shot;
-use crate::support::tabs_shots::{background_session, browsing_with_tabs, make_dormant, six_tabs};
+use crate::support::tabs_shots::{
+    background_session, browsing_with_tabs, make_dormant, six_tabs, split_two,
+    split_two_connections,
+};
 use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme::Mode;
+use curlybrace_ui::viewmodel::split_layout::Orientation;
 use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 
@@ -60,6 +64,58 @@ shot!(tabs_production_read_only, vec![], |state| {
     background_session(state, "Reports", "sessions", (false, true));
     background_session(state, "Billing", "ledger", (true, true));
 });
+
+// The split view (#159, slice 3): the standard window with the panes stacked (the size a person
+// first meets it at), the same in the dark theme, a wide window with two connections side by
+// side, and the smallest window, which has no room for two panes.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn split_stacked_1000x700() {
+    if !snapshots_enabled("split_stacked_1000x700") {
+        return;
+    }
+    Shot::sized((1000.0, 700.0), vec![], |state| {
+        split_two(state, Orientation::Stacked)
+    })
+    .snapshot("split_stacked_1000x700");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn split_stacked_1000x700_dark() {
+    if !snapshots_enabled("split_stacked_1000x700_dark") {
+        return;
+    }
+    Shot::sized((1000.0, 700.0), vec![], |state| {
+        split_two(state, Orientation::Stacked)
+    })
+    .mode(Mode::Dark)
+    .snapshot("split_stacked_1000x700_dark");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn split_side_1400x900() {
+    if !snapshots_enabled("split_side_1400x900") {
+        return;
+    }
+    Shot::sized((1400.0, 900.0), vec![], |state| {
+        split_two_connections(state, Orientation::SideBySide)
+    })
+    .snapshot("split_side_1400x900");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn split_single_800x500() {
+    if !snapshots_enabled("split_single_800x500") {
+        return;
+    }
+    Shot::sized((800.0, 500.0), vec![], |state| {
+        split_two(state, Orientation::SideBySide)
+    })
+    .snapshot("split_single_800x500");
+}
 
 // The tab shown lost its connection: it keeps its query and waits for Run.
 shot!(tabs_dormant, vec![], |state| {

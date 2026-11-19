@@ -76,7 +76,7 @@ fn excluded_row(ui: &mut egui::Ui, name: &str, i18n: &I18n) -> Option<IndexesAct
 /// The text box and its Exclude button (Enter in the box does the same). Text with nothing but
 /// whitespace in it cannot be submitted.
 fn add_row(ui: &mut egui::Ui, i18n: &I18n) -> Option<IndexesAction> {
-    let draft_id = egui::Id::new("indexes_sampling_draft");
+    let draft_id = super::pane_scope::scoped_id(ui.ctx(), "indexes_sampling_draft");
     ui.horizontal(|ui| {
         let mut draft: String = ui.data_mut(|d| d.get_temp(draft_id)).unwrap_or_default();
         let response = ui

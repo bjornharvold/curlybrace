@@ -11,7 +11,7 @@ use eframe::egui::{self, Ui, WidgetInfo, WidgetType};
 pub fn tab_context_menu(
     ui: &mut Ui,
     (tab, at, count): (TabId, usize, usize),
-    can_reopen: bool,
+    (can_reopen, split_on): (bool, bool),
     i18n: &I18n,
 ) -> Option<TabAction> {
     let mut chosen = None;
@@ -23,6 +23,17 @@ pub fn tab_context_menu(
         }
     };
     entry(ui, true, "tabs.duplicate", TabAction::Duplicate(tab));
+    entry(
+        ui,
+        true,
+        "tabs.split.open_in_other_pane",
+        TabAction::OpenInOtherPane(tab),
+    );
+    let toggle = match split_on {
+        true => "tabs.split.off",
+        false => "tabs.split.toggle",
+    };
+    entry(ui, true, toggle, TabAction::ToggleSplit);
     ui.separator();
     entry(ui, true, "tabs.close", TabAction::Close(tab));
     entry(

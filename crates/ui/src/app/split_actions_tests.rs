@@ -140,6 +140,51 @@ fn in_tab_input_focuses_that_tab_first() {
 }
 
 #[test]
+fn for_tab_input_applies_in_its_tab_and_leaves_the_focus() {
+    // A pane that acts alone (an automatic refresh) lands in its own tab and takes nothing.
+    let (s, a, first, second) = answered();
+    let (s, _) = tabs(s, TabAction::ToggleSplit);
+    let input = Input::ForTab {
+        tab: second,
+        input: Box::new(Input::Tab(CollectionTab::Indexes)),
+    };
+    let (s, commands) = update(s, input);
+    assert_eq!(s.active_tab(), Some(first), "the focus did not move");
+    assert_eq!(
+        parked(&s, second).tab,
+        CollectionTab::Indexes,
+        "it landed in its tab"
+    );
+    assert_eq!(s.tab, CollectionTab::Documents);
+    assert!(
+        commands.iter().all(|c| c.session() == Some(a)),
+        "{commands:?}"
+    );
+    let split = split_of(&s);
+    assert_eq!((split.primary, split.secondary), (first, second));
+}
+
+#[test]
+fn for_tab_input_on_another_connection_runs_in_that_connection() {
+    let (s, a, first, _) = answered();
+    let (s, b, _) = with_second_session(s);
+    let (s, _) = tabs(s, TabAction::OpenInOtherPane(first));
+    let before = s.active_tab();
+    let input = Input::ForTab {
+        tab: first,
+        input: Box::new(Input::Tab(CollectionTab::Indexes)),
+    };
+    let (s, commands) = update(s, input);
+    assert_eq!(s.active, Some(b), "the foreground connection is the same");
+    assert_eq!(s.active_tab(), before);
+    assert!(!commands.is_empty());
+    assert!(
+        commands.iter().all(|c| c.session() == Some(a)),
+        "{commands:?}"
+    );
+}
+
+#[test]
 fn in_tab_input_for_a_closed_tab_is_dropped() {
     let (s, _, first, second) = answered();
     let (s, _) = tabs(s, TabAction::Close(second));

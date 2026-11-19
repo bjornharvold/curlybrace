@@ -4,9 +4,12 @@
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, Workspace};
+use super::tab_actions::TabAction;
 use crate::I18n;
 use crate::theme::ROW_GAP;
 use crate::viewmodel::tab_title::labels;
+use crate::views::split_panes::{SplitButtons, request_pane_focus};
+use crate::views::split_shortcuts::split_shortcuts;
 use crate::views::tab_shortcuts::tab_shortcuts;
 use crate::views::tab_strip::{StripView, show_tab_strip};
 use eframe::egui;
@@ -19,8 +22,18 @@ const TEXT_FOCUS: &str = "curlybrace.tabs.text_focus_last_frame";
 /// connection manager, and Close and Switch must still work (only New needs a connection, and the
 /// reducer refuses it).
 pub(super) fn take_shortcuts(ctx: &egui::Context, state: &AppState, out: &mut Vec<UiEvent>) {
-    let wanted = tab_shortcuts(ctx, shortcuts_enabled(ctx, state));
+    let live = shortcuts_enabled(ctx, state);
+    let wanted = tab_shortcuts(ctx, live);
     out.extend(wanted.into_iter().map(tabs_input));
+    // F6 is not a text key: only a dialog holds it back.
+    let panes = split_shortcuts(ctx, live, no_dialog(ctx, state));
+    if let (Some(split), true) = (
+        &state.tabs.split,
+        panes.contains(&TabAction::FocusOtherPane),
+    ) {
+        request_pane_focus(ctx, split.secondary);
+    }
+    out.extend(panes.into_iter().map(tabs_input));
 }
 
 pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
@@ -36,6 +49,15 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
         limit_reached: state.tabs.notice.is_some(),
         can_reopen: !state.tabs.closed.is_empty(),
         can_open: state.status == super::state::ConnStatus::Connected,
+        split: SplitButtons {
+            on: state.tabs.split.is_some(),
+            orientation: state
+                .tabs
+                .split
+                .as_ref()
+                .map(|s| s.orientation)
+                .unwrap_or_default(),
+        },
     };
     let actions = show_tab_strip(ui, &view, i18n);
     out.extend(actions.into_iter().map(tabs_input));
@@ -46,10 +68,14 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
 /// modal: the SSH host-key question has no state) and no text field holding the keyboard (typing
 /// in the Filter field is never taken). A connection is not needed: only New needs one.
 fn shortcuts_enabled(ctx: &egui::Context, state: &AppState) -> bool {
+    no_dialog(ctx, state) && !text_focused(ctx)
+}
+
+/// The Browse workspace with no dialog open: the keys that are not text keys work here.
+fn no_dialog(ctx: &egui::Context, state: &AppState) -> bool {
     state.workspace == Workspace::Browse
         && !state.any_dialog_open()
         && ctx.memory(|m| m.top_modal_layer().is_none())
-        && !text_focused(ctx)
 }
 
 /// A text field has the keyboard: the focused widget is one (even scrolled out of view), or egui

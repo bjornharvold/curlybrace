@@ -227,7 +227,7 @@ fn stage_editor(ui: &mut egui::Ui, key: u64, text: &str, n: &str, i18n: &I18n) -
         .lines()
         .count()
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
-    let id = stage_text_id(key);
+    let id = stage_text_id(ui.ctx(), key);
     let (response, changed) = completing_editor(ui, id, &mut buffer, rows, i18n);
     // Named on its accesskit node, not through `widget_info`, which would announce the
     // multi-line editor as a one-line text field.
@@ -237,9 +237,10 @@ fn stage_editor(ui: &mut egui::Ui, key: u64, text: &str, n: &str, i18n: &I18n) -
     changed.then_some(buffer)
 }
 
-/// The egui id of the stage editor of identity `key`; it follows the stage when it moves.
-pub(super) fn stage_text_id(key: u64) -> egui::Id {
-    egui::Id::new(("aggregate_stage_text", key))
+/// The egui id of the stage editor of identity `key`; it follows the stage when it moves, and in
+/// the split view it is the pane's own (two panes' drafts both start at key 0).
+pub(super) fn stage_text_id(ctx: &egui::Context, key: u64) -> egui::Id {
+    super::pane_scope::scoped_id(ctx, ("aggregate_stage_text", key))
 }
 
 /// Valid, or what is wrong; a disabled stage also says the preview skips it.
@@ -283,9 +284,10 @@ mod tests {
         let draft = ["$match", "$sort"]
             .into_iter()
             .fold(AggregateState::default(), |d, n| d.add_stage(n));
-        let before: Vec<_> = draft.keys.iter().map(|k| stage_text_id(*k)).collect();
+        let ctx = egui::Context::default();
+        let before: Vec<_> = draft.keys.iter().map(|k| stage_text_id(&ctx, *k)).collect();
         let moved = draft.move_up(1);
-        let after: Vec<_> = moved.keys.iter().map(|k| stage_text_id(*k)).collect();
+        let after: Vec<_> = moved.keys.iter().map(|k| stage_text_id(&ctx, *k)).collect();
         assert_eq!(after, [before[1], before[0]]);
         assert_ne!(before[0], before[1]);
     }

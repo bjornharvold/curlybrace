@@ -1,6 +1,6 @@
 use super::{
-    DIVIDER, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Orientation, STAIRS, SplitLayout, clamped, layout,
-    min_height_at, min_width_at,
+    DIVIDER, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Orientation, PANE_RING, STAIRS, SplitLayout, clamped,
+    layout, min_height_at, min_width_at,
 };
 use eframe::egui::vec2;
 
@@ -23,10 +23,10 @@ fn stacked_at_1000x700() {
 }
 
 #[test]
-fn side_by_side_is_the_default_at_1000x700_because_the_measured_page_fits() {
-    // Two 348 pt wide panes 652 high keep the page usable (the staircase has (250, 560)).
+fn stacked_is_used_at_1000x700_even_when_side_by_side_is_asked_for() {
+    // Two 348 pt wide panes are narrower than the header needs (400); two 322 pt high ones fit.
     let got = layout(central(1000.0, 700.0), Orientation::SideBySide, 0.5);
-    assert_eq!(got, SplitLayout::Side { ratio: 0.5 });
+    assert_eq!(got, SplitLayout::Stacked { ratio: 0.5 });
 }
 
 #[test]
@@ -54,15 +54,26 @@ fn ratio_is_clamped() {
     assert_eq!(clamped(0.0), 0.25);
     assert_eq!(clamped(1.0), 0.75);
     assert_eq!(clamped(f32::NAN), 0.5);
-    let got = layout(central(1700.0, 900.0), Orientation::SideBySide, 0.99);
+    // Wide enough that the quarter-to-three-quarters limit is the one that binds (a pane at 0.75
+    // of 2400 leaves the other 600, more than the header needs).
+    let got = layout(vec2(2408.0, 900.0), Orientation::SideBySide, 0.99);
     assert_eq!(got, SplitLayout::Side { ratio: 0.75 });
+    // Narrower, the other pane's minimum binds first.
+    let got = layout(central(1700.0, 900.0), Orientation::SideBySide, 0.99);
+    assert!(
+        matches!(got, SplitLayout::Side { ratio } if ratio < 0.75),
+        "{got:?}"
+    );
 }
 
 #[test]
 fn the_ratio_never_squeezes_a_pane_below_its_minimum() {
     // Just wide enough for two panes of the narrowest width that works at this height (470 at
-    // 400 high): the divider cannot move at all.
-    let narrow = vec2(2.0 * 470.0 + DIVIDER, 400.0);
+    // 400 high, and the 2 pt ring of each pane on each side): the divider cannot move at all.
+    let narrow = vec2(
+        2.0 * (470.0 + 2.0 * PANE_RING) + DIVIDER,
+        400.0 + 2.0 * PANE_RING,
+    );
     assert_eq!(
         layout(narrow, Orientation::SideBySide, 0.25),
         SplitLayout::Side { ratio: 0.5 }
@@ -71,16 +82,16 @@ fn the_ratio_never_squeezes_a_pane_below_its_minimum() {
 
 #[test]
 fn a_narrower_pane_needs_a_taller_one() {
-    assert_eq!(min_width_at(600.0), Some(250.0));
+    assert_eq!(min_width_at(600.0), Some(400.0));
     assert_eq!(min_width_at(400.0), Some(470.0));
     assert_eq!(min_width_at(200.0), None);
-    assert_eq!(min_height_at(250.0), Some(560.0));
+    assert_eq!(min_height_at(399.0), None);
+    assert_eq!(min_height_at(400.0), Some(430.0));
     assert_eq!(min_height_at(1000.0), Some(250.0));
-    assert_eq!(min_height_at(200.0), None);
-    // 316 wide panes fit when they are 600 high, not when they are 400 high.
-    let tall = layout(vec2(640.0, 600.0), Orientation::SideBySide, 0.5);
+    // 446 wide panes fit when they are 600 high, not when they are 400 high.
+    let tall = layout(vec2(900.0, 600.0), Orientation::SideBySide, 0.5);
     assert!(matches!(tall, SplitLayout::Side { .. }), "{tall:?}");
-    let short = layout(vec2(640.0, 400.0), Orientation::SideBySide, 0.5);
+    let short = layout(vec2(900.0, 400.0), Orientation::SideBySide, 0.5);
     assert_eq!(short, SplitLayout::Single);
 }
 

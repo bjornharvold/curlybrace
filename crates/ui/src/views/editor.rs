@@ -14,16 +14,18 @@ pub fn show_editor(
     connection: &str,
     i18n: &I18n,
 ) -> Option<EditorAction> {
-    show_editor_with(ctx, state, connection, i18n, true)
+    show_editor_with(ctx, state, connection, i18n, (true, ()))
 }
 
-/// Like [`show_editor`]; `save_enabled == false` greys out Save (a mutation is in flight).
+/// Like [`show_editor`]; `save_enabled == false` greys out Save (a mutation is in flight). Every
+/// widget of the editor is under `scope`'s id (the tab it belongs to), so the text box of one
+/// tab's editor never shares egui's memory (cursor, selection, scroll) with another's.
 pub fn show_editor_with(
     ctx: &egui::Context,
     state: &mut EditorState,
     connection: &str,
     i18n: &I18n,
-    save_enabled: bool,
+    (save_enabled, scope): (bool, impl std::hash::Hash),
 ) -> Option<EditorAction> {
     let title_key = if state.original_id.is_some() {
         "editor.title_edit"
@@ -31,7 +33,7 @@ pub fn show_editor_with(
         "editor.title_new"
     };
     let mut intent = None;
-    let modal = egui::Modal::new(egui::Id::new("document_editor"))
+    let modal = egui::Modal::new(egui::Id::new(("document_editor", scope)))
         .frame(modal_frame(ctx))
         .show(ctx, |ui| {
             let title = ui.label(dialog_title(ui, i18n.t(title_key)));

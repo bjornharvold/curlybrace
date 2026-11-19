@@ -7,7 +7,9 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::store::{Namespace, Page};
 use curlybrace_ui::app::session::SessionView;
 use curlybrace_ui::app::state::{AppState, ConnStatus};
+use curlybrace_ui::app::tab_strip::Split;
 use curlybrace_ui::app::tabs::TabId;
+use curlybrace_ui::viewmodel::split_layout::Orientation;
 use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use uuid::Uuid;
 
@@ -82,6 +84,71 @@ pub fn six_tabs(state: &mut AppState) {
     background_session(state, "Staging", "orders", (true, false));
     background_session(state, "Reports", "sessions", (false, true));
     background_session(state, "Billing", "ledger", (true, true));
+}
+
+/// Splits the view: the tab being looked at beside `partner`, side by side or stacked.
+pub fn split_with(state: &mut AppState, partner: TabId, orientation: Orientation) {
+    let primary = state.active_tab().expect("a tab being looked at");
+    state.tabs = std::mem::take(&mut state.tabs).with_split(Some(Split {
+        primary,
+        secondary: partner,
+        ratio: 0.5,
+        orientation,
+        secondary_first: false,
+    }));
+}
+
+/// What a real connection is called: long enough that the Browse header (the connection's name,
+/// badge and sub-tabs, which does not wrap) is as wide as it is in use. The layout rules are
+/// measured with it.
+pub const REAL_NAME: &str = "Production replica";
+
+/// Renames the active connection, as the layout tests do before they measure.
+pub fn renamed(state: &mut AppState, name: &str) {
+    let active = state.active;
+    for connection in state
+        .conn
+        .connections
+        .iter_mut()
+        .filter(|c| Some(c.id) == active)
+    {
+        connection.name = name.to_string();
+    }
+}
+
+/// On a page that already shows the fixture (`browse_page` installs it): the shown tab beside a
+/// parked one of the same connection, with a real connection name, and no second session.
+pub fn split_here(state: &mut AppState, orientation: Orientation) {
+    renamed(state, REAL_NAME);
+    let session = state.active.expect("an active session");
+    *state = std::mem::take(state).tab_opened(session).0;
+    let partner = parked_tab(state, session, "crm", "invoices");
+    split_with(state, partner, orientation);
+}
+
+/// The fixture's tab of `crm.customers` beside a parked tab of the same connection.
+pub fn split_two(state: &mut AppState, orientation: Orientation) {
+    let tabs = browsing_with_tabs(state, &["invoices"]);
+    renamed(state, REAL_NAME);
+    split_with(state, tabs[0], orientation);
+}
+
+/// The fixture's tab beside the one tab of another connection (`Staging`, a production one).
+pub fn split_two_connections(state: &mut AppState, orientation: Orientation) {
+    browsing_with_tabs(state, &[]);
+    renamed(state, REAL_NAME);
+    let other = background_session(state, "Staging", "orders", (true, false));
+    // The other connection's tab shows a page, as a tab that has run its query does.
+    if let Some(view) = state.parked.get_mut(&other) {
+        let page = people_page();
+        view.page_key = Some(page_key(&page));
+        view.page = Some(page);
+        view.view_mode = ViewMode::Table;
+    }
+    let partner = state
+        .current_tab_of(other)
+        .expect("the other connection's tab");
+    split_with(state, partner, orientation);
 }
 
 /// Marks the active session's given tab dormant: its page is gone and it waits for Run.

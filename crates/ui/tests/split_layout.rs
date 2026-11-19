@@ -6,10 +6,13 @@
 mod support;
 
 use curlybrace_ui::I18n;
-use curlybrace_ui::viewmodel::split_layout::{MIN_PANE_HEIGHT, MIN_PANE_WIDTH, STAIRS};
+use curlybrace_ui::viewmodel::split_layout::{
+    MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Orientation, STAIRS,
+};
 use eframe::egui::{self, Rect, accesskit::Role};
 use egui_kittest::kittest::NodeT;
 use support::browse_page::{BrowsePage, browse_page};
+use support::tabs_shots::{REAL_NAME, renamed, split_here};
 
 /// The central panel's inner margin on every side (egui's `Frame::central_panel`).
 const MARGIN: f32 = 8.0;
@@ -19,6 +22,15 @@ const MIN_TARGET_HEIGHT: f32 = 24.0;
 const OVERLAP_TOLERANCE: f32 = 1.0;
 /// How far a measured corner may be off on another platform (points).
 const SLACK: f32 = 10.0;
+/// The controls of the page's header and find bar that a usable pane shows whole (a button that
+/// does not fit is cut out of the tree, so its absence is the failure).
+const ALWAYS_THERE: [&str; 5] = [
+    "Button Documents",
+    "Button Indexes",
+    "Button Aggregate",
+    "TextInput Filter",
+    "Button Find",
+];
 /// The documents a pane must still show for its height to be usable.
 const ROWS_WANTED: usize = 3;
 
@@ -38,7 +50,7 @@ fn sidebar_width() -> f32 {
 /// The page in a pane of `size`: the window is the pane, the sidebar and the margins.
 fn pane(size: egui::Vec2, sidebar: f32) -> Pane {
     let window = (size.x + sidebar + 2.0 * MARGIN, size.y + 2.0 * MARGIN);
-    let page = browse_page(window, |_| {});
+    let page = browse_page(window, |state| renamed(state, REAL_NAME));
     let area = Rect::from_min_max(
         egui::pos2(sidebar + MARGIN, MARGIN),
         egui::pos2(window.0 - MARGIN, window.1 - MARGIN),
@@ -81,6 +93,14 @@ fn controls(pane: &Pane) -> Vec<(String, Rect)> {
 fn problems(pane: &Pane) -> Vec<String> {
     let shown = controls(pane);
     let mut found = Vec::new();
+    // egui draws nothing that lies outside the area it clips to, so a control pushed out of the
+    // pane is not in the tree at all: the controls every pane must have are named, and each must
+    // be there, whole.
+    for name in ALWAYS_THERE {
+        if !shown.iter().any(|(label, _)| label == name) {
+            found.push(format!("{name} is not on screen"));
+        }
+    }
     for (label, rect) in &shown {
         if rect.right() > pane.area.right() + 0.5 {
             found.push(format!("{label} runs past the right edge: {rect:?}"));
@@ -139,6 +159,10 @@ fn staircase(sidebar: f32) -> Vec<(f32, f32)> {
     // The lowest height only falls as the width grows: search down from the one before.
     let mut height = 900.0;
     for width in widths() {
+        // Too narrow at any height: the header does not fit.
+        if !usable(egui::vec2(width, height), sidebar) {
+            continue;
+        }
         while height > 100.0 && usable(egui::vec2(width, height - 10.0), sidebar) {
             height -= 10.0;
         }
@@ -185,4 +209,138 @@ fn pane_minimums_match_the_measured_page() {
     let lowest = STAIRS.iter().map(|(_, h)| *h).fold(f32::MAX, f32::min);
     assert_eq!(MIN_PANE_WIDTH, narrowest);
     assert_eq!(MIN_PANE_HEIGHT, lowest);
+}
+
+// The split pages themselves: the real app with two panes at the window sizes the app is designed
+// for, held to the same rules as any page (no overlap, nothing past the edge, 24 pt targets), with
+// each pane inside the window, apart from the other, and showing its documents.
+
+/// The page of a split `window` in size, with the central area (less its margin) as the pane's.
+fn split_window(window: (f32, f32), orientation: Orientation) -> Pane {
+    let page = browse_page(window, |state| split_here(state, orientation));
+    let sidebar = sidebar_width();
+    let area = Rect::from_min_max(
+        egui::pos2(sidebar + MARGIN, MARGIN),
+        egui::pos2(window.0 - MARGIN, window.1 - MARGIN),
+    );
+    Pane { page, area }
+}
+
+/// The two panes' rectangles (their groups), active first.
+fn panes_of(pane: &Pane) -> Vec<(String, Rect)> {
+    ["Active pane", "Other pane"]
+        .into_iter()
+        .map(|prefix| {
+            let node = pane
+                .page
+                .harness
+                .root()
+                .children_recursive()
+                .find(|n| {
+                    n.accesskit_node().role() == Role::Group
+                        && n.accesskit_node()
+                            .label()
+                            .is_some_and(|l| l.starts_with(prefix))
+                })
+                .unwrap_or_else(|| {
+                    let all: Vec<_> = pane
+                        .page
+                        .harness
+                        .root()
+                        .children_recursive()
+                        .map(|n| (n.accesskit_node().role(), n.accesskit_node().label()))
+                        .filter(|(r, _)| *r != Role::Label && *r != Role::Button)
+                        .collect();
+                    panic!("no {prefix} in {all:?}")
+                });
+            (prefix.to_string(), node.rect())
+        })
+        .collect()
+}
+
+fn audit_split(name: &str, window: (f32, f32), orientation: Orientation) {
+    let pane = split_window(window, orientation);
+    let found = problems(&pane);
+    assert!(found.is_empty(), "{name}: {found:#?}");
+    let panes = panes_of(&pane);
+    let [(_, first), (_, second)] = panes.as_slice() else {
+        panic!("{name}: two panes");
+    };
+    for (label, rect) in &panes {
+        assert!(
+            pane.area.expand(1.0).contains_rect(*rect),
+            "{name}: {label} {rect:?} leaves the window {:?}",
+            pane.area
+        );
+    }
+    assert!(
+        !first.intersect(*second).is_positive(),
+        "{name}: the panes overlap: {first:?} {second:?}"
+    );
+    // Each pane shows its documents: three rows are inside its own rectangle.
+    let rows = |pane_rect: &Rect| {
+        let prefix = I18n::english()
+            .t_with("doc.select_row", &[("n", "")])
+            .trim_end()
+            .to_string();
+        pane.page
+            .harness
+            .root()
+            .children_recursive()
+            .filter(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.starts_with(&prefix))
+            })
+            .filter(|n| pane_rect.contains_rect(n.rect()))
+            .count()
+    };
+    for (label, rect) in &panes {
+        assert!(
+            rows(rect) >= ROWS_WANTED,
+            "{name}: {label} shows too few rows"
+        );
+    }
+    eprintln!("{name}: panes {first:?} and {second:?}");
+}
+
+#[test]
+fn split_stacked_1000x700_passes_the_audit() {
+    audit_split("stacked 1000x700", (1000.0, 700.0), Orientation::Stacked);
+}
+
+#[test]
+fn split_side_by_side_1000x700_passes_the_audit() {
+    audit_split(
+        "side by side 1000x700",
+        (1000.0, 700.0),
+        Orientation::SideBySide,
+    );
+}
+
+#[test]
+fn split_side_by_side_1400x900_passes_the_audit() {
+    audit_split(
+        "side by side 1400x900",
+        (1400.0, 900.0),
+        Orientation::SideBySide,
+    );
+}
+
+#[test]
+fn split_at_800x500_is_one_pane_with_a_chip() {
+    let pane = split_window((800.0, 500.0), Orientation::SideBySide);
+    let found = problems(&pane);
+    assert!(found.is_empty(), "one pane at 800x500: {found:#?}");
+    let groups = pane
+        .page
+        .harness
+        .root()
+        .children_recursive()
+        .filter(|n| n.accesskit_node().role() == Role::Group)
+        .count();
+    assert_eq!(
+        groups, 0,
+        "no pane frame: the page is drawn as it always is"
+    );
 }

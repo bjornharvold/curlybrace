@@ -8,20 +8,20 @@ use eframe::egui::Vec2;
 
 /// The divider's hit area: the room between the two panes (points).
 pub const DIVIDER: f32 = 8.0;
+/// The border around a pane (points): the page is drawn inside it, in what the staircase measures.
+pub const PANE_RING: f32 = 2.0;
 /// The narrowest a pane may be at all (points), whatever its height.
-pub const MIN_PANE_WIDTH: f32 = 250.0;
+pub const MIN_PANE_WIDTH: f32 = 400.0;
 /// The lowest a pane may be at all (points), whatever its width.
 pub const MIN_PANE_HEIGHT: f32 = 250.0;
 /// The corners `(width, height)` of the smallest panes the Browse page is usable in, measured on
-/// the real page (`tests/split_layout.rs::pane_minimums_match_the_measured_page`): no control
-/// past the pane's edge, none squashed or overlapping, and three documents in view. A pane fits
-/// when it is at least as wide and as high as one corner.
-pub const STAIRS: [(f32, f32); 10] = [
-    (250.0, 560.0),
-    (260.0, 510.0),
-    (280.0, 490.0),
-    (330.0, 460.0),
-    (340.0, 430.0),
+/// the real page (`tests/split_layout.rs::pane_minimums_match_the_measured_page`), with a real
+/// connection name: the header (name, badge, Documents | Indexes | Aggregate) and the find bar
+/// whole, none squashed, nothing past the edge or overlapping, and three documents in view. A
+/// narrower pane wraps its find bar into more rows, so it needs more height. A pane fits when it
+/// is at least as wide and as high as one corner.
+pub const STAIRS: [(f32, f32); 6] = [
+    (400.0, 430.0),
     (470.0, 380.0),
     (500.0, 350.0),
     (610.0, 330.0),
@@ -94,14 +94,15 @@ fn within_room(ratio: f32, room: f32, min: f32) -> f32 {
 /// The ratio for two panes side by side in `central`, when both fit.
 fn side(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.x - DIVIDER;
-    let min = min_width_at(central.y)?;
+    // What the page gets of a pane is less its ring on every side.
+    let min = min_width_at(central.y - 2.0 * PANE_RING)? + 2.0 * PANE_RING;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
 }
 
 /// The ratio for two panes one above the other in `central`, when both fit.
 fn stacked(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.y - DIVIDER;
-    let min = min_height_at(central.x)?;
+    let min = min_height_at(central.x - 2.0 * PANE_RING)? + 2.0 * PANE_RING;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
 }
 

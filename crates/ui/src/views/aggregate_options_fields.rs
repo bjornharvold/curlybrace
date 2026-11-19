@@ -29,7 +29,10 @@ pub(super) fn typed_field(
     // arrives while the hint is being typed).
     let options = FieldOptions {
         error: problem.as_deref(),
-        id: Some(egui::Id::new(("option_field", scope, label))),
+        id: Some(super::pane_scope::scoped_id(
+            ui.ctx(),
+            ("option_field", scope, label),
+        )),
         ..FieldOptions::default()
     };
     let response = outlined_field_opts(ui, label, &mut buffer, hint, options);

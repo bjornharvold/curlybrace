@@ -43,6 +43,7 @@ fn strip(can_open: bool) -> Harness<'static, ()> {
                 limit_reached: false,
                 can_reopen: false,
                 can_open,
+                split: Default::default(),
             };
             show_tab_strip(ui, &view, &i18n);
         });

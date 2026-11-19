@@ -51,6 +51,22 @@ pub(super) fn in_tab(state: AppState, tab: TabId, input: Box<Input>) -> Out {
     (state, commands)
 }
 
+/// What a pane did on its own: applied in its tab (and its connection) with the tab left where it
+/// is, so a pane that refreshes itself never takes the focus from the one being used.
+#[inline(never)]
+pub(super) fn for_tab(state: AppState, tab: TabId, input: Box<Input>) -> Out {
+    state.with_tab(tab, |inner| dispatch(inner, *input))
+}
+
+/// [`reconciled`] in place, for the end of every input: no split returns at once, and nothing of
+/// the state is moved by value into the caller's frame (this is on the deepest event path).
+#[inline(never)]
+pub(super) fn reconcile(state: &mut AppState) {
+    if state.tabs.split.is_some() {
+        *state = reconciled(std::mem::take(state));
+    }
+}
+
 /// The split brought in line with the tab being looked at, which any path may have changed (a
 /// tab switch, a session picked in the tree, a close): the active tab is always a pane, the
 /// partner it replaced stays, and the roles swap when the partner was the one activated. A split

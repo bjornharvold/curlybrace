@@ -40,6 +40,17 @@ pub(super) fn show_collection(
     now_secs: i64,
 ) {
     super::tab_strip_panel::show_strip(ui, state, i18n, out);
+    show_pane(ui, state, i18n, out, now_secs);
+}
+
+/// The page of the tab in the foreground, under the strip: what a pane of the split view draws.
+pub(super) fn show_pane(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+    now_secs: i64,
+) {
     if state.selected_ns().is_none() {
         ui.label(i18n.t("browser.select_collection"));
         return;
