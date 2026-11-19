@@ -8,7 +8,7 @@
 //! `Input::InTab` (the person touched the pane: it becomes the active one) or `Input::ForTab` (the
 //! pane acted alone, an automatic refresh: the focus stays), so they are applied in the tab and
 //! the connection that drew them.
-use super::browse_panel::{show_collection, show_pane as show_page};
+use super::browse_panel::{show_code_dialog_once, show_pane as show_page};
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
@@ -17,9 +17,11 @@ use super::tab_strip::Split;
 use super::tabs::{Freshness, TabId};
 use crate::I18n;
 use crate::theme::ROW_GAP;
-use crate::viewmodel::split_layout::{DIVIDER, Orientation, SplitLayout, layout};
+use crate::viewmodel::split_layout::{DIVIDER, Orientation, SplitLayout, layout, ratio_limits};
 use crate::viewmodel::tab_title::labels;
-use crate::views::split_panes::{DividerView, PaneView, show_divider, show_pane, show_single_chip};
+use crate::views::split_panes::{
+    DividerView, PaneView, clear_pane_focus, show_divider, show_pane, show_single_chip,
+};
 use eframe::egui::{self, Id, Rect, Sense, pos2, vec2};
 
 /// The Browse page of the foreground, split in two when the strip says so.
@@ -31,9 +33,12 @@ pub(super) fn show_browse(
     now_secs: i64,
 ) {
     let Some(split) = state.tabs.split.clone() else {
-        return show_collection(ui, state, i18n, out, now_secs);
+        clear_pane_focus(ui.ctx());
+        super::tab_strip_panel::show_strip(ui, state, i18n, out);
+        return show_page(ui, state, i18n, out, now_secs);
     };
     super::tab_strip_panel::show_strip(ui, state, i18n, out);
+    show_code_dialog_once(ui.ctx(), state, i18n, out);
     let area = ui.available_rect_before_wrap();
     let names = Names::of(state, &split, i18n);
     match layout(area.size(), split.orientation, split.ratio) {
@@ -51,6 +56,7 @@ pub(super) fn show_browse(
 
 /// What the two panes are called: the accessible names and the title the chip shows.
 struct Names {
+    primary: TabId,
     active: String,
     other: String,
     title: String,
@@ -65,6 +71,7 @@ impl Names {
             i18n.t_with(key, &[("name", name)])
         };
         Self {
+            primary: split.primary,
             active: named("tabs.split.pane_active", split.primary),
             other: named("tabs.split.pane_other", split.secondary),
             title: find(split.primary)
@@ -85,12 +92,21 @@ fn show_single(
     out: &mut Vec<UiEvent>,
     names: &Names,
 ) {
+    clear_pane_focus(ui.ctx());
     if show_single_chip(ui, &names.title, i18n) {
         out.push(tabs_event(TabAction::ShowOtherPane));
     }
     ui.add_space(ROW_GAP);
-    let salt = ("pane", state.active_tab());
-    ui.push_id(salt, |ui| show_page(ui, state, i18n, out, now_secs));
+    // The same frame the pane has among two (a group and the same id root), without a ring, so the
+    // page keeps its widget state when the window crosses the threshold.
+    let pane = PaneView {
+        tab: names.primary,
+        rect: ui.available_rect_before_wrap(),
+        active: true,
+        name: &names.active,
+        ring: false,
+    };
+    show_pane(ui, &pane, |ui| show_page(ui, state, i18n, out, now_secs));
 }
 
 fn show_two(
@@ -112,6 +128,7 @@ fn show_two(
         rect: active_rect,
         active: true,
         name: &names.active,
+        ring: true,
     };
     show_pane(ui, &active, |ui| show_page(ui, state, i18n, out, now_secs));
     let divider = DividerView {
@@ -119,6 +136,7 @@ fn show_two(
         area,
         orientation,
         ratio,
+        limits: ratio_limits(area.size(), orientation),
     };
     if let Some(action) = show_divider(ui, &divider, i18n) {
         out.push(tabs_event(action));
@@ -128,6 +146,7 @@ fn show_two(
         rect: other_rect,
         active: false,
         name: &names.other,
+        ring: true,
     };
     show_other(ui, state, &other, (i18n, now_secs), out);
     ui.allocate_rect(area, Sense::hover());
@@ -192,10 +211,21 @@ fn is_stale_and_reachable(state: &AppState, tab: TabId) -> bool {
 
 /// Focus follows interaction: a press inside `rect`, or the keyboard arriving at a widget inside
 /// it, makes its pane the active one.
+///
+/// Only on the pane's own layer, and never behind a modal: a dialog or a popup lying over the pane
+/// (an editor, a context menu) is egui's own layer, and a press on it is not a touch of the pane.
 fn focus_moved_into(ui: &egui::Ui, rect: Rect) -> bool {
+    if ui.ctx().memory(|m| m.top_modal_layer()).is_some() {
+        let focused = ui.memory(|m| m.focused());
+        ui.data_mut(|d| d.insert_temp(Id::new("curlybrace.split.last_focus"), focused));
+        return false;
+    }
+    let own = ui.layer_id();
     let pressed = ui.input(|i| {
-        i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p))
+        let at = i.pointer.interact_pos();
+        at.filter(|p| i.pointer.any_pressed() && rect.contains(*p))
     });
+    let pressed = pressed.is_some_and(|p| ui.ctx().layer_id_at(p) == Some(own));
     let key = Id::new("curlybrace.split.last_focus");
     let focused = ui.memory(|m| m.focused());
     let before: Option<Option<Id>> = ui.data(|d| d.get_temp(key));
@@ -204,7 +234,7 @@ fn focus_moved_into(ui: &egui::Ui, rect: Rect) -> bool {
         (Some(id), Some(last)) if last != Some(id) => ui
             .ctx()
             .read_response(id)
-            .is_some_and(|r| rect.contains(r.rect.center())),
+            .is_some_and(|r| r.layer_id == own && rect.contains(r.rect.center())),
         _ => false,
     };
     pressed || arrived

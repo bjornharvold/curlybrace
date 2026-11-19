@@ -284,32 +284,35 @@ fn show_delete_confirm(
     );
     let mut confirmed = false;
     let mut cancelled = false;
-    let modal = egui::Modal::new(egui::Id::new("delete_confirm"))
-        .frame(modal_frame(ctx))
-        .show(ctx, |ui| {
-            ui.label(message);
+    let modal = egui::Modal::new(super::pane_scope::note_modal(
+        ctx,
+        super::pane_scope::scoped_id(ctx, "delete_confirm"),
+    ))
+    .frame(modal_frame(ctx))
+    .show(ctx, |ui| {
+        ui.label(message);
+        if target.production {
+            // The notice rides in this one dialog: delete never opens a second warning.
+            ui.label(
+                egui::RichText::new(i18n.t("write_warning.production_line"))
+                    .strong()
+                    .color(ui.visuals().error_fg_color),
+            );
+        }
+        ui.horizontal(|ui| {
             if target.production {
-                // The notice rides in this one dialog: delete never opens a second warning.
-                ui.label(
-                    egui::RichText::new(i18n.t("write_warning.production_line"))
-                        .strong()
-                        .color(ui.visuals().error_fg_color),
-                );
+                // Cancel first and focused: a stray Enter can never delete on production.
+                let cancel = text_button(ui, i18n.t("common.cancel"));
+                let delete = filled_button(ui, i18n.t("doc.delete"));
+                focus_cancel_unless_focused(&cancel, &delete);
+                cancelled = cancel.clicked();
+                confirmed = delete.clicked();
+            } else {
+                confirmed = filled_button(ui, i18n.t("doc.delete")).clicked();
+                cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
             }
-            ui.horizontal(|ui| {
-                if target.production {
-                    // Cancel first and focused: a stray Enter can never delete on production.
-                    let cancel = text_button(ui, i18n.t("common.cancel"));
-                    let delete = filled_button(ui, i18n.t("doc.delete"));
-                    focus_cancel_unless_focused(&cancel, &delete);
-                    cancelled = cancel.clicked();
-                    confirmed = delete.clicked();
-                } else {
-                    confirmed = filled_button(ui, i18n.t("doc.delete")).clicked();
-                    cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
-                }
-            });
         });
+    });
     if confirmed {
         let (next, action) = std::mem::take(state).delete_confirmed(key);
         *state = next;

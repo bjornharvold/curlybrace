@@ -21,6 +21,12 @@ pub fn request_pane_focus(ctx: &Context, tab: TabId) {
     ctx.data_mut(|d| d.insert_temp(Id::new(FOCUS_TARGET), tab));
 }
 
+/// No pane is drawn (one pane fits, or no split): a pending F6 focus is dropped, so it cannot grab
+/// the focus after a later resize.
+pub fn clear_pane_focus(ctx: &Context) {
+    ctx.data_mut(|d| d.remove::<TabId>(Id::new(FOCUS_TARGET)));
+}
+
 fn take_pane_focus(ctx: &Context, tab: TabId) -> bool {
     let wanted: Option<TabId> = ctx.data(|d| d.get_temp(Id::new(FOCUS_TARGET)));
     if wanted == Some(tab) {
@@ -35,6 +41,8 @@ pub struct PaneView<'a> {
     pub rect: Rect,
     pub active: bool,
     pub name: &'a str,
+    /// Draw the ring (and keep the page inside it); the one pane of the fallback has none.
+    pub ring: bool,
 }
 
 /// Draws a pane: a focusable named group over `rect`, the page (`content`) inside its ring, and
@@ -57,7 +65,10 @@ pub fn show_pane(
     if take_pane_focus(ui.ctx(), pane.tab) {
         group.request_focus();
     }
-    let inner = pane.rect.shrink(PANE_RING);
+    let inner = match pane.ring {
+        true => pane.rect.shrink(PANE_RING),
+        false => pane.rect,
+    };
     let builder = UiBuilder::new()
         .id_salt(("pane", pane.tab.0))
         .max_rect(inner)
@@ -70,15 +81,17 @@ pub fn show_pane(
         .clone()
         .with_accessibility_parent(group.id, || content(&mut child));
     super::pane_scope::left(ui.ctx());
-    paint_ring(ui, pane, group.has_focus());
+    if pane.ring {
+        paint_ring(ui, pane, group.has_focus());
+    }
     group
 }
 
 fn paint_ring(ui: &Ui, pane: &PaneView<'_>, focused: bool) {
     let s = current_ui(ui);
     let (width, color) = match (pane.active, focused) {
-        (_, true) => (PANE_RING, s.primary),
-        (true, false) => (PANE_RING, s.primary),
+        (_, true) => (2.0, s.primary),
+        (true, false) => (2.0, s.primary),
         (false, false) => (1.0, s.outline_variant),
     };
     ui.painter().rect_stroke(
@@ -96,6 +109,8 @@ pub struct DividerView {
     pub area: Rect,
     pub orientation: Orientation,
     pub ratio: f32,
+    /// The least and the most the divider can take as the panes are laid out.
+    pub limits: (f32, f32),
 }
 
 /// The divider: an 8 pt bar the panes' room is shared across. A slider for the keyboard and for
@@ -112,8 +127,8 @@ pub fn show_divider(ui: &mut Ui, view: &DividerView, i18n: &I18n) -> Option<TabA
     );
     response.widget_info(|| WidgetInfo::slider(true, f64::from(percent), &name));
     ui.ctx().accesskit_node_builder(id, |node| {
-        node.set_min_numeric_value(25.0);
-        node.set_max_numeric_value(75.0);
+        node.set_min_numeric_value(f64::from((view.limits.0 * 100.0).ceil()));
+        node.set_max_numeric_value(f64::from((view.limits.1 * 100.0).floor()));
         node.set_numeric_value_step(RATIO_STEP as f64 * 100.0);
         node.set_value(value.clone());
     });
@@ -137,7 +152,7 @@ pub fn show_divider(ui: &mut Ui, view: &DividerView, i18n: &I18n) -> Option<TabA
         None
     };
     target
-        .map(clamped)
+        .map(|r| clamped(r).clamp(view.limits.0, view.limits.1))
         .filter(|ratio| (ratio - view.ratio).abs() > f32::EPSILON)
         .map(TabAction::SetRatio)
 }
@@ -188,7 +203,28 @@ fn paint_divider(ui: &Ui, view: &DividerView, response: &egui::Response) {
     let ink = if lit { s.primary } else { s.outline };
     let c = view.rect.center();
     let along = view.orientation == Orientation::SideBySide;
-    // Three dots across the bar, so it reads as something to take hold of.
+    // A thin line along the bar, and three dots on it, so it reads as something to take hold of.
+    let (from, to) = match view.orientation {
+        Orientation::SideBySide => (view.rect.center_top(), view.rect.center_bottom()),
+        Orientation::Stacked => (view.rect.left_center(), view.rect.right_center()),
+    };
+    ui.painter()
+        .line_segment([from, to], Stroke::new(1.0, s.outline_variant));
+    let dots_bg = if lit {
+        s.primary_container
+    } else {
+        s.surface_container_high
+    };
+    let grip = match view.orientation {
+        Orientation::SideBySide => vec2(6.0, 22.0),
+        Orientation::Stacked => vec2(22.0, 6.0),
+    };
+    ui.painter().rect_filled(
+        Rect::from_center_size(view.rect.center(), grip),
+        3.0,
+        dots_bg,
+    );
+    // The dots.
     for step in [-6.0, 0.0, 6.0] {
         let at = match along {
             true => c + vec2(0.0, step),
@@ -223,6 +259,8 @@ pub fn show_single_chip(ui: &mut Ui, title: &str, i18n: &I18n) -> bool {
 pub struct SplitButtons {
     pub on: bool,
     pub orientation: Orientation,
+    /// Only one pane fits: turning the panes would change nothing, so the button is not drawn.
+    pub single: bool,
 }
 
 /// The strip's split buttons, drawn only while the view is split (a strip of an unsplit view looks
@@ -233,24 +271,43 @@ pub fn split_buttons(ui: &mut Ui, view: SplitButtons, i18n: &I18n) -> Vec<TabAct
     if !view.on {
         return actions;
     }
-    if icon_button(ui, &i18n.t("tabs.split.off"), Orientation::SideBySide, true) {
+    if icon_button(ui, &i18n.t("tabs.split.off"), Glyph::Close, true) {
         actions.push(TabAction::ToggleSplit);
     }
-    let (key, to) = match view.orientation {
-        Orientation::SideBySide => ("tabs.split.orientation_stacked", Orientation::Stacked),
+    if view.single {
+        return actions;
+    }
+    let (key, to, glyph) = match view.orientation {
+        Orientation::SideBySide => (
+            "tabs.split.orientation_stacked",
+            Orientation::Stacked,
+            Glyph::Stacked,
+        ),
         Orientation::Stacked => (
             "tabs.split.orientation_side_by_side",
             Orientation::SideBySide,
+            Glyph::Side,
         ),
     };
-    if icon_button(ui, &i18n.t(key), to, false) {
+    if icon_button(ui, &i18n.t(key), glyph, false) {
         actions.push(TabAction::SetOrientation(to));
     }
     actions
 }
 
 /// A `CONTROL_HEIGHT` square button showing two panes laid out as `shape`.
-fn icon_button(ui: &mut Ui, name: &str, shape: Orientation, pressed: bool) -> bool {
+/// What an icon button draws in its frame.
+#[derive(Clone, Copy)]
+enum Glyph {
+    /// Two panes side by side.
+    Side,
+    /// Two panes one above the other.
+    Stacked,
+    /// A cross: the split is closed.
+    Close,
+}
+
+fn icon_button(ui: &mut Ui, name: &str, shape: Glyph, pressed: bool) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(vec2(CONTROL_HEIGHT, CONTROL_HEIGHT), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, name));
@@ -264,15 +321,20 @@ fn icon_button(ui: &mut Ui, name: &str, shape: Orientation, pressed: bool) -> bo
     ui.painter()
         .rect_stroke(frame, 2.0, stroke, StrokeKind::Middle);
     let (from, to) = match shape {
-        Orientation::SideBySide => (
+        Glyph::Side => (
             pos2(frame.center().x, frame.top()),
             pos2(frame.center().x, frame.bottom()),
         ),
-        Orientation::Stacked => (
+        Glyph::Stacked => (
             pos2(frame.left(), frame.center().y),
             pos2(frame.right(), frame.center().y),
         ),
+        Glyph::Close => (frame.left_top(), frame.right_bottom()),
     };
     ui.painter().line_segment([from, to], stroke);
+    if matches!(shape, Glyph::Close) {
+        ui.painter()
+            .line_segment([frame.right_top(), frame.left_bottom()], stroke);
+    }
     response.on_hover_text(name).clicked()
 }

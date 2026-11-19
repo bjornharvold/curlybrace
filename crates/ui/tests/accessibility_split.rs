@@ -59,8 +59,14 @@ fn divider_is_named_and_reports_its_value() {
         .get_by_role_and_label(Role::Slider, t("tabs.split.divider"));
     let node = divider.accesskit_node();
     assert_eq!(node.numeric_value(), Some(50.0));
-    assert_eq!(node.min_numeric_value(), Some(25.0));
-    assert_eq!(node.max_numeric_value(), Some(75.0));
+    let (lo, hi) = (
+        node.min_numeric_value().expect("min"),
+        node.max_numeric_value().expect("max"),
+    );
+    assert!(
+        lo > 25.0 && hi < 75.0 && lo + hi == 100.0,
+        "the limits are what the other pane leaves: {lo} {hi}"
+    );
     assert_eq!(node.value().as_deref(), Some("50%"));
     // The bar is between the panes and as long as they are tall.
     let rect = divider.rect();
@@ -109,7 +115,16 @@ fn arrow_keys_move_the_divider_home_resets() {
     );
     press(&mut page, Modifiers::NONE, Key::ArrowRight);
     assert_eq!(percent(&page), stopped);
-    assert!(ratio(&page) <= 0.75, "never past three quarters");
+    let max = page
+        .harness
+        .get_by_role_and_label(Role::Slider, t("tabs.split.divider"))
+        .accesskit_node()
+        .max_numeric_value()
+        .expect("max");
+    assert!(
+        f64::from(ratio(&page)) * 100.0 <= max + 1.0,
+        "the stored ratio never passes the visible stop"
+    );
 }
 
 #[test]
@@ -236,6 +251,20 @@ fn single_pane_chip_and_show_other_pane() {
     let chip = t("tabs.split.single_show_other");
     // One pane: no divider, no group per pane, the chip says why.
     assert_eq!(page.harness.query_all_by_role(Role::Slider).count(), 0);
+    // Turning the panes would change nothing here: the button is not drawn (it is at WIDE).
+    let turn = || {
+        page.harness
+            .query_all_by_role_and_label(Role::Button, t("tabs.split.orientation_stacked"))
+            .count()
+    };
+    assert_eq!(turn(), 0, "no orientation button with one pane");
+    assert_eq!(
+        split_page(WIDE)
+            .harness
+            .query_all_by_role_and_label(Role::Button, t("tabs.split.orientation_stacked"))
+            .count(),
+        1
+    );
     page.harness
         .get_by_label_contains("Split view needs a larger window");
     let split = state(&page).tabs.split.clone().expect("a split");
@@ -272,6 +301,25 @@ fn the_strip_closes_the_split_and_turns_the_panes() {
     page.harness.run_steps(4);
     assert!(state(&page).tabs.split.is_none());
     let _ = TabAction::ToggleSplit;
+}
+
+#[test]
+fn a_pending_f6_focus_does_not_grab_the_focus_after_a_resize() {
+    // One pane fits at 800x500: F6 swaps the roles, and no pane frame is drawn to take the focus.
+    let mut page = browse_page(SIZE_800, |state| split_two(state, Orientation::SideBySide));
+    press(&mut page, Modifiers::NONE, Key::F6);
+    page.harness.set_size(eframe::egui::vec2(1400.0, 900.0));
+    page.harness.run_steps(6);
+    let focused = page
+        .harness
+        .root()
+        .children_recursive()
+        .filter(|n| n.accesskit_node().role() == Role::Group)
+        .any(|n| n.accesskit_node().is_focused());
+    assert!(
+        !focused,
+        "a stale F6 target took the keyboard after the resize"
+    );
 }
 
 #[test]

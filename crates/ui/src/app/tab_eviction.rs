@@ -70,12 +70,14 @@ pub(super) fn sweep_empty(state: &mut AppState) {
         return;
     }
     let active = state.active_tab();
+    // A pane of the split is on screen, empty or not.
+    let partner = state.tabs.split.as_ref().map(|s| s.secondary);
     let doomed: Vec<TabId> = state
         .tabs
         .order
         .iter()
         .copied()
-        .filter(|t| Some(*t) != active)
+        .filter(|t| Some(*t) != active && Some(*t) != partner)
         .filter(|t| state.glance(*t).is_some_and(|g| g.is_idle_empty()))
         .collect();
     for tab in doomed {

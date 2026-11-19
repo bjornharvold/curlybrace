@@ -1,8 +1,7 @@
-//! Split view through the reducer (#159, slice 3): no UI. The panes are the active tab and one
+//! Split view through the reducer: lifecycle, eviction and what ends a split (#159, slice 3): no UI. The panes are the active tab and one
 //! partner; every path that moves, closes or loses a tab is walked against the split so it never
 //! names a tab that is gone.
 use super::super::tab_actions::{MAX_TABS, TabAction};
-use crate::app::AggregateAction;
 use crate::app::reducer::{Input, update};
 use crate::app::state::AppState;
 use crate::app::tabs::test_support::{
@@ -10,16 +9,16 @@ use crate::app::tabs::test_support::{
 };
 use crate::app::tabs::{Freshness, TabId};
 use crate::viewmodel::split_layout::Orientation;
-use crate::viewmodel::{CollectionTab, SidebarAction};
+
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::Namespace;
 use uuid::Uuid;
 
-fn tabs(s: AppState, action: TabAction) -> (AppState, Vec<Command>) {
+pub(super) fn tabs(s: AppState, action: TabAction) -> (AppState, Vec<Command>) {
     update(s, Input::Tabs(action))
 }
 
-fn finds_in(commands: &[Command]) -> Vec<(Uuid, Namespace)> {
+pub(super) fn finds_in(commands: &[Command]) -> Vec<(Uuid, Namespace)> {
     commands
         .iter()
         .filter_map(|c| match c {
@@ -31,7 +30,7 @@ fn finds_in(commands: &[Command]) -> Vec<(Uuid, Namespace)> {
 
 /// Two tabs of one session, both answered: tab one (shown) on `app.users`, tab two (parked) on
 /// `app.orders`.
-fn answered() -> (AppState, Uuid, TabId, TabId) {
+pub(super) fn answered() -> (AppState, Uuid, TabId, TabId) {
     let t = two_tabs();
     let s = ev(t.s, results(t.a, users(), t.first_find, 2));
     let s = ev(s, results(t.a, orders(), t.second_find, 2));
@@ -39,12 +38,12 @@ fn answered() -> (AppState, Uuid, TabId, TabId) {
     (s, t.a, first, t.second)
 }
 
-fn split_of(s: &AppState) -> crate::app::tab_strip::Split {
+pub(super) fn split_of(s: &AppState) -> crate::app::tab_strip::Split {
     s.tabs.split.clone().expect("a split")
 }
 
 /// Opens `ns` in a new tab of `a` and answers its find. The new tab is the one shown.
-fn opened(s: AppState, a: Uuid, ns: Namespace) -> (AppState, TabId) {
+pub(super) fn opened(s: AppState, a: Uuid, ns: Namespace) -> (AppState, TabId) {
     let (s, commands) = tabs(
         s,
         TabAction::OpenInNew {
@@ -114,119 +113,6 @@ fn a_tab_outside_the_split_closing_leaves_it() {
     let (s, _) = tabs(s, TabAction::Close(third));
     let split = split_of(&s);
     assert_eq!((split.primary, split.secondary), (first, second));
-}
-
-#[test]
-fn in_tab_input_focuses_that_tab_first() {
-    let (s, _, first, second) = answered();
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    assert_eq!(s.active_tab(), Some(first));
-    let input = Input::InTab {
-        tab: second,
-        input: Box::new(Input::Tab(CollectionTab::Indexes)),
-    };
-    let (s, _) = update(s, input);
-    assert_eq!(
-        s.active_tab(),
-        Some(second),
-        "the pane's input made it the active tab"
-    );
-    assert_eq!(s.tab, CollectionTab::Indexes, "and landed in it");
-    assert_eq!(
-        parked(&s, first).tab,
-        CollectionTab::Documents,
-        "not in the other pane"
-    );
-}
-
-#[test]
-fn for_tab_input_applies_in_its_tab_and_leaves_the_focus() {
-    // A pane that acts alone (an automatic refresh) lands in its own tab and takes nothing.
-    let (s, a, first, second) = answered();
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    let input = Input::ForTab {
-        tab: second,
-        input: Box::new(Input::Tab(CollectionTab::Indexes)),
-    };
-    let (s, commands) = update(s, input);
-    assert_eq!(s.active_tab(), Some(first), "the focus did not move");
-    assert_eq!(
-        parked(&s, second).tab,
-        CollectionTab::Indexes,
-        "it landed in its tab"
-    );
-    assert_eq!(s.tab, CollectionTab::Documents);
-    assert!(
-        commands.iter().all(|c| c.session() == Some(a)),
-        "{commands:?}"
-    );
-    let split = split_of(&s);
-    assert_eq!((split.primary, split.secondary), (first, second));
-}
-
-#[test]
-fn for_tab_input_on_another_connection_runs_in_that_connection() {
-    let (s, a, first, _) = answered();
-    let (s, b, _) = with_second_session(s);
-    let (s, _) = tabs(s, TabAction::OpenInOtherPane(first));
-    let before = s.active_tab();
-    let input = Input::ForTab {
-        tab: first,
-        input: Box::new(Input::Tab(CollectionTab::Indexes)),
-    };
-    let (s, commands) = update(s, input);
-    assert_eq!(s.active, Some(b), "the foreground connection is the same");
-    assert_eq!(s.active_tab(), before);
-    assert!(!commands.is_empty());
-    assert!(
-        commands.iter().all(|c| c.session() == Some(a)),
-        "{commands:?}"
-    );
-}
-
-#[test]
-fn in_tab_input_for_a_closed_tab_is_dropped() {
-    let (s, _, first, second) = answered();
-    let (s, _) = tabs(s, TabAction::Close(second));
-    let input = Input::InTab {
-        tab: second,
-        input: Box::new(Input::Tab(CollectionTab::Indexes)),
-    };
-    let (s, commands) = update(s, input);
-    assert!(commands.is_empty());
-    assert_eq!(s.active_tab(), Some(first));
-    assert_eq!(s.tab, CollectionTab::Documents);
-}
-
-#[test]
-fn focus_other_pane_swaps_roles_not_positions() {
-    let (s, _, first, second) = answered();
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    let before = split_of(&s);
-    assert!(
-        !before.secondary_first,
-        "the shown tab starts in the first slot"
-    );
-    let (s, _) = tabs(s, TabAction::FocusOtherPane);
-    assert_eq!(s.active_tab(), Some(second));
-    let after = split_of(&s);
-    assert_eq!((after.primary, after.secondary), (second, first));
-    // The tab that was in the first slot is still there: it is the partner now.
-    assert!(after.secondary_first, "the old tab did not move on screen");
-    let (s, _) = tabs(s, TabAction::FocusOtherPane);
-    let back = split_of(&s);
-    assert_eq!(
-        (back.primary, back.secondary, back.secondary_first),
-        (first, second, false)
-    );
-}
-
-#[test]
-fn show_other_pane_is_the_same_swap() {
-    let (s, _, _, second) = answered();
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    let (s, _) = tabs(s, TabAction::ShowOtherPane);
-    assert_eq!(s.active_tab(), Some(second));
 }
 
 #[test]
@@ -328,89 +214,6 @@ fn a_dormant_partner_sends_nothing() {
 }
 
 #[test]
-fn a_pane_on_another_connection_activates_that_session_when_focused() {
-    let (s, a, first, _) = answered();
-    let (s, b, _) = with_second_session(s);
-    assert_eq!(s.active, Some(b));
-    let b_tab = s.active_tab().expect("b's shown tab");
-    let (s, _) = tabs(s, TabAction::OpenInOtherPane(first));
-    let split = split_of(&s);
-    assert_eq!((split.primary, split.secondary), (b_tab, first));
-    // The pane's input is applied in the session that owns the tab.
-    let input = Input::InTab {
-        tab: first,
-        input: Box::new(Input::Tab(CollectionTab::Indexes)),
-    };
-    let (s, commands) = update(s, input);
-    assert_eq!(s.active, Some(a));
-    assert_eq!(s.active_tab(), Some(first));
-    assert!(
-        commands.iter().all(|c| c.session() == Some(a)),
-        "every command is for the pane's own connection: {commands:?}"
-    );
-    assert!(
-        !commands.is_empty(),
-        "the Indexes list was asked for: {commands:?}"
-    );
-    let after = split_of(&s);
-    assert_eq!((after.primary, after.secondary), (first, b_tab));
-}
-
-#[test]
-fn a_stale_partner_on_another_connection_is_read_in_its_own_session() {
-    let (s, a, _, second) = answered();
-    let (s, b, _) = with_second_session(s);
-    let s = ev(
-        s,
-        Event::Mutated {
-            session: a,
-            ns: orders(),
-        },
-    );
-    // `second` is a parked tab of the background session `a`, marked stale by the write.
-    assert_eq!(s.freshness_of(second), Freshness::Stale);
-    let (s, commands) = tabs(s, TabAction::OpenInOtherPane(second));
-    assert_eq!(
-        finds_in(&commands),
-        vec![(a, orders())],
-        "sent for a, not for {b:?}"
-    );
-    assert_eq!(s.active, Some(b), "the foreground session did not change");
-    assert_eq!(s.freshness_of(second), Freshness::Fresh);
-    assert_eq!(parked(&s, second).freshness, Freshness::Fresh);
-}
-
-#[test]
-fn run_dialog_closes_when_focus_moves_to_the_other_pane() {
-    let (s, _, first, _) = answered();
-    let (s, _) = update(s, Input::Tab(CollectionTab::Aggregate));
-    let (s, _) = update(
-        s,
-        Input::Aggregate(AggregateAction::AddStage("$match".into())),
-    );
-    let (s, _) = update(
-        s,
-        Input::Aggregate(AggregateAction::AddStage("$out".into())),
-    );
-    let (s, _) = update(
-        s,
-        Input::Aggregate(AggregateAction::Edit(1, r#"{ "$out": "dest" }"#.into())),
-    );
-    let (s, _) = update(s, Input::Aggregate(AggregateAction::RunClicked));
-    assert!(s.aggregate.run.dialog.is_some(), "the confirmation is open");
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    assert!(
-        s.aggregate.run.dialog.is_some(),
-        "splitting does not close it"
-    );
-    let (s, _) = tabs(s, TabAction::FocusOtherPane);
-    assert!(
-        parked(&s, first).aggregate.run.dialog.is_none(),
-        "the pane that lost focus has no confirmation open"
-    );
-}
-
-#[test]
 fn split_partner_is_not_evicted() {
     let (s, a, _, second) = answered();
     let (mut s, _) = tabs(s, TabAction::ToggleSplit);
@@ -433,21 +236,6 @@ fn split_partner_is_not_evicted() {
         parked(&s, second).page.is_none(),
         "evicted once it is no longer a partner"
     );
-}
-
-#[test]
-fn activating_a_third_tab_keeps_the_partner() {
-    let (s, a, first, second) = answered();
-    let (s, third) = opened(s, a, Namespace::new("app", "events"));
-    let (s, _) = tabs(s, TabAction::Activate(first));
-    let (s, _) = tabs(s, TabAction::OpenInOtherPane(second));
-    let (s, _) = tabs(s, TabAction::Activate(third));
-    let split = split_of(&s);
-    assert_eq!((split.primary, split.secondary), (third, second));
-    // Activating the partner swaps the roles.
-    let (s, _) = tabs(s, TabAction::Activate(second));
-    let split = split_of(&s);
-    assert_eq!((split.primary, split.secondary), (second, third));
 }
 
 #[test]
@@ -548,14 +336,18 @@ fn reopening_a_closed_tab_does_not_restore_a_split() {
 }
 
 #[test]
-fn an_emptied_partner_ends_the_split() {
-    let (s, _, _, second) = answered();
+fn an_emptied_partner_stays_as_an_empty_pane() {
+    let (s, _, first, second) = answered();
     let (s, _) = tabs(s, TabAction::ToggleSplit);
-    // The partner blanks (its collection was dropped): a pane with nothing in it is no pane.
+    // The partner blanks (its collection was dropped): it is an empty pane, and stays one.
     let (s, _) = s.with_tab(second, |s| (s.current_tab_emptied(), Vec::new()));
-    let oldest = s.tabs.order[0];
-    let (s, _) = tabs(s, TabAction::Activate(oldest));
-    assert!(s.tabs.split.is_none(), "an empty partner ends the split");
+    let (s, _) = tabs(s, TabAction::Activate(first));
+    let split = split_of(&s);
+    assert_eq!((split.primary, split.secondary), (first, second));
+    assert!(
+        s.tabs.owner.contains_key(&second),
+        "the sweep did not close it"
+    );
 }
 
 #[test]
@@ -571,34 +363,5 @@ fn ratio_and_orientation_are_set_and_clamped() {
     // Without a split they change nothing.
     let (s, _) = tabs(s, TabAction::ToggleSplit);
     let (s, _) = tabs(s, TabAction::SetRatio(0.6));
-    assert!(s.tabs.split.is_none());
-}
-
-#[test]
-fn a_shown_pane_that_is_stale_is_read_by_the_pane_shown_step() {
-    let (s, a, _, second) = answered();
-    let (s, _) = tabs(s, TabAction::ToggleSplit);
-    let s = ev(
-        s,
-        Event::Mutated {
-            session: a,
-            ns: orders(),
-        },
-    );
-    assert_eq!(parked(&s, second).freshness, Freshness::Stale);
-    let (s, commands) = tabs(s, TabAction::PaneShown(second));
-    assert_eq!(finds_in(&commands), vec![(a, orders())]);
-    let (_, again) = tabs(s, TabAction::PaneShown(second));
-    assert!(again.is_empty(), "once");
-}
-
-#[test]
-fn nothing_is_sent_for_a_pane_that_is_not_in_the_split() {
-    let (s, _, _, second) = answered();
-    let (s, commands) = tabs(s, TabAction::PaneShown(second));
-    assert!(commands.is_empty());
-    assert!(s.tabs.split.is_none());
-    // `SidebarAction` is unused by the split: it still opens in the shown tab.
-    let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(users())));
     assert!(s.tabs.split.is_none());
 }

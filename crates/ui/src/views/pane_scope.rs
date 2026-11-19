@@ -16,6 +16,11 @@ pub fn entered(ctx: &Context, pane: Id) {
     ctx.data_mut(|d| d.insert_temp(Id::new(SCOPE), pane));
 }
 
+/// Whether a pane of the split view is being drawn.
+pub fn in_pane(ctx: &Context) -> bool {
+    ctx.data(|d| d.get_temp::<Id>(Id::new(SCOPE))).is_some()
+}
+
 /// The pane's draw is over.
 pub fn left(ctx: &Context) {
     ctx.data_mut(|d| d.remove::<Id>(Id::new(SCOPE)));
@@ -27,6 +32,36 @@ pub fn scoped_id(ctx: &Context, salt: impl Hash) -> Id {
         Some(pane) => pane.with(salt),
         None => Id::new(salt),
     }
+}
+
+const MODALS: &str = "curlybrace.split.modals_drawn";
+const TWICE: &str = "curlybrace.split.modals_twice";
+
+/// Records that the modal `id` is drawn now, and returns it. A modal drawn twice in one pass is a
+/// dialog drawn once per pane (egui does not flag two areas of the same rectangle): see
+/// [`modals_drawn_twice`].
+pub fn note_modal(ctx: &Context, id: Id) -> Id {
+    let pass = ctx.cumulative_pass_nr();
+    let (seen_pass, mut seen): (u64, Vec<Id>) = ctx
+        .data(|d| d.get_temp(Id::new(MODALS)))
+        .unwrap_or((pass, Vec::new()));
+    if seen_pass != pass {
+        seen.clear();
+    }
+    if seen.contains(&id) {
+        let mut twice: Vec<Id> = ctx.data(|d| d.get_temp(Id::new(TWICE))).unwrap_or_default();
+        twice.push(id);
+        ctx.data_mut(|d| d.insert_temp(Id::new(TWICE), twice));
+    }
+    seen.push(id);
+    ctx.data_mut(|d| d.insert_temp(Id::new(MODALS), (pass, seen)));
+    id
+}
+
+/// The modal ids that were drawn twice in a pass so far (a test hook: a correct frame has none).
+#[doc(hidden)]
+pub fn modals_drawn_twice(ctx: &Context) -> Vec<Id> {
+    ctx.data(|d| d.get_temp(Id::new(TWICE))).unwrap_or_default()
 }
 
 #[cfg(test)]

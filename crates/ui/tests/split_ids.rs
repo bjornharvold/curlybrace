@@ -133,6 +133,27 @@ fn no_clash_in(size: (f32, f32), setup: impl FnOnce(&mut AppState), sub: Collect
 }
 
 #[test]
+fn a_global_dialog_is_drawn_once_in_a_split_frame() {
+    // The Copy as code dialog belongs to the app: with two panes it is still one modal. (egui
+    // does not flag two areas of the same rectangle, so the modals themselves are recorded.)
+    for (size, orientation) in [
+        (WIDE, Orientation::SideBySide),
+        (STANDARD, Orientation::Stacked),
+    ] {
+        let mut page = browse_page(size, |s| split_two(s, orientation));
+        page.harness.state_mut().dispatch(Input::Find(
+            curlybrace_ui::viewmodel::FindAction::CopyAsCode,
+        ));
+        page.harness.run_steps(4);
+        let twice = curlybrace_ui::views::pane_scope::modals_drawn_twice(&page.harness.ctx);
+        assert!(
+            twice.is_empty(),
+            "a modal drawn twice in a frame: {twice:?}"
+        );
+    }
+}
+
+#[test]
 fn no_egui_id_clash_in_a_split_frame() {
     // Two panes on one connection, and on two, side by side and stacked, on every sub-tab.
     for sub in [

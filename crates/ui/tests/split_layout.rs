@@ -183,6 +183,30 @@ fn measure_the_staircase() {
     }
 }
 
+/// The narrowest width (1 pt steps in `from..=to`) at which a pane `height` high is usable.
+fn narrowest_between(from: u32, to: u32, height: f32, sidebar: f32) -> Option<u32> {
+    (from..=to).find(|w| usable(egui::vec2(*w as f32, height), sidebar))
+}
+
+/// The raw 1 pt measurements near the corners that matter at 1000x700.
+#[test]
+fn measure_fine_corners() {
+    let sidebar = sidebar_width();
+    for height in [250.0, 280.0, 290.0, 300.0, 310.0, 320.0, 330.0, 340.0] {
+        let w = narrowest_between(560, 760, height, sidebar);
+        eprintln!("fine {height} high -> narrowest {w:?}");
+    }
+    // The corners that decide 1000x700 are the measurement, rounded up to 1 pt at most (and a
+    // few points of slack for another platform's fonts).
+    for (width, height) in [(608.0_f32, 330.0_f32), (695.0, 280.0)] {
+        let measured = narrowest_between(560, 760, height, sidebar).expect("a usable width");
+        assert!(
+            (width - 4.0..=width + 1.0).contains(&(measured as f32)),
+            "{height}: corner {width}, measured {measured}"
+        );
+    }
+}
+
 /// Each corner of the table is the measurement: usable, and neither narrower nor lower is.
 #[test]
 fn pane_minimums_match_the_measured_page() {
@@ -340,7 +364,7 @@ fn split_at_800x500_is_one_pane_with_a_chip() {
         .filter(|n| n.accesskit_node().role() == Role::Group)
         .count();
     assert_eq!(
-        groups, 0,
-        "no pane frame: the page is drawn as it always is"
+        groups, 1,
+        "the one pane has its group (and no ring or divider)"
     );
 }

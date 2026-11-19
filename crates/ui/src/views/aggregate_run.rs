@@ -143,27 +143,30 @@ pub fn show_run_dialog(
     let mut actions = Vec::new();
     let screen = ctx.screen_rect();
     let width = MODAL_WIDTH.min(screen.width() - SIDE_ROOM);
-    let modal = egui::Modal::new(egui::Id::new("aggregate_run_dialog"))
-        .frame(modal_frame(ctx))
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            ui.horizontal(|ui| {
-                show_badge(ui, badge, i18n);
-                ui.label(typography::dialog_title(ui, i18n.t("aggregate.run.title")));
-            });
-            let max_height = (screen.height() - MODAL_CHROME).max(MIN_BODY_HEIGHT);
-            let (typed, entered) = egui::ScrollArea::vertical()
-                .max_height(max_height)
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    facts(ui, dialog, options, i18n);
-                    confirmation(ui, dialog, i18n)
-                })
-                .inner;
-            actions.extend(typed.map(AggregateAction::RunTyped));
-            actions.extend(entered.then_some(AggregateAction::RunConfirmed));
-            actions.extend(buttons(ui, dialog, i18n));
+    let modal = egui::Modal::new(super::pane_scope::note_modal(
+        ctx,
+        super::pane_scope::scoped_id(ctx, "aggregate_run_dialog"),
+    ))
+    .frame(modal_frame(ctx))
+    .show(ctx, |ui| {
+        ui.set_width(width);
+        ui.horizontal(|ui| {
+            show_badge(ui, badge, i18n);
+            ui.label(typography::dialog_title(ui, i18n.t("aggregate.run.title")));
         });
+        let max_height = (screen.height() - MODAL_CHROME).max(MIN_BODY_HEIGHT);
+        let (typed, entered) = egui::ScrollArea::vertical()
+            .max_height(max_height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                facts(ui, dialog, options, i18n);
+                confirmation(ui, dialog, i18n)
+            })
+            .inner;
+        actions.extend(typed.map(AggregateAction::RunTyped));
+        actions.extend(entered.then_some(AggregateAction::RunConfirmed));
+        actions.extend(buttons(ui, dialog, i18n));
+    });
     if actions.is_empty() && modal.should_close() {
         actions.push(AggregateAction::RunDismissed);
     }

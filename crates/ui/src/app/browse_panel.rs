@@ -32,15 +32,22 @@ use eframe::egui;
 /// has measured them, for deciding before they are drawn whether the verdict shares their row.
 const SWITCHES_GUESS: f32 = 280.0;
 
-pub(super) fn show_collection(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
+/// The Copy as code dialog belongs to the app, not to a tab: it is drawn once per frame, outside
+/// the panes of a split view (it copies to the clipboard itself).
+pub(super) fn show_code_dialog_once(
+    ctx: &egui::Context,
+    state: &AppState,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
-    now_secs: i64,
 ) {
-    super::tab_strip_panel::show_strip(ui, state, i18n, out);
-    show_pane(ui, state, i18n, out, now_secs);
+    if state.selected_ns().is_none() {
+        return;
+    }
+    out.extend(
+        show_code_dialog(ctx, &state.code_export, i18n)
+            .into_iter()
+            .map(|action| UiEvent::Input(Input::Aggregate(AggregateAction::Code(action)))),
+    );
 }
 
 /// The page of the tab in the foreground, under the strip: what a pane of the split view draws.
@@ -55,12 +62,11 @@ pub(super) fn show_pane(
         ui.label(i18n.t("browser.select_collection"));
         return;
     }
-    // The Copy as code dialog belongs to both tabs; it copies to the clipboard itself.
-    out.extend(
-        show_code_dialog(ui.ctx(), &state.code_export, i18n)
-            .into_iter()
-            .map(|action| UiEvent::Input(Input::Aggregate(AggregateAction::Code(action)))),
-    );
+    // Unsplit, the dialog is drawn here, where it always was; a pane of the split view leaves it to
+    // `split_panel`, which draws it once outside the panes.
+    if !crate::views::pane_scope::in_pane(ui.ctx()) {
+        show_code_dialog_once(ui.ctx(), state, i18n, out);
+    }
     let connection = state.active_connection_label(i18n);
     let badge = state.active_badge();
     let picked = show_connection_header_with(ui, &connection, &badge, i18n, |ui| {

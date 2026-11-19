@@ -1,6 +1,6 @@
 use super::{
     DIVIDER, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Orientation, PANE_RING, STAIRS, SplitLayout, clamped,
-    layout, min_height_at, min_width_at,
+    layout, min_height_at, min_width_at, ratio_limits,
 };
 use eframe::egui::vec2;
 
@@ -110,5 +110,42 @@ fn the_named_minimums_are_the_staircase_extremes() {
         STAIRS
             .windows(2)
             .all(|p| p[0].0 < p[1].0 && p[0].1 > p[1].1)
+    );
+}
+
+#[test]
+fn stacked_at_1000x700_has_room_for_a_sidebar_a_little_wider() {
+    // The central area is 1000 less the sidebar, the margins and the 2 pt rings: the measured
+    // corner (695, 280) leaves 3 pt at the default 280 pt sidebar, so it holds up to 283 pt.
+    for sidebar in [280.0, 282.0, 283.0] {
+        let central = vec2(1000.0 - sidebar - 16.0, 700.0 - 16.0 - 32.0);
+        let got = layout(central, Orientation::Stacked, 0.5);
+        assert!(
+            matches!(got, SplitLayout::Stacked { .. }),
+            "{sidebar}: {got:?}"
+        );
+    }
+}
+
+#[test]
+fn the_layout_does_not_depend_on_what_it_chose() {
+    // No feedback: the same area gives the same layout however often it is asked.
+    let central = vec2(704.0, 652.0);
+    let first = layout(central, Orientation::SideBySide, 0.5);
+    assert_eq!(first, layout(central, Orientation::SideBySide, 0.5));
+}
+
+#[test]
+fn the_divider_limits_are_what_the_other_pane_leaves() {
+    let (lo, hi) = ratio_limits(vec2(2408.0, 900.0), Orientation::SideBySide);
+    assert_eq!((lo, hi), (0.25, 0.75));
+    let (lo, hi) = ratio_limits(central(1400.0, 900.0), Orientation::SideBySide);
+    assert!(
+        lo > 0.25 && hi < 0.75 && (lo + hi - 1.0).abs() < 1e-5,
+        "{lo} {hi}"
+    );
+    assert_eq!(
+        ratio_limits(central(800.0, 500.0), Orientation::SideBySide),
+        (0.25, 0.75)
     );
 }

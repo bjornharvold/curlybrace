@@ -70,7 +70,7 @@ pub(super) fn reconcile(state: &mut AppState) {
 /// The split brought in line with the tab being looked at, which any path may have changed (a
 /// tab switch, a session picked in the tree, a close): the active tab is always a pane, the
 /// partner it replaced stays, and the roles swap when the partner was the one activated. A split
-/// whose pane is gone or whose partner holds nothing ends.
+/// whose pane is gone ends.
 pub(super) fn reconciled(state: AppState) -> AppState {
     let Some(split) = state.tabs.split.clone() else {
         return state;
@@ -92,13 +92,9 @@ pub(super) fn reconciled(state: AppState) -> AppState {
         },
         _ => split,
     };
-    // A pane with nothing in it (its collection was dropped) is no pane.
-    if state
-        .glance(next.secondary)
-        .is_some_and(|g| g.is_idle_empty())
-    {
-        return ended(state);
-    }
+    // A pane with nothing in it (a new tab, a dropped collection) is still a pane: it shows
+    // "Select a collection", and a click in the sidebar fills it. The person leaves it through
+    // the strip or ends the split.
     with_split(state, Some(next))
 }
 
@@ -218,6 +214,9 @@ fn pane_shown(state: AppState, tab: TabId) -> Out {
     }
 }
 
+#[cfg(test)]
+#[path = "split_routing_tests.rs"]
+mod routing_tests;
 #[cfg(test)]
 #[path = "split_actions_tests.rs"]
 mod tests;

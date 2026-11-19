@@ -8,8 +8,9 @@ use eframe::egui::Vec2;
 
 /// The divider's hit area: the room between the two panes (points).
 pub const DIVIDER: f32 = 8.0;
-/// The border around a pane (points): the page is drawn inside it, in what the staircase measures.
-pub const PANE_RING: f32 = 2.0;
+/// The border around a pane (points): a 2 pt ring and 1 pt of padding, so the page never touches
+/// the ring. The page is drawn inside it, in what the staircase measures.
+pub const PANE_RING: f32 = 3.0;
 /// The narrowest a pane may be at all (points), whatever its height.
 pub const MIN_PANE_WIDTH: f32 = 400.0;
 /// The lowest a pane may be at all (points), whatever its width.
@@ -19,13 +20,19 @@ pub const MIN_PANE_HEIGHT: f32 = 250.0;
 /// connection name: the header (name, badge, Documents | Indexes | Aggregate) and the find bar
 /// whole, none squashed, nothing past the edge or overlapping, and three documents in view. A
 /// narrower pane wraps its find bar into more rows, so it needs more height. A pane fits when it
-/// is at least as wide and as high as one corner.
+/// is at least as wide and as high as one corner. The two corners that decide 1000x700 were
+/// measured at 1 pt (608 and 695), the others at 10 pt.
+///
+/// The decision has no hysteresis on purpose: it reads the central area only, and that area is the
+/// same whether one pane or two are drawn (the chip is placed after the decision), so a layout
+/// cannot feed back into its own input and flicker; a window dragged across a threshold changes
+/// once.
 pub const STAIRS: [(f32, f32); 6] = [
     (400.0, 430.0),
     (470.0, 380.0),
     (500.0, 350.0),
-    (610.0, 330.0),
-    (700.0, 280.0),
+    (608.0, 330.0),
+    (695.0, 280.0),
     (960.0, 250.0),
 ];
 /// The ratio a divider is reset to.
@@ -104,6 +111,16 @@ fn stacked(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.y - DIVIDER;
     let min = min_height_at(central.x - 2.0 * PANE_RING)? + 2.0 * PANE_RING;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
+}
+
+/// The least and the most the divider can take in `central` as it is laid out: a quarter to three
+/// quarters, less what the other pane's minimum leaves. (One pane: the plain limits.)
+pub fn ratio_limits(central: Vec2, preferred: Orientation) -> (f32, f32) {
+    let at = |ratio: f32| match layout(central, preferred, ratio) {
+        SplitLayout::Side { ratio } | SplitLayout::Stacked { ratio } => ratio,
+        SplitLayout::Single => clamped(ratio),
+    };
+    (at(0.0), at(1.0))
 }
 
 /// The layout of `central` (the area under the tab strip) for the chosen orientation.

@@ -57,11 +57,24 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
                 .as_ref()
                 .map(|s| s.orientation)
                 .unwrap_or_default(),
+            single: one_pane_fits(ui, state),
         },
     };
     let actions = show_tab_strip(ui, &view, i18n);
     out.extend(actions.into_iter().map(tabs_input));
     ui.add_space(ROW_GAP);
+}
+
+/// Whether the split view has room for one pane only (the strip's orientation button then changes
+/// nothing): the area under this strip's row, as the panes will get it.
+fn one_pane_fits(ui: &egui::Ui, state: &AppState) -> bool {
+    use crate::theme::CONTROL_HEIGHT;
+    use crate::viewmodel::split_layout::{SplitLayout, layout};
+    let Some(split) = state.tabs.split.as_ref() else {
+        return false;
+    };
+    let room = ui.available_size() - egui::vec2(0.0, CONTROL_HEIGHT + ROW_GAP);
+    layout(room, split.orientation, split.ratio) == SplitLayout::Single
 }
 
 /// The shortcuts act in the Browse workspace, with no dialog open (a state dialog, or any egui
