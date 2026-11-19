@@ -776,3 +776,22 @@ async fn real_multi_document_writes_through_an_index_are_not_inefficient() {
         capture(name, d);
     }
 }
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn hello_reports_server_now() {
+    if !local_enabled("hello_reports_server_now") {
+        return;
+    }
+    let _serial = serial().await;
+    let env = Env::new().await;
+    let before = start_mark().await;
+    let read = env.read(before).await;
+    let after = bson::DateTime::now().timestamp_millis();
+    let server = read.server_now_millis.expect("hello carries localTime");
+    // Same machine, so the clocks agree to well under the poller's one minute of slack.
+    assert!(
+        (before - 5_000..=after + 5_000).contains(&server),
+        "{server}"
+    );
+}
