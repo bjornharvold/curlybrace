@@ -1,31 +1,7 @@
 //! Lenient loading of the colour tag and the production flag: a bad value never drops the
 //! entry, never hides silently, and never fails open for the production flag.
 use super::*;
-use std::sync::{Mutex, Once};
-
-static RECORDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-static INSTALL: Once = Once::new();
-
-struct Capture;
-
-impl log::Log for Capture {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
-    }
-    fn log(&self, record: &log::Record) {
-        if let Ok(mut records) = RECORDS.lock() {
-            records.push(format!("{} {}", record.level(), record.args()));
-        }
-    }
-    fn flush(&self) {}
-}
-
-fn capture() {
-    INSTALL.call_once(|| {
-        let _ = log::set_logger(&Capture);
-        log::set_max_level(log::LevelFilter::Warn);
-    });
-}
+use crate::log_capture::{RECORDS, capture};
 
 fn warnings_mentioning(word: &str) -> Vec<String> {
     RECORDS

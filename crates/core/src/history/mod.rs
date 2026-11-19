@@ -25,6 +25,9 @@ mod seam_tests;
 pub mod series;
 #[cfg(test)]
 mod series_tests;
+mod shape_cleanup;
+#[cfg(test)]
+mod shape_cleanup_tests;
 mod shape_schema;
 mod shape_thin;
 #[cfg(test)]

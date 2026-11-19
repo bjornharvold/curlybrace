@@ -4,15 +4,19 @@
 //!
 //! Which keys are kept: only those of QUERY documents (the filter root, children of
 //! `$and`/`$or`/`$nor`, the operand of `$elemMatch`), where keys are field paths or operators,
-//! and OPERATOR documents (every key starts with `$`, used as a field's value), whose
+//! and OPERATOR documents (every key is a known query operator, see `operators`, used as a
+//! field's value; one unknown `$`-key makes the whole document a literal), whose
 //! operators are kept and operands are literals. Any other document is a literal whose keys
 //! are data (ids, emails): an equality value, the operand of `$eq`/`$ne`/`$all`/`$in`/`$gt`,
 //! geo operands, `$expr`, `$text`, `$where`, or a document mixing `$` and plain keys. It
 //! collapses to `"?"`, as does every scalar; `$in`/`$nin`/`$all` lists become `["?"]`.
 
+#[cfg(test)]
+mod allowlist_tests;
 mod normalize;
 #[cfg(test)]
 mod normalize_tests;
+mod operators;
 mod suggest;
 #[cfg(test)]
 mod suggest_tests;

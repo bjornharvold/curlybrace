@@ -3,7 +3,6 @@
 //! delay the answer.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Duration;
 
 use bson::{Document, doc};
@@ -14,6 +13,7 @@ use crate::clock;
 use crate::connection::ConnectionConfig;
 use crate::explain::{AggPlanOutcome, ExplainVerbosity, VerdictKind, parse_aggregate_explain};
 use crate::history::{ChartRange, HistoryDb, ShapeSource, ShapeSummary};
+use crate::log_capture::{RECORDS, capture, records_mentioning};
 use crate::pipeline::{HintOption, PipelineOptions};
 use crate::shape::{Shape, from_profile_command};
 use crate::store::Namespace;
@@ -319,25 +319,9 @@ async fn recording_never_delays_the_event() {
     holder.execute_batch("ROLLBACK").unwrap();
 }
 
-struct Capture(Mutex<Vec<String>>);
-
-impl log::Log for Capture {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
-    }
-    fn log(&self, record: &log::Record) {
-        self.0.lock().unwrap().push(record.args().to_string());
-    }
-    fn flush(&self) {}
-}
-
-static CAPTURE: Capture = Capture(Mutex::new(Vec::new()));
-
 #[tokio::test]
 async fn nothing_about_the_pipeline_is_logged() {
-    // The only logger of this test binary; a failed install would make the assertion vacuous.
-    log::set_logger(&CAPTURE).expect("this test owns the logger");
-    log::set_max_level(log::LevelFilter::Trace);
+    capture();
     let history = Arc::new(HistoryDb::open_in_memory().unwrap());
     history.exec_for_tests("ALTER TABLE shape RENAME TO shape_gone");
     let ns: Namespace = mock_namespace();
@@ -351,18 +335,18 @@ async fn nothing_about_the_pipeline_is_logged() {
         &|| 1_800_000_000,
     );
     for _ in 0..100 {
-        if !CAPTURE.0.lock().unwrap().is_empty() {
+        if !records_mentioning("not recorded").is_empty() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let lines = CAPTURE.0.lock().unwrap().join("\n");
     assert!(
-        lines.contains("not recorded"),
-        "the failure is logged: {lines:?}"
+        !records_mentioning("typed query shape not recorded").is_empty(),
+        "the failure is logged"
     );
+    let all = RECORDS.lock().unwrap().join("\n");
     assert!(
-        !lines.contains("zebra-secret") && !lines.contains("424242"),
-        "{lines}"
+        !all.contains("zebra-secret") && !all.contains("424242"),
+        "{all}"
     );
 }

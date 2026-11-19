@@ -23,6 +23,8 @@ pub mod explain;
 pub mod guard;
 pub mod history;
 pub mod indexes;
+#[cfg(test)]
+mod log_capture;
 mod mongo_admin;
 #[cfg(test)]
 mod mongo_admin_tests;
