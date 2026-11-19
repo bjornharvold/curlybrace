@@ -743,6 +743,12 @@ mod tests;
 #[path = "reducer_request_failed_tests.rs"]
 mod reducer_request_failed_tests;
 #[cfg(test)]
+#[path = "tab_characterisation_script.rs"]
+mod tab_characterisation_script;
+#[cfg(test)]
+#[path = "tab_characterisation_sites_tests.rs"]
+mod tab_characterisation_sites_tests;
+#[cfg(test)]
 #[path = "tab_characterisation_tests.rs"]
 mod tab_characterisation_tests;
 #[cfg(test)]

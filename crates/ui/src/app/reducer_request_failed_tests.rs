@@ -1,7 +1,7 @@
 //! A find, an explain and an estimated count are numbered reads now, so their failures arrive as
 //! `RequestFailed { request }`. The UI handles them exactly as it handled the bare `Failed` they
 //! used to be (#159, slice 1): the same banner, the same loading flags, the same inline outcome.
-use super::tab_characterisation_tests::browsing_one;
+use super::tab_characterisation_script::browsing_one;
 use super::{Input, update};
 use crate::app::state::{AppState, Banner, ConnStatus};
 use crate::app::{AggregateAction, VerdictState};

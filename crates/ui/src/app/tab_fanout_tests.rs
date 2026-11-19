@@ -1,6 +1,5 @@
 //! The sites that act on a whole session reach every tab of it (#159): a lost connection, a write
-//! answered, a database that vanished, a collection dropped, a status the sampler reports. Built
-//! with two or three tabs of one session through the model API.
+//! answered, a database that vanished, a collection dropped, a status reported (two or three tabs).
 use crate::app::AggregateAction;
 use crate::app::reducer::{Input, update};
 use crate::app::state::{AppState, ConnStatus, Pending};
