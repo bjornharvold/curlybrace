@@ -271,10 +271,10 @@ fn paint_content(
     };
     show_badge(&mut content, &glyph, i18n);
     if label.badge.production {
-        paint_mark(&mut content, MARK_SIZE, s.error, Mark::Exclamation);
+        paint_mark(&mut content, (s.error, s.on_error), Mark::Exclamation);
     }
     if label.badge.read_only {
-        paint_mark(&mut content, MARK_SIZE, s.warning, Mark::Bar);
+        paint_mark(&mut content, (s.warning, s.on_warning), Mark::Bar);
     }
     if label.unsaved {
         let (dot, _) = content.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
@@ -297,16 +297,17 @@ enum Mark {
 }
 
 /// A small round mark of `fill` with a white `shape` in it: not text, so nothing to translate.
-fn paint_mark(ui: &mut Ui, size: f32, fill: egui::Color32, shape: Mark) {
+fn paint_mark(ui: &mut Ui, (fill, on): (egui::Color32, egui::Color32), shape: Mark) {
+    let size = MARK_SIZE;
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     let painter = ui.painter();
     painter.circle_filled(rect.center(), size / 2.0, fill);
-    let stroke = Stroke::new(1.5, egui::Color32::WHITE);
+    let stroke = Stroke::new(1.5, on);
     let c = rect.center();
     match shape {
         Mark::Exclamation => {
             painter.line_segment([c + vec2(0.0, -3.5), c + vec2(0.0, 0.5)], stroke);
-            painter.circle_filled(c + vec2(0.0, 3.0), 0.9, egui::Color32::WHITE);
+            painter.circle_filled(c + vec2(0.0, 3.0), 0.9, on);
         }
         Mark::Bar => {
             painter.line_segment([c + vec2(-3.0, 0.0), c + vec2(3.0, 0.0)], stroke);
