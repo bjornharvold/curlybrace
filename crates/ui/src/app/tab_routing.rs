@@ -12,6 +12,7 @@ use super::state::AppState;
 use super::tabs::{TabId, TabView};
 use crate::viewmodel::AggregateState;
 use crate::viewmodel::aggregate_hint_list::HintList;
+use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Event;
 use uuid::Uuid;
 
@@ -23,6 +24,11 @@ pub(super) fn owner_of(state: &AppState, session: Uuid, ev: &Event) -> Option<Ta
     if state.parked_tabs.is_empty() {
         return None;
     }
+    if let Event::Failed { context, .. } = ev {
+        if WRITE_CONTEXTS.contains(context) {
+            return written_from(state, session);
+        }
+    }
     state.tabs.of_session(session).into_iter().find(|tab| {
         state
             .parked_tabs
@@ -31,11 +37,107 @@ pub(super) fn owner_of(state: &AppState, session: Uuid, ev: &Event) -> Option<Ta
     })
 }
 
+/// The event `on_session_event` should see, given the tab that is current while it runs (the
+/// owner, when a parked tab awaits the number). An answer or failure of a find, explain or
+/// estimated count whose number this tab does not await is the answer of a closed or superseded
+/// request: it becomes a superseded failure, which `on_session_event` consumes. A lost server
+/// keeps its meaning whoever sent the request. The failures of the three reads are then
+/// turned back into the bare `Failed` they were (see [`unnumbered`]).
+pub(super) fn check(state: &AppState, session: Uuid, owner: Option<TabId>, ev: &mut Event) {
+    let numbers = numbers_of(state, session, owner);
+    let stale = match &*ev {
+        Event::RequestFailed {
+            context: context @ ("find" | "explain_find" | "estimated_count"),
+            request,
+            error,
+            ..
+        } => {
+            let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+            !lost && !numbers.awaits(context, *request)
+        }
+        Event::Explain { request, .. } => !numbers.awaits("explain_find", *request),
+        Event::EstimatedCount { request, .. } => !numbers.awaits("estimated_count", *request),
+        _ => false,
+    };
+    // Replaced in place: this runs on the deepest event path, where a second `Event` costs stack.
+    if let (true, Some(session)) = (stale, ev.session()) {
+        *ev = Event::Failed {
+            session,
+            context: "find",
+            error: CoreError::Superseded,
+        };
+    } else if matches!(ev, Event::RequestFailed { .. }) {
+        let taken = std::mem::replace(
+            ev,
+            Event::Failed {
+                session: Uuid::nil(),
+                context: "find",
+                error: CoreError::Superseded,
+            },
+        );
+        *ev = unnumbered(taken);
+    }
+}
+
+/// The numbers of the reads one tab has sent and not given up on.
+struct Numbers {
+    find: u64,
+    explain: u64,
+    estimate: u64,
+    count: u64,
+}
+
+impl Numbers {
+    /// Whether the read `context` names awaits `request`.
+    fn awaits(&self, context: &str, request: u64) -> bool {
+        match context {
+            "find" => self.find == request,
+            "explain_find" => self.explain == request,
+            _ => self.estimate == request || self.count == request,
+        }
+    }
+}
+
+/// The numbers of the tab the event will be applied to: the owner (parked), else the session's
+/// current tab, wherever its fields live.
+fn numbers_of(state: &AppState, session: Uuid, owner: Option<TabId>) -> Numbers {
+    if let Some(view) = owner.and_then(|tab| state.parked_tabs.get(&tab)) {
+        return Numbers {
+            find: view.issued_request,
+            explain: view.verdict_request,
+            estimate: view.indexes.estimate_request,
+            count: view.aggregate.run.count_request,
+        };
+    }
+    match state.active == Some(session) {
+        true => Numbers {
+            find: state.issued_request,
+            explain: state.verdict_request,
+            estimate: state.indexes.estimate_request,
+            count: state.aggregate.run.count_request,
+        },
+        false => state.parked.get(&session).map_or(
+            Numbers {
+                find: 0,
+                explain: 0,
+                estimate: 0,
+                count: 0,
+            },
+            |v| Numbers {
+                find: v.issued_request,
+                explain: v.verdict_request,
+                estimate: v.indexes.estimate_request,
+                count: v.aggregate.run.count_request,
+            },
+        ),
+    }
+}
+
 /// A find, an explain and an estimated count are numbered reads (the number routes their answers),
 /// but their failures are handled as the bare `Failed` they were before. Converted here, once, ahead
 /// of `on_session_event`, instead of re-dispatched from inside it: that frame is the one a lost
 /// connection recurses through, and one more level of it costs hundreds of KiB of debug-build stack.
-pub(super) fn unnumbered(ev: Event) -> Event {
+fn unnumbered(ev: Event) -> Event {
     match ev {
         Event::RequestFailed {
             session,
@@ -67,6 +169,26 @@ pub(super) fn draft_for<'a>(
         true => Some(&*state.aggregate),
         false => state.parked.get(&session).map(|v| &*v.aggregate),
     }
+}
+
+/// The commands whose failure belongs to the tab the write was sent from (see `Pending::tab`).
+const WRITE_CONTEXTS: [&str; 9] = [
+    "insert",
+    "replace",
+    "delete",
+    "clone",
+    "create_index",
+    "drop_index",
+    "set_index_hidden",
+    "set_index_ttl",
+    "aggregate_run",
+];
+
+/// The parked tab of `session` the write in flight was sent from.
+fn written_from(state: &AppState, session: Uuid) -> Option<TabId> {
+    let tab = state.pending.as_ref().and_then(|p| p.tab)?;
+    let ours = state.tabs.owner.get(&tab) == Some(&session);
+    (ours && state.parked_tabs.contains_key(&tab)).then_some(tab)
 }
 
 impl AppState {

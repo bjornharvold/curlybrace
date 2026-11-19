@@ -179,7 +179,8 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
             let background = state.active != Some(session);
             // An answer to a parked tab's request goes to that tab, not to the current one.
             let owner = super::tab_routing::owner_of(&state, session, &ev);
-            let ev = super::tab_routing::unnumbered(ev);
+            let mut ev = ev;
+            super::tab_routing::check(&state, session, owner, &mut ev);
             state.with_session_tab(session, owner, |s| on_session_event(s, ev, background))
         }
         (_, None) => (state, Vec::new()),
@@ -522,7 +523,10 @@ fn read_failure(state: AppState, context: &'static str, error: CoreError, backgr
 /// editors in this sense too.
 fn lost_failure(state: AppState, context: &'static str, error: CoreError, background: bool) -> Out {
     let error = specific(&state, context, error);
-    match state.editor.is_none() && !state.indexes.has_prompt() {
+    let typing = state.editor.is_some()
+        || state.indexes.has_prompt()
+        || super::tab_fanout::parked_tab_typing(&state);
+    match !typing {
         true => lost_with_shell_cancelled(state, context, error, background),
         false => (
             data_failed_keeping_banner(state, context, error, background),

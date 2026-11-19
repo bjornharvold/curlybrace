@@ -338,6 +338,21 @@ fn closing_the_current_tab_of_a_session_in_the_background_leaves_the_view_in_fro
 }
 
 #[test]
+fn tab_ids_are_not_reused_after_the_state_is_cleared() {
+    let (s, ids) = app(&["a"]);
+    let s = opened(s, ids[0]);
+    let before = s.current_tab_of(ids[0]).expect("a tab");
+    let s = s.session_cleared();
+    assert!(s.tabs.order.is_empty());
+    let s = opened(s, ids[0]);
+    assert_ne!(
+        s.current_tab_of(ids[0]),
+        Some(before),
+        "the number is not handed out twice"
+    );
+}
+
+#[test]
 fn a_cleared_state_has_no_tabs() {
     let (s, ids) = app(&["a"]);
     let s = opened(s, ids[0]);

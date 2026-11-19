@@ -89,6 +89,8 @@ pub enum Banner {
     /// The user confirmed a production write whose connection changed (another session, a
     /// reconnect or a lost connection) in the meantime, so nothing was sent.
     WriteNotSentConnectionChanged,
+    /// The user confirmed a production write whose tab was closed meanwhile, so nothing was sent.
+    WriteNotSentTabClosed,
     /// The user confirmed a production write while another write was still in flight.
     WriteNotSentBusy,
     /// Create index... was pressed for a query or verdict that no longer suggests an index (the
@@ -441,7 +443,7 @@ impl AppState {
             open: Vec::new(),
             active: None,
             parked: BTreeMap::new(),
-            tabs: Default::default(),
+            tabs: self.tabs.cleared(),
             parked_tabs: BTreeMap::new(),
             failure: None,
             topology: None,

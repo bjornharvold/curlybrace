@@ -260,14 +260,23 @@ impl AppState {
         let Some(previous) = self.tabs.current.get(&session).copied() else {
             return (self, Vec::new());
         };
+        // What the tab was before is not for an answer to change: a routed answer leaves a stale
+        // tab stale.
+        let freshness = self.parked_tabs.get(&tab).map(|view| view.freshness);
         self.with_session(session, |s| {
             let (s, commands) = f(s.tab_made_current(session, tab));
             // `f` may have closed the tab it ran in or its session; put back what still exists.
             let still_there = s.tabs.owner.get(&previous) == Some(&session) && s.is_open(session);
-            match still_there && s.active == Some(session) {
-                true => (s.tab_made_current(session, previous), commands),
-                false => (s, commands),
+            let s = match still_there && s.active == Some(session) {
+                true => s.tab_made_current(session, previous),
+                false => s,
+            };
+            // The tab is parked again: it keeps the mark it had.
+            let mut s = s;
+            if let (Some(kept), Some(view)) = (freshness, s.parked_tabs.get_mut(&tab)) {
+                view.freshness = kept;
             }
+            (s, commands)
         })
     }
 

@@ -119,6 +119,14 @@ impl TabStrip {
         Self { order, ..self }
     }
 
+    /// No tab left, and no number given back: the next tab is still a new one.
+    pub fn cleared(self) -> Self {
+        Self {
+            next: self.next,
+            ..Self::default()
+        }
+    }
+
     /// The tabs of `session`, in strip order.
     pub fn of_session(&self, session: Uuid) -> Vec<TabId> {
         self.order

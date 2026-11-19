@@ -81,7 +81,7 @@ pub(super) fn explained(
         ns,
         query,
         outcome,
-        request: 0,
+        request: state.verdict_request,
     };
     update(state, Input::Event(event)).0
 }

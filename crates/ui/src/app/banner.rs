@@ -34,6 +34,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
             (i18n.t("banner.write_not_sent_connection_changed"), None)
         }
         Banner::WriteNotSentBusy => (i18n.t("banner.write_not_sent_busy"), None),
+        Banner::WriteNotSentTabClosed => (i18n.t("banner.write_not_sent_tab_closed"), None),
         Banner::IndexSuggestionGone => (i18n.t("banner.index_suggestion_gone"), None),
     }
 }
@@ -92,7 +93,8 @@ pub fn banner_level(banner: &Banner) -> BannerLevel {
         | Banner::CompareApplyReadOnlySource
         | Banner::FieldsConflict
         | Banner::WriteNotSentConnectionChanged
-        | Banner::WriteNotSentBusy => BannerLevel::Warning,
+        | Banner::WriteNotSentBusy
+        | Banner::WriteNotSentTabClosed => BannerLevel::Warning,
         Banner::IndexSuggestionGone => BannerLevel::Info,
     }
 }
@@ -229,6 +231,7 @@ mod tests {
             Banner::FieldsCovered,
             Banner::WriteNotSentConnectionChanged,
             Banner::WriteNotSentBusy,
+            Banner::WriteNotSentTabClosed,
             Banner::IndexSuggestionGone,
         ];
         for b in &banners {

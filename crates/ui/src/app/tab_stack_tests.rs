@@ -36,11 +36,16 @@ unsafe impl Send for Handoff {}
 
 /// Applies `input` to `state` on a thread whose stack is `stack_bytes()` long.
 fn on_bounded_stack(state: AppState, input: Input) -> AppState {
+    on_stack_of(state, input, stack_bytes())
+}
+
+/// Applies `input` to `state` on a thread whose stack is `bytes` long.
+fn on_stack_of(state: AppState, input: Input, bytes: usize) -> AppState {
     let moved = Handoff(state);
     let input = AssertSend(input);
     std::thread::Builder::new()
         .name("bounded-stack".into())
-        .stack_size(stack_bytes())
+        .stack_size(bytes)
         .spawn(move || {
             let (moved, input) = (moved, input);
             Handoff(update(moved.0, input.0).0)
@@ -196,6 +201,28 @@ fn a_lost_find_of_a_parked_tab_fails_the_root_within_the_stack() {
     let second = *s.parked_tabs.keys().next().expect("a parked tab");
     let request = s.parked_tabs[&second].issued_request;
     let s = on_bounded_stack(s, find_lost(a, request, true));
+    assert_eq!(s.status, ConnStatus::Failed);
+}
+
+// Measured margins (debug build, bisected with `STACK_KIB`, 16 KiB steps): the event-only minimum
+// of a find lost on a parked tab is 1576 KiB, of a bare find lost on a one-tab session 1428 KiB, of
+// a count lost on a parked tab 1768 KiB (the unchanged code needed 1560, 1428 and 1768). The
+// bounds below sit about 200 KiB above the first two, so a change that costs a frame of any size
+// on these paths fails here before it overflows a test thread.
+
+#[test]
+fn a_lost_find_of_a_parked_tab_stays_within_its_measured_bound() {
+    let (s, a, _) = counting(true, false);
+    let second = *s.parked_tabs.keys().next().expect("a parked tab");
+    let request = s.parked_tabs[&second].issued_request;
+    let s = on_stack_of(s, find_lost(a, request, true), 1792 * 1024);
+    assert_eq!(s.status, ConnStatus::Failed);
+}
+
+#[test]
+fn a_bare_lost_find_with_one_tab_stays_within_its_measured_bound() {
+    let (s, a, _) = counting(false, false);
+    let s = on_stack_of(s, find_lost(a, 0, false), 1536 * 1024);
     assert_eq!(s.status, ConnStatus::Failed);
 }
 

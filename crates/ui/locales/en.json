@@ -409,7 +409,8 @@
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
     "read_only": "This connection is read-only, so nothing was changed. To write, untick Read-only in the connection settings and reconnect.",
     "write_not_sent_busy": "The write was not sent because another write was still in progress. Review the document and try again.",
-    "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again."
+    "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again.",
+    "write_not_sent_tab_closed": "The write was not sent because its tab was closed. Review the document and try again."
   },
   "browser": {
     "load_failed": "Could not load documents. See the message above.",

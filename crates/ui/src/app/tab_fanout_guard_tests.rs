@@ -21,7 +21,7 @@ fn a_confirmed_production_write_whose_tab_closed_sends_nothing() {
         commands.is_empty(),
         "nothing is sent for a tab that is gone"
     );
-    assert_eq!(s.banner, Some(Banner::WriteNotSentConnectionChanged));
+    assert_eq!(s.banner, Some(Banner::WriteNotSentTabClosed));
     assert!(s.pending.is_none());
 }
 

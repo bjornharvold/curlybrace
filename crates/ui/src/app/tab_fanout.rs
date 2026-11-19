@@ -124,6 +124,22 @@ pub(super) fn connection_lost(state: &mut AppState, session: Uuid) {
     }
 }
 
+/// Whether a parked tab of the active session has an editor or a modal open: one blip must not
+/// discard what is typed in any tab. False at once when nothing is parked (the usual case, on the
+/// deepest event path).
+pub(super) fn parked_tab_typing(state: &AppState) -> bool {
+    if state.parked_tabs.is_empty() {
+        return false;
+    }
+    let session = state.session_id();
+    state.tabs.of_session(session).iter().any(|tab| {
+        state
+            .parked_tabs
+            .get(tab)
+            .is_some_and(|view| view.editor.is_some() || view.indexes.has_prompt())
+    })
+}
+
 /// The database list changed: the sidebar takes it, and parked tabs whose database vanished lose
 /// their collection (the current tab loses its selection with the sidebar's own rule).
 #[inline(never)]
@@ -233,6 +249,9 @@ pub(super) fn profiling_level(mut state: AppState, db: &str, level: &ProfilingSt
 #[cfg(test)]
 #[path = "tab_fanout_guard_tests.rs"]
 mod guard_tests;
+#[cfg(test)]
+#[path = "tab_review_tests.rs"]
+mod review_tests;
 #[cfg(test)]
 #[path = "tab_fanout_tests.rs"]
 mod tests;

@@ -14,11 +14,22 @@ use curlybrace_core::runtime::{Command, EMBEDDED_SESSION, Event};
 use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
 
-fn request_failed(session: Uuid, context: &'static str, error: CoreError) -> Input {
+/// The failure of the request `state` awaits for the read `context` names.
+fn request_failed(
+    state: &AppState,
+    session: Uuid,
+    context: &'static str,
+    error: CoreError,
+) -> Input {
+    let request = match context {
+        "find" => state.issued_request,
+        "explain_find" => state.verdict_request,
+        _ => state.aggregate.run.count_request,
+    };
     Input::Event(Event::RequestFailed {
         session,
         context,
-        request: 9999,
+        request,
         error,
     })
 }
@@ -43,7 +54,8 @@ fn find_in_flight() -> (AppState, Uuid) {
 fn a_find_request_failure_raises_the_same_banner_as_a_find_failure() {
     let boom = || CoreError::Database("boom".into());
     let (state, a) = find_in_flight();
-    let (via_request, commands) = update(state, request_failed(a, "find", boom()));
+    let input = request_failed(&state, a, "find", boom());
+    let (via_request, commands) = update(state, input);
     let (state, a) = find_in_flight();
     let (via_failed, _) = update(state, failed(a, "find", boom()));
     assert!(commands.is_empty());
@@ -67,7 +79,8 @@ fn a_find_request_failure_raises_the_same_banner_as_a_find_failure() {
 #[test]
 fn a_lost_server_on_a_find_request_fails_the_root_like_before() {
     let (state, a) = find_in_flight();
-    let (state, _) = update(state, request_failed(a, "find", CoreError::Unreachable));
+    let input = request_failed(&state, a, "find", CoreError::Unreachable);
+    let (state, _) = update(state, input);
     assert_eq!(state.status, ConnStatus::Failed);
     assert_eq!(state.failure, Some(CoreError::Unreachable));
     assert_eq!(state.selected_ns(), None);
@@ -76,7 +89,8 @@ fn a_lost_server_on_a_find_request_fails_the_root_like_before() {
 #[test]
 fn a_superseded_find_request_is_consumed_like_before() {
     let (state, a) = find_in_flight();
-    let (state, commands) = update(state, request_failed(a, "find", CoreError::Superseded));
+    let input = request_failed(&state, a, "find", CoreError::Superseded);
+    let (state, commands) = update(state, input);
     assert!(commands.is_empty());
     assert!(state.banner.is_none());
     assert!(state.loading_page, "a superseded answer settles nothing");
@@ -109,10 +123,8 @@ fn an_explain_request_failure_leaves_the_run_without_a_verdict_like_before() {
         _ => state,
     };
     assert!(matches!(state.verdict, VerdictState::Pending { .. }));
-    let (state, commands) = update(
-        state,
-        request_failed(a, "explain_find", CoreError::Database("x".into())),
-    );
+    let input = request_failed(&state, a, "explain_find", CoreError::Database("x".into()));
+    let (state, commands) = update(state, input);
     assert!(commands.is_empty());
     assert!(matches!(state.verdict, VerdictState::Unavailable { .. }));
     assert!(state.banner.is_none(), "an explain never raises a banner");
@@ -122,10 +134,8 @@ fn an_explain_request_failure_leaves_the_run_without_a_verdict_like_before() {
 #[test]
 fn a_lost_server_on_an_explain_request_does_not_fail_the_root_like_before() {
     let (state, a, _) = browsing_one();
-    let (state, _) = update(
-        state,
-        request_failed(a, "explain_find", CoreError::Unreachable),
-    );
+    let input = request_failed(&state, a, "explain_find", CoreError::Unreachable);
+    let (state, _) = update(state, input);
     assert_eq!(state.status, ConnStatus::Connected);
     assert!(state.banner.is_none());
 }
@@ -165,10 +175,9 @@ fn an_estimated_count_request_failure_reads_count_unavailable_like_before() {
         s
     };
     let error = || CoreError::Database("x".into());
-    let (via_request, _) = update(
-        waiting(),
-        request_failed(EMBEDDED_SESSION, "estimated_count", error()),
-    );
+    let s = waiting();
+    let input = request_failed(&s, EMBEDDED_SESSION, "estimated_count", error());
+    let (via_request, _) = update(s, input);
     let (via_failed, _) = update(
         waiting(),
         failed(EMBEDDED_SESSION, "estimated_count", error()),
