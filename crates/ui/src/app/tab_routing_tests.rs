@@ -1,9 +1,11 @@
 //! An answer finds the tab that awaits its number: tab one is current and tab two is parked,
 //! each with its own requests in flight (built by `tab_routing_support`).
 use super::owner_of;
-use super::support::{act, ev, find_request, orders, parked, results, two_tabs, users};
 use crate::app::reducer::{Input, update};
 use crate::app::state::AppState;
+use crate::app::tabs::test_support::{
+    act, ev, find_request, orders, parked, results, two_tabs, users,
+};
 use crate::viewmodel::{CollectionTab, FindAction, IndexesAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;

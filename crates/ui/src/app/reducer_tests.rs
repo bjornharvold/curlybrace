@@ -87,6 +87,7 @@ fn pending_from(editor: Option<&EditorState>) -> Option<Pending> {
             original_id: e.original_id.clone(),
             text: e.text.clone(),
         }),
+        tab: None,
     })
 }
 

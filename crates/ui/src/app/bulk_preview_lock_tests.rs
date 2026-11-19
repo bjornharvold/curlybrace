@@ -27,6 +27,7 @@ fn next_leaves_an_unrelated_pending_write_alone_when_refused() {
     s.pending = Some(Pending {
         ns: ns(),
         editor: None,
+        tab: None,
     });
     let (s, _) = act(locked(s, id), BulkAction::Next);
     assert!(s.pending.is_some());

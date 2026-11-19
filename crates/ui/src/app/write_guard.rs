@@ -185,6 +185,14 @@ pub(super) fn connection_unchanged(state: &AppState, parked: &ParkedWrite) -> bo
         && state.is_open(session)
         && state.status == ConnStatus::Connected
         && state.latest_requested_epoch == parked.epoch
+        && tab_still_open(state, parked)
+}
+
+/// The tab the write was parked from is still open: a write whose tab was closed meanwhile is not
+/// sent (the person confirmed a warning about a view that is gone).
+fn tab_still_open(state: &AppState, parked: &ParkedWrite) -> bool {
+    let tab = parked.pending.as_ref().and_then(|p| p.tab);
+    tab.is_none_or(|tab| state.tabs.owner.contains_key(&tab))
 }
 
 /// The parked write still targets the live active session and nothing else is being written.

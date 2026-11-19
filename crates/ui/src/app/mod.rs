@@ -84,6 +84,7 @@ mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
 pub mod state;
+mod tab_fanout;
 mod tab_routing;
 pub mod tab_strip;
 pub mod tabs;

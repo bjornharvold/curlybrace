@@ -119,6 +119,7 @@ fn busy_view(n: i32) -> SessionView {
         pending: Some(Pending {
             ns: Namespace::new("db", "c"),
             editor: None,
+            tab: None,
         }),
         ssh_endpoint: Some(HostEndpoint {
             host: format!("host{n}"),
@@ -217,6 +218,7 @@ fn with_session_applies_to_the_parked_view_and_restores_the_active_one() {
     let pending = Pending {
         ns: Namespace::new("other", "x"),
         editor: None,
+        tab: None,
     };
     let expected = pending.clone();
     let (next, commands) = s.with_session(b, |s| {

@@ -310,6 +310,34 @@ fn closing_the_current_tab_brings_another_one_in_and_the_last_tab_stays() {
 }
 
 #[test]
+fn closing_the_current_tab_of_a_session_in_the_background_leaves_the_view_in_front_alone() {
+    use crate::app::tabs::test_support::{two_tabs, with_second_session};
+    let t = two_tabs();
+    let (s, b, _) = with_second_session(t.s);
+    assert_eq!(s.active, Some(b));
+    let first = s.current_tab_of(t.a).expect("a's current tab");
+    let in_front = s.selected_ns().cloned();
+    let s = s.tab_closed(first);
+    assert_eq!(s.active, Some(b), "the session in front is still in front");
+    assert_eq!(
+        s.selected_ns().cloned(),
+        in_front,
+        "its tab was not touched"
+    );
+    assert_eq!(
+        s.current_tab_of(t.a),
+        Some(t.second),
+        "a's other tab took over"
+    );
+    assert_eq!(
+        s.parked[&t.a].sidebar.selected,
+        Some(Namespace::new("app", "orders")),
+        "inside a's view"
+    );
+    assert!(!s.parked_tabs.contains_key(&t.second));
+}
+
+#[test]
 fn a_cleared_state_has_no_tabs() {
     let (s, ids) = app(&["a"]);
     let s = opened(s, ids[0]);
@@ -331,5 +359,6 @@ fn opening_a_collection_goes_to_the_current_tab() {
     let _ = Pending {
         ns: users(),
         editor: None,
+        tab: None,
     };
 }

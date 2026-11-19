@@ -11,15 +11,15 @@ use uuid::Uuid;
 
 use crate::viewmodel::SidebarAction;
 
-pub(super) fn users() -> Namespace {
+pub(crate) fn users() -> Namespace {
     Namespace::new("app", "users")
 }
 
-pub(super) fn orders() -> Namespace {
+pub(crate) fn orders() -> Namespace {
     Namespace::new("app", "orders")
 }
 
-pub(super) fn page(n: usize) -> Page {
+pub(crate) fn page(n: usize) -> Page {
     Page {
         docs: (0..n).map(|i| doc! { "_id": i as i32 }).collect(),
         skip: 0,
@@ -27,7 +27,7 @@ pub(super) fn page(n: usize) -> Page {
     }
 }
 
-pub(super) struct Two {
+pub(crate) struct Two {
     pub s: AppState,
     pub a: Uuid,
     pub second: TabId,
@@ -36,7 +36,7 @@ pub(super) struct Two {
     pub second_find: u64,
 }
 
-pub(super) fn find_request(commands: &[Command]) -> u64 {
+pub(crate) fn find_request(commands: &[Command]) -> u64 {
     commands
         .iter()
         .find_map(|c| match c {
@@ -47,17 +47,17 @@ pub(super) fn find_request(commands: &[Command]) -> u64 {
 }
 
 /// Runs `input` in `tab` (the person acting on that tab).
-pub(super) fn act(s: AppState, tab: TabId, input: Input) -> (AppState, Vec<Command>) {
+pub(crate) fn act(s: AppState, tab: TabId, input: Input) -> (AppState, Vec<Command>) {
     s.with_tab(tab, |s| update(s, input))
 }
 
-pub(super) fn ev(s: AppState, event: Event) -> AppState {
+pub(crate) fn ev(s: AppState, event: Event) -> AppState {
     update(s, Input::Event(event)).0
 }
 
 /// Session `a` connected; tab one (current) opened `app.users`, tab two (parked) opened
 /// `app.orders`; both finds are in flight.
-pub(super) fn two_tabs() -> Two {
+pub(crate) fn two_tabs() -> Two {
     let cfg = ConnectionConfig::new("a", "mongodb://localhost");
     let a = cfg.id;
     let s = AppState::new(vec![cfg]);
@@ -86,7 +86,7 @@ pub(super) fn two_tabs() -> Two {
     }
 }
 
-pub(super) fn results(session: Uuid, ns: Namespace, request: u64, n: usize) -> Event {
+pub(crate) fn results(session: Uuid, ns: Namespace, request: u64, n: usize) -> Event {
     Event::Results {
         session,
         ns,
@@ -96,6 +96,33 @@ pub(super) fn results(session: Uuid, ns: Namespace, request: u64, n: usize) -> E
     }
 }
 
-pub(super) fn parked(s: &AppState, tab: TabId) -> &TabView {
+pub(crate) fn parked(s: &AppState, tab: TabId) -> &TabView {
     s.parked_tabs.get(&tab).expect("the tab is parked")
+}
+
+/// A second session `b` connected on top of `s` (it becomes the active one), with two tabs: the
+/// current one on `app.users`, a parked one on `app.orders` holding a page. Returns the state,
+/// `b` and its parked tab.
+pub(crate) fn with_second_session(s: AppState) -> (AppState, Uuid, TabId) {
+    let cfg = ConnectionConfig::new("b", "mongodb://localhost");
+    let b = cfg.id;
+    let mut s = s;
+    s.conn.connections.push(cfg);
+    let (s, _) = update(s, Input::Connect(b));
+    let epoch = s.epoch_counter;
+    let s = ev(
+        s,
+        Event::Connected {
+            session: b,
+            epoch,
+            topology: None,
+        },
+    );
+    let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(users())));
+    let (s, tab) = s.tab_opened(b);
+    let tab = tab.expect("a tab of b");
+    let (s, commands) = act(s, tab, Input::Sidebar(SidebarAction::Open(orders())));
+    let request = find_request(&commands);
+    let s = ev(s, results(b, orders(), request, 1));
+    (s, b, tab)
 }

@@ -168,6 +168,10 @@ pub struct Pending {
     pub ns: Namespace,
     /// Set for editor saves, so a failure only lands in the editor it came from.
     pub editor: Option<EditorKey>,
+    /// The tab the write was sent from: its editor is the one the answer closes, and its page is
+    /// the one that is stale afterwards. `None` for a write no tab owns (an administration write)
+    /// or in a session that has no tab.
+    pub tab: Option<super::tabs::TabId>,
 }
 
 /// The whole UI state.

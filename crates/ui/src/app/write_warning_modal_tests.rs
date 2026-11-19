@@ -38,7 +38,11 @@ fn parked_elsewhere() -> AppState {
             ns: ns.clone(),
             id: Bson::Int32(1),
         },
-        pending: Some(Pending { ns, editor: None }),
+        pending: Some(Pending {
+            ns,
+            editor: None,
+            tab: None,
+        }),
         kind: WriteKind::Delete,
         epoch: 1,
     });
@@ -113,7 +117,11 @@ fn parked_on(state: AppState, session: Uuid) -> AppState {
             ns: ns.clone(),
             id: Bson::Int32(1),
         },
-        pending: Some(Pending { ns, editor: None }),
+        pending: Some(Pending {
+            ns,
+            editor: None,
+            tab: None,
+        }),
         kind: WriteKind::Delete,
         epoch: 1,
     });

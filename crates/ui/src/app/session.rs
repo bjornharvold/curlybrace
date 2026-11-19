@@ -74,7 +74,7 @@ pub fn session_display_name(state: &AppState, id: Uuid, i18n: &I18n) -> Option<S
 /// What a session's Aggregate tab keeps through a lost connection or a reconnect: the draft with
 /// its preview made stale (it ran against the connection that is gone), and the view's typing and
 /// mode.
-fn carried_aggregate(
+pub(super) fn carried_aggregate(
     draft: &AggregateState,
     view: &AggregateView,
 ) -> (Box<AggregateState>, Box<AggregateView>) {
@@ -381,6 +381,8 @@ impl AppState {
             aggregate_view,
             ..SessionView::default()
         });
+        // The session's other tabs lose what they showed as well, and keep their drafts.
+        super::tab_fanout::connection_lost(&mut next, session);
         next
     }
 

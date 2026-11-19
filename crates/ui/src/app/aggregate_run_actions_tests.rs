@@ -281,6 +281,7 @@ fn another_write_in_flight_blocks_the_run() {
     s.pending = Some(crate::app::state::Pending {
         ns: people(),
         editor: None,
+        tab: None,
     });
     let (s, commands) = act(s, A::RunConfirmed);
     assert!(commands.is_empty());

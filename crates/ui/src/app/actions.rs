@@ -374,6 +374,8 @@ pub(super) fn mutation(
         let pending = Pending {
             ns: ns.clone(),
             editor,
+            // The tab the write is sent from: its editor is the one its answer closes.
+            tab: s.current_tab_of(s.session_id()),
         };
         let command = build(s.session_id(), ns);
         if guard == Guard::Warn && s.active_is_production() {

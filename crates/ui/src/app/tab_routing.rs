@@ -118,6 +118,9 @@ impl TabView {
             Event::RequestFailed {
                 context, request, ..
             } => self.awaits_failure(context, *request),
+            // Not numbered: the answer to the profiler read or change this tab has in flight for
+            // the database.
+            Event::ProfilingState { db, .. } => self.awaits_profiling(db),
             // Unnumbered, or numbered for something that is not a tab's (a bulk flow, the
             // statistics, the saved copies): the session's current tab takes them.
             Event::Connected { .. }
@@ -130,7 +133,6 @@ impl TabView {
             | Event::Compare(_)
             | Event::Copy(_)
             | Event::TestConnection { .. }
-            | Event::ProfilingState { .. }
             | Event::IndexChanged { .. }
             | Event::AdminChanged { .. }
             | Event::CollectionStats { .. }
@@ -152,6 +154,15 @@ impl TabView {
             | Event::ShellHistory { .. }
             | Event::ShellHistoryChanged { .. } => false,
         }
+    }
+
+    /// This tab asked for the profiling state of `db` (or changed it) and has no answer yet.
+    fn awaits_profiling(&self, db: &str) -> bool {
+        use crate::viewmodel::queries::InFlight;
+        matches!(
+            &self.indexes.queries.in_flight,
+            Some(InFlight::Read(d) | InFlight::Write(d)) if d == db
+        )
     }
 
     /// The builder's or the run dialog's count of this tab.
@@ -205,9 +216,6 @@ mod events_tests;
 #[cfg(test)]
 #[path = "tab_stack_tests.rs"]
 mod stack_tests;
-#[cfg(test)]
-#[path = "tab_routing_support.rs"]
-mod support;
 #[cfg(test)]
 #[path = "tab_routing_tests.rs"]
 mod tests;

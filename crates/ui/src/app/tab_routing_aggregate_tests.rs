@@ -1,8 +1,8 @@
 //! The Aggregate draft of each tab: a preview, a count and a run dialog answer reach the draft
 //! that sent them, and the one-preview-in-flight rule holds per tab.
-use super::support::{act, ev, orders, parked, two_tabs};
 use crate::app::state::{AppState, ConnStatus};
 use crate::app::tabs::TabId;
+use crate::app::tabs::test_support::{act, ev, orders, parked, two_tabs};
 use crate::app::{AggregateAction, CountsAction, ExplainAction};
 use crate::viewmodel::CollectionTab;
 use crate::viewmodel::aggregate_run::CountState;

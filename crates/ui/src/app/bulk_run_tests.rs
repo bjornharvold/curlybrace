@@ -102,6 +102,7 @@ fn run_is_ignored_while_another_write_is_in_flight() {
     s.pending = Some(Pending {
         ns: ns(),
         editor: None,
+        tab: None,
     });
     let (s, cmds) = act(s, BulkAction::Run);
     assert!(cmds.is_empty());

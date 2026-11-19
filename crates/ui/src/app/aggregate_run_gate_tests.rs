@@ -12,6 +12,7 @@ fn another_write_in_flight_turns_run_off_with_its_reason() {
     s.pending = Some(Pending {
         ns: people(),
         editor: None,
+        tab: None,
     });
     assert_eq!(
         s.run_availability(),
@@ -47,6 +48,7 @@ fn run_is_on_again_once_the_other_write_is_over() {
     s.pending = Some(Pending {
         ns: people(),
         editor: None,
+        tab: None,
     });
     s.pending = None;
     assert_eq!(s.run_availability(), RunAvailability::Ready);

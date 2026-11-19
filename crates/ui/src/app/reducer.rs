@@ -237,10 +237,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         }
         // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
-        Event::Databases { names, .. } => {
-            let sidebar = state.sidebar.with_databases(names);
-            (AppState { sidebar, ..state }, Vec::new())
-        }
+        Event::Databases { names, .. } => (
+            super::tab_fanout::databases_listed(state, names),
+            Vec::new(),
+        ),
         Event::Collections { db, names, .. } => {
             let mut loading = state.loading;
             loading.remove(&db);
@@ -320,16 +320,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             context,
             error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
             ..
-        } => {
-            let error = specific(&state, context, error);
-            match state.editor.is_none() && !state.indexes.has_prompt() {
-                true => lost_with_shell_cancelled(state, context, error, background),
-                false => (
-                    data_failed_keeping_banner(state, context, error, background),
-                    Vec::new(),
-                ),
-            }
-        }
+        } => lost_failure(state, context, error, background),
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // A guard check that could not start fails open: it never raises a banner, and the run it
         // held back goes on. A lost server is noticed by that run's own find.
@@ -360,11 +351,11 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // loss witnessed only by an older request that was answered after a newer one is ignored
         // here; the sampler status reports `ConnectionLost` on its own.
         Event::RequestFailed {
-            session,
             context,
             request,
             error,
-        } => numbered_read_failed(state, session, context, request, error, background),
+            ..
+        } => numbered_read_failed(state, context, request, error, background),
         Event::Indexes {
             ns,
             indexes,
@@ -401,9 +392,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             aggregate_run_actions::estimate_arrived(state, ns, count),
             Vec::new(),
         ),
-        Event::Sampler { status, .. } => {
-            (index_actions::sampler_reported(state, status), Vec::new())
-        }
+        Event::Sampler { status, .. } => (
+            super::tab_fanout::sampler_reported(state, status),
+            Vec::new(),
+        ),
         Event::ProfilingState { db, outcome, .. } => {
             queries_actions::profiling_answered(state, db, outcome)
         }
@@ -418,7 +410,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::Profiler { status, .. } => (
-            queries_actions::profiler_reported(state, status),
+            super::tab_fanout::profiler_reported(state, status),
             Vec::new(),
         ),
         Event::BulkCount {
@@ -478,7 +470,6 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
 /// lost connection recurses through, stays small in debug builds.
 fn numbered_read_failed(
     state: AppState,
-    session: Uuid,
     context: &'static str,
     request: u64,
     error: CoreError,
@@ -494,12 +485,7 @@ fn numbered_read_failed(
         if !(lost && current) {
             return (next, Vec::new());
         }
-        let failed = Event::Failed {
-            session,
-            context,
-            error,
-        };
-        return on_session_event(next, failed, background);
+        return read_failure(next, context, error, background);
     }
     let current = state.indexes.request == request;
     let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
@@ -507,16 +493,42 @@ fn numbered_read_failed(
         return (state, Vec::new());
     }
     let awaiting = state.indexes.loading && !current;
-    let (next, commands) = on_session_event(
-        state,
-        Event::Failed {
-            session,
-            context,
-            error,
-        },
-        background,
-    );
+    let (next, commands) = read_failure(state, context, error, background);
     (keep_waiting(next, awaiting), commands)
+}
+
+/// A numbered read failed and its request is the one that counts: what `on_session_event` does
+/// with the bare `Failed` of a context it has no special arm for. A superseded error or a session
+/// that is no longer connected is a late answer and settles nothing; a lost server fails the root;
+/// anything else is a data failure. Called instead of re-entering `on_session_event`, whose frame
+/// is the largest on the deepest event path in a debug build.
+fn read_failure(state: AppState, context: &'static str, error: CoreError, background: bool) -> Out {
+    if matches!(error, CoreError::Superseded) || state.status != ConnStatus::Connected {
+        return (state, Vec::new());
+    }
+    match error {
+        CoreError::Unreachable | CoreError::TlsHandshake => {
+            lost_failure(state, context, error, background)
+        }
+        error => (data_failed(state, context, error), Vec::new()),
+    }
+}
+
+/// The server of an open session cannot be reached any more: the root fails like a failed
+/// connect would, and Reconnect is the way back. Except while an editor is open: one transient
+/// network error must not discard the text the person is typing, so whichever command was lost
+/// takes the banner path of `data_failed` and the editor stays; the next lost command after the
+/// editor is closed fails the root. The index builder and the modals of the index writes are
+/// editors in this sense too.
+fn lost_failure(state: AppState, context: &'static str, error: CoreError, background: bool) -> Out {
+    let error = specific(&state, context, error);
+    match state.editor.is_none() && !state.indexes.has_prompt() {
+        true => lost_with_shell_cancelled(state, context, error, background),
+        false => (
+            data_failed_keeping_banner(state, context, error, background),
+            Vec::new(),
+        ),
+    }
 }
 
 /// The error as it is shown. An unreachable server of a session that goes through an SSH tunnel
@@ -568,8 +580,12 @@ fn results_replaced(
 /// A mutation finished. Only the one in flight (same namespace) is resolved; the editor it came
 /// from is closed, and the page is re-fetched with the query that produced it.
 pub(super) fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) -> Out {
+    // The editor to close is the one of the tab the write was sent from; every other tab on the
+    // collection is stale now.
+    let (state, current_may_close) = super::tab_fanout::written(state, &ns);
     let matches_pending = state.pending.as_ref().is_some_and(|p| p.ns == ns);
-    let editor_done = matches_pending && editor_matches(&state, state.pending.as_ref());
+    let editor_done =
+        matches_pending && current_may_close && editor_matches(&state, state.pending.as_ref());
     let state = AppState {
         pending: if matches_pending { None } else { state.pending },
         editor: if editor_done { None } else { state.editor },

@@ -1,8 +1,8 @@
 //! Events no parked tab awaits go to the session's current tab, with one tab or with two.
 use super::owner_of;
-use super::support::two_tabs;
 use crate::app::reducer::{Input, update};
 use crate::app::state::AppState;
+use crate::app::tabs::test_support::two_tabs;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::history::ChartRange;
@@ -10,7 +10,7 @@ use curlybrace_core::runtime::Event;
 use curlybrace_core::store::Query;
 use uuid::Uuid;
 
-use super::support::{page, users};
+use crate::app::tabs::test_support::{page, users};
 
 #[test]
 fn with_one_tab_per_session_every_event_goes_to_the_current_tab() {

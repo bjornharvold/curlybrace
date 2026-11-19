@@ -316,6 +316,7 @@ fn listed_and_writing(ns: &Namespace) -> AppState {
     s.pending = Some(crate::app::state::Pending {
         ns: ns.clone(),
         editor: None,
+        tab: None,
     });
     s
 }

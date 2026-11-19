@@ -20,6 +20,7 @@ use crate::viewmodel::{
     AggregateState, CollectionTab, EditorState, FindBarState, IndexesState, PageKey, TreeState,
     ViewMode,
 };
+use curlybrace_core::runtime::{ProfilerStatus, SamplerStatus};
 use curlybrace_core::store::{Namespace, Page, Query};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -148,11 +149,27 @@ impl AppState {
         }
         let (tabs, tab) = self.tabs.clone().opened_for(session, None);
         let first = !self.tabs.current.contains_key(&session);
+        // A new tab shows what the session already reported: the sampler and the profiler belong
+        // to the connection, not to a tab.
+        let (sampler, profiler) = self.session_statuses(session);
         let mut next = AppState { tabs, ..self };
         if !first {
-            next.parked_tabs.insert(tab, Box::default());
+            let mut view = TabView::default();
+            view.indexes.sampler = sampler;
+            view.indexes.queries.status = profiler;
+            next.parked_tabs.insert(tab, Box::new(view));
         }
         (next, Some(tab))
+    }
+
+    /// The sampler and profiler status of `session`, read from its current tab wherever that
+    /// lives.
+    fn session_statuses(&self, session: Uuid) -> (Option<SamplerStatus>, Option<ProfilerStatus>) {
+        let indexes = match self.active == Some(session) {
+            true => Some(&self.indexes),
+            false => self.parked.get(&session).map(|v| &v.indexes),
+        };
+        indexes.map_or((None, None), |i| (i.sampler, i.queries.status.clone()))
     }
 
     /// `tab` closed. A parked tab just goes; the current tab is replaced by the session's first
@@ -170,7 +187,12 @@ impl AppState {
             else {
                 return self;
             };
-            return self.tab_made_current(session, other).tab_closed(tab);
+            // The swap works on the foreground, so the session must be the active one while it
+            // runs; the session that was in front goes back in front.
+            let (swapped, _) = self.with_session(session, |s| {
+                (s.tab_made_current(session, other), Vec::new())
+            });
+            return swapped.tab_closed(tab);
         }
         let mut next = self;
         next.parked_tabs.remove(&tab);
@@ -259,6 +281,9 @@ impl AppState {
     }
 }
 
+#[cfg(test)]
+#[path = "tab_test_support.rs"]
+pub(crate) mod test_support;
 #[cfg(test)]
 #[path = "tabs_tests.rs"]
 mod tests;
