@@ -359,7 +359,11 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   from the first `$match` and the `$sort` right after it (a pipeline that starts with `$sort`
   counts too), with the draft's collation, as a `createIndex` command you can **Copy** or open
   with **Create index...** in the index builder, pre-filled (off on a read-only connection;
-  production keeps its write confirmation). Nothing is built without that dialog.
+  production keeps its write confirmation). Nothing is built without that dialog. A successful
+  Explain also records the shape of the pipeline's leading `$match` and the `$sort` after it in
+  the local history, with field names and operators only and never a value, so it counts with
+  the other queries that miss an index; a pipeline explained under a hint or a collation is not
+  recorded, and Preview never explains.
 - **Count stages** shows, on every stage card, how many documents that stage lets through: "N
   documents", or "at least 100000 documents" when the count hit the cap. It runs only when you
   click, one stage after another (never in parallel), each count a read bounded by a time limit
