@@ -225,7 +225,8 @@ fn show_row(
             let target = collection_target(ctx, db, name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));
             let menu = collection_menu(&response, db, name, ctx, i18n);
-            dropped.or(menu).or_else(|| {
+            let new_tab = crate::views::sidebar_tabs::new_tab_request(ui, &response, db, name);
+            dropped.or(menu).or(new_tab).or_else(|| {
                 node_action(ui, &response, ctx, &node_ref, || {
                     collection_click_action(db, name)
                 })
@@ -286,6 +287,10 @@ fn collection_menu(
     response.context_menu(|ui| {
         if ui.button(i18n.t("sidebar.compare_to")).clicked() {
             chosen = Some(compare_to_action(db, name));
+            ui.close();
+        }
+        if ui.button(i18n.t("tabs.open_in_new_tab")).clicked() {
+            chosen = Some(SidebarAction::OpenInNewTab(Namespace::new(db, name)));
             ui.close();
         }
         let target = ctx.map(|c| row_paste_target(c, &collection_node(ctx, db, name)));

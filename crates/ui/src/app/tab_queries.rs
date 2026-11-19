@@ -36,6 +36,12 @@ impl AppState {
             .and_then(|session| self.tabs.current.get(&session).copied())
     }
 
+    /// The tab being looked at lost its connection and has not run since.
+    pub fn dormant_active(&self) -> bool {
+        self.active_tab()
+            .is_some_and(|tab| self.tabs.dormant.contains(&tab))
+    }
+
     /// What `tab` shows, wherever its fields live.
     pub fn glance(&self, tab: TabId) -> Option<TabGlance> {
         let session = self.tabs.owner.get(&tab).copied()?;

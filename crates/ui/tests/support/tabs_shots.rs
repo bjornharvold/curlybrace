@@ -1,0 +1,95 @@
+//! Fixed in-memory states with several tabs, for the tab tests and snapshots. No database, no
+//! network: the tabs are put together through the model API (`tab_opened`) and their fields set
+//! directly, the way the reducer leaves them.
+use super::db::sample_people;
+use super::shots::{browsing, install_page};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::store::{Namespace, Page};
+use curlybrace_ui::app::session::SessionView;
+use curlybrace_ui::app::state::{AppState, ConnStatus};
+use curlybrace_ui::app::tabs::TabId;
+use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
+use uuid::Uuid;
+
+fn people_page() -> Page {
+    Page {
+        docs: sample_people(),
+        skip: 0,
+        has_more: false,
+    }
+}
+
+/// The browsing fixture (`Production` session on `crm.customers`, showing people) with one more
+/// parked tab per collection of `others`, each holding the same page. Returns the new tabs.
+pub fn browsing_with_tabs(state: &mut AppState, others: &[&str]) -> Vec<TabId> {
+    browsing(ViewMode::Table)(state);
+    let session = state.active.expect("an active session");
+    // The session's first tab is the current one (the fields `browsing` just set).
+    *state = std::mem::take(state).tab_opened(session).0;
+    others
+        .iter()
+        .map(|collection| parked_tab(state, session, "crm", collection))
+        .collect()
+}
+
+/// A parked tab of `session` on `db.collection` holding a page.
+pub fn parked_tab(state: &mut AppState, session: Uuid, db: &str, collection: &str) -> TabId {
+    let (next, tab) = std::mem::take(state).tab_opened(session);
+    *state = next;
+    let tab = tab.expect("the session is open");
+    let page = people_page();
+    if let Some(view) = state.parked_tabs.get_mut(&tab) {
+        view.ns = Some(Namespace::new(db, collection));
+        view.page_key = Some(page_key(&page));
+        view.page = Some(page);
+        view.view_mode = ViewMode::Table;
+    }
+    tab
+}
+
+/// Another open session named `name` whose one tab shows `crm.<collection>`, with the given
+/// production and read-only flags; it stays in the background.
+pub fn background_session(
+    state: &mut AppState,
+    name: &str,
+    collection: &str,
+    (production, read_only): (bool, bool),
+) -> Uuid {
+    let mut cfg = ConnectionConfig::new(name, "mongodb://db.example.com:27017");
+    cfg.production = production;
+    cfg.read_only = read_only;
+    let id = cfg.id;
+    state.conn.connections.push(cfg);
+    state.open.push(id);
+    state.parked.insert(
+        id,
+        SessionView {
+            status: ConnStatus::Connected,
+            production,
+            read_only,
+            sidebar: SidebarState::default().selecting(Namespace::new("crm", collection)),
+            ..SessionView::default()
+        },
+    );
+    *state = std::mem::take(state).tab_opened(id).0;
+    id
+}
+
+/// The six-tab strip of the layout audit and the small snapshot: three plain tabs of the active
+/// session and a production one, a read-only one and a production read-only one of other sessions.
+pub fn six_tabs(state: &mut AppState) {
+    browsing_with_tabs(state, &["invoices", "notes"]);
+    background_session(state, "Staging", "orders", (true, false));
+    background_session(state, "Reports", "sessions", (false, true));
+    background_session(state, "Billing", "ledger", (true, true));
+}
+
+/// Marks the active session's given tab dormant: its page is gone and it waits for Run.
+pub fn make_dormant(state: &mut AppState, tab: TabId) {
+    state.tabs = std::mem::take(&mut state.tabs).made_dormant([tab]);
+}
+
+/// Puts the fixture's page on the current tab again (after a change dropped it).
+pub fn current_page(state: &mut AppState) {
+    install_page(state, sample_people());
+}

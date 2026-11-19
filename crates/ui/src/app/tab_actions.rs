@@ -7,6 +7,7 @@
 use super::actions::{gated, issue_find};
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, Workspace};
+use super::tab_navigation as nav;
 use super::tab_seed::{Seed, seed_of, seeded};
 use super::tab_strip::TabNotice;
 use super::tabs::{Freshness, TabId};
@@ -47,6 +48,11 @@ pub enum TabAction {
     Last,
     /// A dormant tab's Run: the only way its find is sent.
     Run(TabId),
+    /// The shortcuts act on the tab being looked at, which only the state knows.
+    CloseActive,
+    DuplicateActive,
+    /// Move the tab being looked at this many places along the strip.
+    MoveActive(i32),
 }
 
 pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
@@ -63,14 +69,23 @@ pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
         TabAction::CloseOthers(tab) => close_many(state, tab, false),
         TabAction::CloseRight(tab) => close_many(state, tab, true),
         TabAction::ReopenClosed => reopen_closed(state),
-        TabAction::Move { tab, to } => (moved(state, tab, to), Vec::new()),
-        TabAction::Next => step(state, 1),
-        TabAction::Previous => step(state, -1),
-        TabAction::NextMru => mru(state, false),
-        TabAction::PreviousMru => mru(state, true),
-        TabAction::Nth(at) => nth(state, at),
-        TabAction::Last => last(state),
+        TabAction::Move { tab, to } => (nav::moved(state, tab, to), Vec::new()),
+        TabAction::Next => nav::step(state, 1),
+        TabAction::Previous => nav::step(state, -1),
+        TabAction::NextMru => nav::mru(state, false),
+        TabAction::PreviousMru => nav::mru(state, true),
+        TabAction::Nth(at) => nav::nth(state, at),
+        TabAction::Last => nav::last(state),
         TabAction::Run(tab) => run(state, tab),
+        TabAction::CloseActive => match state.active_tab() {
+            Some(tab) => close(state, tab),
+            None => (state, Vec::new()),
+        },
+        TabAction::DuplicateActive => match state.active_tab() {
+            Some(tab) => duplicate(state, tab),
+            None => (state, Vec::new()),
+        },
+        TabAction::MoveActive(by) => (nav::moved_by(state, by), Vec::new()),
     }
 }
 
@@ -99,11 +114,30 @@ fn shown(state: AppState, tab: TabId) -> AppState {
     let Some(session) = state.tabs.owner.get(&tab).copied() else {
         return state;
     };
+    let left = state.active_tab().filter(|left| *left != tab);
     let state = AppState {
         workspace: Workspace::Browse,
         ..leaving_view(state, session)
     };
-    state.tab_current(tab)
+    let shown = state.tab_current(tab);
+    match left {
+        Some(left) => without_empty(shown, left),
+        None => shown,
+    }
+}
+
+/// `left`, a tab nobody picked a collection in, is not worth keeping once it is left: only the
+/// active empty tab is shown, so it would linger unseen. A session's only tab stays.
+fn without_empty(state: AppState, left: TabId) -> AppState {
+    let lonely = state
+        .tabs
+        .owner
+        .get(&left)
+        .is_none_or(|session| state.tabs.of_session(*session).len() < 2);
+    match lonely || state.tab_ns(left).is_some() {
+        true => state,
+        false => state.tab_closed(left),
+    }
 }
 
 /// A new, empty tab of `session` after the tab being looked at, shown. `None` when the session
@@ -146,7 +180,7 @@ fn open_in_new(state: AppState, session: Uuid, ns: Namespace) -> Out {
 
 /// Shows `tab`. A stale tab re-reads the page it shows (and its index list on Indexes), which is
 /// a read it already ran; a dormant tab sends nothing.
-fn activate(state: AppState, tab: TabId) -> Out {
+pub(super) fn activate(state: AppState, tab: TabId) -> Out {
     if !state.tabs.owner.contains_key(&tab) {
         return (state, Vec::new());
     }
@@ -296,63 +330,6 @@ fn reopen_closed(state: AppState) -> Out {
     }
 }
 
-/// `tab` moved to the place of the `to`-th tab the strip shows.
-fn moved(state: AppState, tab: TabId, to: usize) -> AppState {
-    let visible = state.visible_tabs();
-    let target = visible.get(to).or_else(|| visible.last()).copied();
-    let place = target.and_then(|t| state.tabs.order.iter().position(|o| *o == t));
-    match place {
-        Some(place) => AppState {
-            tabs: state.tabs.clone().moved(tab, place),
-            ..state
-        },
-        None => state,
-    }
-}
-
-/// The tab `by` places from the one being looked at, in the order the strip shows them.
-fn step(state: AppState, by: isize) -> Out {
-    match state.visible_neighbour(state.active_tab(), by) {
-        Some(tab) => activate(state, tab),
-        None => (state, Vec::new()),
-    }
-}
-
-/// The previous (or, `oldest`, the least recently used) tab other than the one being looked at.
-fn mru(state: AppState, oldest: bool) -> Out {
-    let visible = state.visible_tabs();
-    let active = state.active_tab();
-    let recent: Vec<TabId> = state
-        .tabs
-        .mru
-        .iter()
-        .copied()
-        .filter(|t| Some(*t) != active && visible.contains(t))
-        .collect();
-    let pick = match oldest {
-        true => recent.last(),
-        false => recent.first(),
-    };
-    match pick.copied() {
-        Some(tab) => activate(state, tab),
-        None => (state, Vec::new()),
-    }
-}
-
-fn nth(state: AppState, at: usize) -> Out {
-    match state.visible_tabs().get(at).copied() {
-        Some(tab) => activate(state, tab),
-        None => (state, Vec::new()),
-    }
-}
-
-fn last(state: AppState) -> Out {
-    match state.visible_tabs().last().copied() {
-        Some(tab) => activate(state, tab),
-        None => (state, Vec::new()),
-    }
-}
-
 /// A dormant tab's Run: the tab is shown and its find bar's query is sent, which is the one thing
 /// that wakes it. A query the find bar cannot read shows its error and sends nothing.
 fn run(state: AppState, tab: TabId) -> Out {
@@ -366,6 +343,9 @@ fn run(state: AppState, tab: TabId) -> Out {
     }
 }
 
+#[cfg(test)]
+#[path = "tab_activation_tests.rs"]
+mod activation_tests;
 #[cfg(test)]
 #[path = "tab_actions_tests.rs"]
 mod tests;

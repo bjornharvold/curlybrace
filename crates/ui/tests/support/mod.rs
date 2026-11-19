@@ -32,5 +32,6 @@ pub mod shell_shots;
 pub mod shots;
 pub mod sidebar;
 pub mod snapshot_options;
+pub mod tabs_shots;
 pub mod verdict_shots;
 pub mod wait;

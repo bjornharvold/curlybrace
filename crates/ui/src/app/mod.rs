@@ -87,10 +87,12 @@ pub mod state;
 pub mod tab_actions;
 mod tab_eviction;
 mod tab_fanout;
+pub mod tab_navigation;
 pub mod tab_queries;
 mod tab_routing;
 mod tab_seed;
 pub mod tab_strip;
+mod tab_strip_panel;
 pub mod tabs;
 mod tool_picker;
 mod tool_probe;
@@ -919,7 +921,6 @@ mod create_index_state_tests;
 
 #[cfg(test)]
 mod queries_create_tests;
-
 #[cfg(test)]
 mod queries_test_support;
 

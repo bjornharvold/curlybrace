@@ -39,6 +39,7 @@ pub(super) fn show_collection(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
+    super::tab_strip_panel::show_strip(ui, state, i18n, out);
     if state.selected_ns().is_none() {
         ui.label(i18n.t("browser.select_collection"));
         return;
@@ -87,8 +88,15 @@ pub(super) fn show_collection(
     };
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
         // The toolbar row stays in its place (and the view can still be switched) without a page.
+        let dormant = !state.loading_page && state.dormant_active();
+        if dormant && crate::views::tab_dormant::show_dormant_run(ui, i18n) {
+            let run = state.active_tab().map(super::tab_actions::TabAction::Run);
+            out.extend(run.map(|a| UiEvent::Input(Input::Tabs(a))));
+        }
         let empty = if state.loading_page {
             "browser.loading"
+        } else if dormant {
+            "tabs.dormant_run"
         } else {
             "browser.load_failed"
         };
@@ -233,7 +241,7 @@ fn show_aggregate_tab(
         ns: state.selected_ns().cloned(),
     };
     let mut actions = ui
-        .push_id(("aggregate_tab", state.active), |ui| {
+        .push_id(("aggregate_tab", state.active, state.active_tab()), |ui| {
             let view = &mut state.aggregate_view;
             show_aggregate(ui, &state.aggregate, view, saved, &run, i18n)
         })
@@ -259,7 +267,7 @@ fn show_indexes_tab(
     // Per connection: what the tab keeps in egui's memory (the Sampling section's open state)
     // is not shared with the same collection on another connection.
     let shown = ui
-        .push_id(("indexes_tab", state.active), |ui| {
+        .push_id(("indexes_tab", state.active, state.active_tab()), |ui| {
             show_indexes(
                 ui,
                 &state.indexes,
