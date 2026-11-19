@@ -93,8 +93,9 @@ pub(super) fn reconciled(state: AppState) -> AppState {
         _ => split,
     };
     // A pane with nothing in it (a new tab, a dropped collection) is still a pane: it shows
-    // "Select a collection", and a click in the sidebar fills it. The person leaves it through
-    // the strip or ends the split.
+    // "Select a collection" and stays a tab of the strip. A sidebar click fills the ACTIVE pane,
+    // so it is filled by making it the active one first (a click in the pane, or F6). The person
+    // leaves it through the strip, closes it, or ends the split.
     with_split(state, Some(next))
 }
 

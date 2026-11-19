@@ -115,6 +115,31 @@ fn arrow_keys_move_the_divider_home_resets() {
     );
     press(&mut page, Modifiers::NONE, Key::ArrowRight);
     assert_eq!(percent(&page), stopped);
+    // At either stop the value is inside the limits the slider reports (one rounding for all three).
+    let divider = |page: &BrowsePage| {
+        let node = page
+            .harness
+            .get_by_role_and_label(Role::Slider, t("tabs.split.divider"));
+        let n = node.accesskit_node();
+        (
+            n.numeric_value().expect("value"),
+            n.min_numeric_value().expect("min"),
+            n.max_numeric_value().expect("max"),
+        )
+    };
+    let (value, lo, hi) = divider(&page);
+    assert!(
+        (lo..=hi).contains(&value),
+        "at the right stop: {lo} <= {value} <= {hi}"
+    );
+    for _ in 0..30 {
+        press(&mut page, Modifiers::NONE, Key::ArrowLeft);
+    }
+    let (value, lo, hi) = divider(&page);
+    assert!(
+        (lo..=hi).contains(&value),
+        "at the left stop: {lo} <= {value} <= {hi}"
+    );
     let max = page
         .harness
         .get_by_role_and_label(Role::Slider, t("tabs.split.divider"))
@@ -348,4 +373,21 @@ fn focus_order_is_sidebar_strip_active_pane_divider_other_pane() {
         sidebar < strip && strip < active && active < divider && divider < other,
         "{sidebar} {strip} {active} {divider} {other}"
     );
+}
+
+#[test]
+fn the_strip_is_drawn_when_the_partner_is_an_empty_pane() {
+    let page = browse_page(WIDE, |state| {
+        split_two(state, Orientation::SideBySide);
+        let partner = state.tabs.split.as_ref().expect("a split").secondary;
+        if let Some(view) = state.parked_tabs.get_mut(&partner) {
+            *view = Default::default();
+        }
+    });
+    page.harness
+        .get_by_role_and_label(Role::TabList, t("tabs.strip"));
+    // Both panes' tabs are in it, the empty one under the empty-tab title, and the buttons are.
+    assert_eq!(page.harness.query_all_by_role(Role::Tab).count(), 2);
+    page.harness
+        .get_by_role_and_label(Role::Button, t("tabs.split.off"));
 }

@@ -143,15 +143,21 @@ impl AppState {
     }
 
     /// The tabs the strip shows, in strip order: those with a collection or with work in them (an
-    /// editor, a dialog, an Aggregate draft), and the active tab even when it is empty. An empty
-    /// tab that is not shown is swept (`tab_eviction::sweep_empty`), except a session's only one.
+    /// editor, a dialog, an Aggregate draft), and the active tab and the split's partner even when
+    /// they are empty (both are on screen). An empty tab that is not shown is swept
+    /// (`tab_eviction::sweep_empty`, which agrees), except a session's only one.
     pub fn visible_tabs(&self) -> Vec<TabId> {
         let active = self.active_tab();
+        let partner = self.tabs.split.as_ref().map(|s| s.secondary);
         self.tabs
             .order
             .iter()
             .copied()
-            .filter(|t| Some(*t) == active || self.glance(*t).is_some_and(|g| !g.is_idle_empty()))
+            .filter(|t| {
+                Some(*t) == active
+                    || Some(*t) == partner
+                    || self.glance(*t).is_some_and(|g| !g.is_idle_empty())
+            })
             .collect()
     }
 

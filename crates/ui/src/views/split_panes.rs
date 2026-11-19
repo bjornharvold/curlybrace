@@ -41,8 +41,6 @@ pub struct PaneView<'a> {
     pub rect: Rect,
     pub active: bool,
     pub name: &'a str,
-    /// Draw the ring (and keep the page inside it); the one pane of the fallback has none.
-    pub ring: bool,
 }
 
 /// Draws a pane: a focusable named group over `rect`, the page (`content`) inside its ring, and
@@ -65,10 +63,7 @@ pub fn show_pane(
     if take_pane_focus(ui.ctx(), pane.tab) {
         group.request_focus();
     }
-    let inner = match pane.ring {
-        true => pane.rect.shrink(PANE_RING),
-        false => pane.rect,
-    };
+    let inner = pane.rect.shrink(PANE_RING);
     let builder = UiBuilder::new()
         .id_salt(("pane", pane.tab.0))
         .max_rect(inner)
@@ -81,21 +76,19 @@ pub fn show_pane(
         .clone()
         .with_accessibility_parent(group.id, || content(&mut child));
     super::pane_scope::left(ui.ctx());
-    if pane.ring {
-        paint_ring(ui, pane, group.has_focus());
-    }
+    paint_ring(ui, pane, group.has_focus());
     group
 }
 
 fn paint_ring(ui: &Ui, pane: &PaneView<'_>, focused: bool) {
     let s = current_ui(ui);
     let (width, color) = match (pane.active, focused) {
-        (_, true) => (2.0, s.primary),
-        (true, false) => (2.0, s.primary),
+        (_, true) | (true, false) => (1.5, s.primary),
         (false, false) => (1.0, s.outline_variant),
     };
+    // Outside the pane (in the margin and the divider's gap), a little off the page.
     ui.painter().rect_stroke(
-        pane.rect.shrink(width / 2.0),
+        pane.rect.expand(1.5),
         4.0,
         Stroke::new(width, color),
         StrokeKind::Middle,
@@ -127,8 +120,8 @@ pub fn show_divider(ui: &mut Ui, view: &DividerView, i18n: &I18n) -> Option<TabA
     );
     response.widget_info(|| WidgetInfo::slider(true, f64::from(percent), &name));
     ui.ctx().accesskit_node_builder(id, |node| {
-        node.set_min_numeric_value(f64::from((view.limits.0 * 100.0).ceil()));
-        node.set_max_numeric_value(f64::from((view.limits.1 * 100.0).floor()));
+        node.set_min_numeric_value(f64::from((view.limits.0 * 100.0).round()));
+        node.set_max_numeric_value(f64::from((view.limits.1 * 100.0).round()));
         node.set_numeric_value_step(RATIO_STEP as f64 * 100.0);
         node.set_value(value.clone());
     });
@@ -216,8 +209,8 @@ fn paint_divider(ui: &Ui, view: &DividerView, response: &egui::Response) {
         s.surface_container_high
     };
     let grip = match view.orientation {
-        Orientation::SideBySide => vec2(6.0, 22.0),
-        Orientation::Stacked => vec2(22.0, 6.0),
+        Orientation::SideBySide => vec2(4.0, 22.0),
+        Orientation::Stacked => vec2(22.0, 4.0),
     };
     ui.painter().rect_filled(
         Rect::from_center_size(view.rect.center(), grip),

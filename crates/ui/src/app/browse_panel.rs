@@ -62,11 +62,6 @@ pub(super) fn show_pane(
         ui.label(i18n.t("browser.select_collection"));
         return;
     }
-    // Unsplit, the dialog is drawn here, where it always was; a pane of the split view leaves it to
-    // `split_panel`, which draws it once outside the panes.
-    if !crate::views::pane_scope::in_pane(ui.ctx()) {
-        show_code_dialog_once(ui.ctx(), state, i18n, out);
-    }
     let connection = state.active_connection_label(i18n);
     let badge = state.active_badge();
     let picked = show_connection_header_with(ui, &connection, &badge, i18n, |ui| {

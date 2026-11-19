@@ -65,16 +65,12 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
     ui.add_space(ROW_GAP);
 }
 
-/// Whether the split view has room for one pane only (the strip's orientation button then changes
-/// nothing): the area under this strip's row, as the panes will get it.
+/// Whether the split view showed one pane only in the last frame (the strip's orientation button
+/// then changes nothing). The decision is the layout's own, made on the area the panes actually
+/// get (`split_panel`, which records it): one function decides, so the strip and the panes cannot
+/// disagree about the same area (the strip lags by the frame that crossed the threshold).
 fn one_pane_fits(ui: &egui::Ui, state: &AppState) -> bool {
-    use crate::theme::CONTROL_HEIGHT;
-    use crate::viewmodel::split_layout::{SplitLayout, layout};
-    let Some(split) = state.tabs.split.as_ref() else {
-        return false;
-    };
-    let room = ui.available_size() - egui::vec2(0.0, CONTROL_HEIGHT + ROW_GAP);
-    layout(room, split.orientation, split.ratio) == SplitLayout::Single
+    state.tabs.split.is_some() && super::split_panel::showed_one_pane(ui.ctx())
 }
 
 /// The shortcuts act in the Browse workspace, with no dialog open (a state dialog, or any egui

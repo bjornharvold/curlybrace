@@ -8,6 +8,7 @@ use curlybrace_ui::app::tabs::Freshness;
 use curlybrace_ui::viewmodel::CollectionTab;
 use curlybrace_ui::viewmodel::split_layout::Orientation;
 use eframe::egui;
+use egui_kittest::kittest::Queryable;
 use support::browse_page::{BrowsePage, browse_page};
 use support::tabs_shots::split_two;
 
@@ -69,4 +70,26 @@ fn the_other_panes_automatic_refresh_does_not_take_the_focus() {
         Some(split.primary),
         "and the active tab did not change"
     );
+}
+
+#[test]
+fn the_orientation_button_is_there_exactly_when_two_panes_are() {
+    // Across the threshold between two stacked panes and one: the strip and the panes decide on
+    // the same area, so the button never shows with one pane or hides with two.
+    let turn = "Panes side by side";
+    for height in (560..=720).step_by(6) {
+        let page = browse_page((1000.0, height as f32), |s| {
+            split_two(s, Orientation::Stacked)
+        });
+        let two = page
+            .harness
+            .query_all_by_role(eframe::egui::accesskit::Role::Slider)
+            .count()
+            == 1;
+        let button = page.harness.query_all_by_label(turn).next().is_some();
+        assert_eq!(
+            button, two,
+            "height {height}: button {button}, two panes {two}"
+        );
+    }
 }

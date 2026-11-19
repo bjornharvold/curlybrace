@@ -16,11 +16,6 @@ pub fn entered(ctx: &Context, pane: Id) {
     ctx.data_mut(|d| d.insert_temp(Id::new(SCOPE), pane));
 }
 
-/// Whether a pane of the split view is being drawn.
-pub fn in_pane(ctx: &Context) -> bool {
-    ctx.data(|d| d.get_temp::<Id>(Id::new(SCOPE))).is_some()
-}
-
 /// The pane's draw is over.
 pub fn left(ctx: &Context) {
     ctx.data_mut(|d| d.remove::<Id>(Id::new(SCOPE)));
@@ -34,19 +29,37 @@ pub fn scoped_id(ctx: &Context, salt: impl Hash) -> Id {
     }
 }
 
+#[cfg(debug_assertions)]
 const MODALS: &str = "curlybrace.split.modals_drawn";
+#[cfg(debug_assertions)]
 const TWICE: &str = "curlybrace.split.modals_twice";
 
-/// Records that the modal `id` is drawn now, and returns it. A modal drawn twice in one pass is a
-/// dialog drawn once per pane (egui does not flag two areas of the same rectangle): see
-/// [`modals_drawn_twice`].
+/// The id of a per-tab modal: the pane's own (or the plain one outside a split view), recorded.
+pub fn scoped_modal(ctx: &Context, salt: impl Hash) -> Id {
+    note_modal(ctx, scoped_id(ctx, salt))
+}
+
+/// Returns the modal `id`; in a debug build (and in tests) it also records that the modal is drawn
+/// now. A modal drawn twice in one pass is a dialog drawn once per pane (egui does not flag two
+/// areas of the same rectangle): see [`modals_drawn_twice`]. A release build records nothing.
 pub fn note_modal(ctx: &Context, id: Id) -> Id {
+    #[cfg(debug_assertions)]
+    record(ctx, id);
+    #[cfg(not(debug_assertions))]
+    let _ = ctx;
+    id
+}
+
+#[cfg(debug_assertions)]
+fn record(ctx: &Context, id: Id) {
     let pass = ctx.cumulative_pass_nr();
     let (seen_pass, mut seen): (u64, Vec<Id>) = ctx
         .data(|d| d.get_temp(Id::new(MODALS)))
         .unwrap_or((pass, Vec::new()));
     if seen_pass != pass {
         seen.clear();
+        // The list is of one pass: a new pass starts it again.
+        ctx.data_mut(|d| d.remove::<Vec<Id>>(Id::new(TWICE)));
     }
     if seen.contains(&id) {
         let mut twice: Vec<Id> = ctx.data(|d| d.get_temp(Id::new(TWICE))).unwrap_or_default();
@@ -55,13 +68,21 @@ pub fn note_modal(ctx: &Context, id: Id) -> Id {
     }
     seen.push(id);
     ctx.data_mut(|d| d.insert_temp(Id::new(MODALS), (pass, seen)));
-    id
 }
 
-/// The modal ids that were drawn twice in a pass so far (a test hook: a correct frame has none).
+/// The modal ids that were drawn twice in the pass so far (a test hook: a correct frame has none;
+/// a release build records nothing and returns none).
 #[doc(hidden)]
 pub fn modals_drawn_twice(ctx: &Context) -> Vec<Id> {
-    ctx.data(|d| d.get_temp(Id::new(TWICE))).unwrap_or_default()
+    #[cfg(debug_assertions)]
+    {
+        ctx.data(|d| d.get_temp(Id::new(TWICE))).unwrap_or_default()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = ctx;
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

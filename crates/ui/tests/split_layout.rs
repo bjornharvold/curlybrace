@@ -364,7 +364,7 @@ fn split_at_800x500_is_one_pane_with_a_chip() {
         .filter(|n| n.accesskit_node().role() == Role::Group)
         .count();
     assert_eq!(
-        groups, 1,
-        "the one pane has its group (and no ring or divider)"
+        groups, 0,
+        "one pane: no pane group (a second Tab stop), no ring, no divider"
     );
 }

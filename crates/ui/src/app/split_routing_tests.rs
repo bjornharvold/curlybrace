@@ -278,3 +278,37 @@ fn nothing_is_sent_for_a_pane_that_is_not_in_the_split() {
     let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(users())));
     assert!(s.tabs.split.is_none());
 }
+
+#[test]
+fn an_emptied_partner_is_still_a_visible_tab() {
+    let (s, _, first, second) = answered();
+    let (s, _) = tabs(s, TabAction::ToggleSplit);
+    let (s, _) = s.with_tab(second, |s| (s.current_tab_emptied(), Vec::new()));
+    let (s, _) = tabs(s, TabAction::Activate(first));
+    assert!(
+        s.visible_tabs().contains(&second),
+        "the strip shows the partner"
+    );
+    assert!(s.visible_tabs().len() >= 2, "so the strip is drawn");
+    // The limit counts it: the order never holds more than the limit.
+    assert_eq!(s.visible_tabs().len(), s.tabs.order.len());
+}
+
+#[test]
+fn a_new_tab_made_the_partner_stays_in_the_strip_and_closes_with_the_others() {
+    let (s, _, first, second) = answered();
+    let (s, _) = tabs(s, TabAction::ToggleSplit);
+    let (s, _) = tabs(s, TabAction::New);
+    let fresh = s.active_tab().expect("the new tab");
+    let (s, _) = tabs(s, TabAction::FocusOtherPane);
+    let (s, _) = tabs(s, TabAction::Close(first));
+    assert_eq!(
+        split_of(&s).secondary,
+        fresh,
+        "the empty tab is the partner"
+    );
+    assert!(s.visible_tabs().contains(&fresh) && s.visible_tabs().len() >= 2);
+    let (s, _) = tabs(s, TabAction::CloseOthers(second));
+    assert!(!s.tabs.owner.contains_key(&fresh), "Close others closed it");
+    assert!(s.tabs.split.is_none(), "and the split ended with it");
+}

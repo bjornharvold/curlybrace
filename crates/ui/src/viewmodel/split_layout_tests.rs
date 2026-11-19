@@ -115,9 +115,10 @@ fn the_named_minimums_are_the_staircase_extremes() {
 
 #[test]
 fn stacked_at_1000x700_has_room_for_a_sidebar_a_little_wider() {
-    // The central area is 1000 less the sidebar, the margins and the 2 pt rings: the measured
-    // corner (695, 280) leaves 3 pt at the default 280 pt sidebar, so it holds up to 283 pt.
-    for sidebar in [280.0, 282.0, 283.0] {
+    // The central area is 1000 less the sidebar and the margins: the measured
+    // corner (695, 280) leaves 9 pt at the default 280 pt sidebar (the ring is outside the pane), so it holds up to
+    // 289 pt.
+    for sidebar in [280.0, 285.0, 289.0] {
         let central = vec2(1000.0 - sidebar - 16.0, 700.0 - 16.0 - 32.0);
         let got = layout(central, Orientation::Stacked, 0.5);
         assert!(

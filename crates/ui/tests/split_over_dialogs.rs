@@ -3,12 +3,13 @@
 //! pane itself still activates it. Fast, offline, no GPU.
 mod support;
 
-use curlybrace_ui::app::reducer::Input;
 use curlybrace_ui::app::state::AppState;
+use curlybrace_ui::viewmodel::EditorState;
 use curlybrace_ui::viewmodel::split_layout::Orientation;
-use curlybrace_ui::viewmodel::{EditorState, FindAction};
-use eframe::egui::accesskit::Role;
+use eframe::egui::{self, accesskit::Role};
 use egui_kittest::kittest::{NodeT, Queryable};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use support::browse_page::{BrowsePage, browse_page};
 use support::tabs_shots::split_two;
 
@@ -76,51 +77,133 @@ fn a_dialog_over_the_other_pane_side_by_side_keeps_the_active_tab() {
     assert!(state(&page).editor.is_some());
 }
 
-#[test]
-fn a_copy_as_code_dialog_over_the_other_pane_does_not_switch_tabs() {
-    let mut page = stacked();
-    let active = state(&page).active_tab();
+/// The other (lower) pane's rectangle.
+fn other_rect(page: &BrowsePage) -> egui::Rect {
     page.harness
-        .state_mut()
-        .dispatch(Input::Find(FindAction::CopyAsCode));
-    page.harness.run_steps(4);
-    let close = page
-        .harness
-        .query_all_by_role(Role::Button)
-        .find(|n| n.rect().top() > other_top(&page) && n.rect().width() > 0.0)
-        .map(|n| n.rect().center());
-    assert!(close.is_some(), "a dialog button lies over the other pane");
-    // Any press on the dialog, wherever it lies.
-    let button = page
-        .harness
-        .query_all_by_role(Role::Button)
-        .find(|n| n.rect().top() > other_top(&page))
-        .expect("a button");
-    button.click();
-    page.harness.run_steps(4);
-    assert_eq!(state(&page).active_tab(), active);
+        .query_all_by_role(Role::Group)
+        .find(|n| {
+            n.accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("Other pane"))
+        })
+        .map(|n| n.rect())
+        .expect("the other pane")
 }
 
 #[test]
-fn a_context_menu_over_the_other_pane_does_not_switch_tabs() {
-    let mut page = stacked();
+fn a_copy_as_code_dialog_over_the_other_pane_does_not_switch_tabs() {
+    // The dialog (centred, 770 wide) lies over the lower pane; a press on its code is not a touch
+    // of that pane.
+    let mut page = browse_page(STANDARD, |s| {
+        support::code_export_shots::code_export_dialog_options(s);
+        let session = s.active.expect("a session");
+        *s = std::mem::take(s).tab_opened(session).0;
+        let partner = support::tabs_shots::parked_tab(s, session, "crm", "invoices");
+        support::tabs_shots::split_with(s, partner, Orientation::Stacked);
+    });
     let active = state(&page).active_tab();
-    // The strip's tab menu hangs over the upper pane and reaches the lower one.
-    let tab = page
-        .harness
-        .query_all_by_role(Role::Tab)
-        .next()
-        .expect("a tab");
-    tab.click_secondary();
+    assert!(
+        state(&page).code_export.dialog.is_some(),
+        "the dialog is open"
+    );
+    let lower = other_rect(&page);
+    // A press on the dialog's code box (it has no node of its own), well inside the lower pane.
+    let at = egui::pos2(600.0, 450.0);
+    assert!(lower.contains(at), "the point lies over the other pane");
+    page.harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(at));
+    page.harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+    page.harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
     page.harness.run_steps(4);
-    let entry = page
-        .harness
-        .query_all_by_role(Role::Button)
-        .find(|n| n.accesskit_node().label().as_deref() == Some(t("tabs.move_right")))
-        .expect("a menu entry");
+    assert_eq!(state(&page).active_tab(), active, "the active tab stayed");
+    assert!(
+        state(&page).code_export.dialog.is_some(),
+        "and the dialog is still open"
+    );
+}
+
+/// The stacked split with a popup of egui's own (a non-modal, non-interactable foreground area, as
+/// egui's menus and combo lists are) hanging over the lower, other pane. No popup of the app
+/// reaches over the other pane at 1000x700, so one is drawn after each frame.
+#[test]
+fn a_popup_over_the_other_pane_does_not_switch_tabs() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .build()
+        .expect("tokio runtime");
+    let enter = rt.enter();
+    let (mut app, _dir) = support::shots::build_app(vec![], None);
+    split_two(app.state_mut(), Orientation::Stacked);
+    let clicked = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&clicked);
+    let mut installed = false;
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(STANDARD.0, STANDARD.1))
+        .with_pixels_per_point(1.0)
+        .build_state(
+            move |ctx, app: &mut curlybrace_ui::app::CurlybraceApp| {
+                if !installed {
+                    curlybrace_ui::theme::install(ctx);
+                    installed = true;
+                }
+                app.run_frame(ctx);
+                egui::Area::new(egui::Id::new("test_popup"))
+                    .order(egui::Order::Foreground)
+                    .interactable(false)
+                    .fixed_pos(egui::pos2(420.0, 480.0))
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            if ui.button("Popup entry").clicked() {
+                                flag.store(true, Ordering::SeqCst);
+                            }
+                        });
+                    });
+            },
+            app,
+        );
+    harness.run_steps(6);
+    drop(enter);
+    let active = harness.state().state().active_tab();
+    let lower = harness
+        .query_all_by_role(Role::Group)
+        .find(|n| {
+            n.accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("Other pane"))
+        })
+        .map(|n| n.rect())
+        .expect("the other pane");
+    let entry = harness.get_by_label("Popup entry");
+    assert!(
+        lower.contains_rect(entry.rect()),
+        "the popup lies over the other pane"
+    );
     entry.click();
-    page.harness.run_steps(4);
-    assert_eq!(state(&page).active_tab(), active);
+    harness.run_steps(4);
+    assert!(clicked.load(Ordering::SeqCst), "the popup took the click");
+    assert_eq!(
+        harness.state().state().active_tab(),
+        active,
+        "the active tab stayed"
+    );
 }
 
 #[test]

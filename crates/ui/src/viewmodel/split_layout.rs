@@ -8,9 +8,9 @@ use eframe::egui::Vec2;
 
 /// The divider's hit area: the room between the two panes (points).
 pub const DIVIDER: f32 = 8.0;
-/// The border around a pane (points): a 2 pt ring and 1 pt of padding, so the page never touches
-/// the ring. The page is drawn inside it, in what the staircase measures.
-pub const PANE_RING: f32 = 3.0;
+/// What the ring around a pane takes of its room (points): nothing. The ring is drawn outside the
+/// pane, in the margin and the divider's gap, so the page gets what the staircase measures.
+pub const PANE_RING: f32 = 0.0;
 /// The narrowest a pane may be at all (points), whatever its height.
 pub const MIN_PANE_WIDTH: f32 = 400.0;
 /// The lowest a pane may be at all (points), whatever its width.

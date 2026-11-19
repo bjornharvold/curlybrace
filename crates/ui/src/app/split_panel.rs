@@ -32,16 +32,18 @@ pub(super) fn show_browse(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
+    super::tab_strip_panel::show_strip(ui, state, i18n, out);
+    // The dialog is the app's, drawn once in every mode, before the page or the panes.
+    show_code_dialog_once(ui.ctx(), state, i18n, out);
     let Some(split) = state.tabs.split.clone() else {
         clear_pane_focus(ui.ctx());
-        super::tab_strip_panel::show_strip(ui, state, i18n, out);
         return show_page(ui, state, i18n, out, now_secs);
     };
-    super::tab_strip_panel::show_strip(ui, state, i18n, out);
-    show_code_dialog_once(ui.ctx(), state, i18n, out);
     let area = ui.available_rect_before_wrap();
     let names = Names::of(state, &split, i18n);
-    match layout(area.size(), split.orientation, split.ratio) {
+    let chosen = layout(area.size(), split.orientation, split.ratio);
+    note_single(ui.ctx(), chosen == SplitLayout::Single);
+    match chosen {
         SplitLayout::Single => show_single(ui, state, (i18n, now_secs), out, &names),
         SplitLayout::Side { ratio } => {
             let shape = (area, Orientation::SideBySide, ratio);
@@ -54,9 +56,20 @@ pub(super) fn show_browse(
     }
 }
 
+const SINGLE: &str = "curlybrace.split.showed_one_pane";
+
+fn note_single(ctx: &egui::Context, single: bool) {
+    ctx.data_mut(|d| d.insert_temp(Id::new(SINGLE), single));
+}
+
+/// Whether the last frame of the split view showed one pane (see `tab_strip_panel`).
+pub(super) fn showed_one_pane(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(Id::new(SINGLE)))
+        .unwrap_or(false)
+}
+
 /// What the two panes are called: the accessible names and the title the chip shows.
 struct Names {
-    primary: TabId,
     active: String,
     other: String,
     title: String,
@@ -71,7 +84,6 @@ impl Names {
             i18n.t_with(key, &[("name", name)])
         };
         Self {
-            primary: split.primary,
             active: named("tabs.split.pane_active", split.primary),
             other: named("tabs.split.pane_other", split.secondary),
             title: find(split.primary)
@@ -97,16 +109,10 @@ fn show_single(
         out.push(tabs_event(TabAction::ShowOtherPane));
     }
     ui.add_space(ROW_GAP);
-    // The same frame the pane has among two (a group and the same id root), without a ring, so the
-    // page keeps its widget state when the window crosses the threshold.
-    let pane = PaneView {
-        tab: names.primary,
-        rect: ui.available_rect_before_wrap(),
-        active: true,
-        name: &names.active,
-        ring: false,
-    };
-    show_pane(ui, &pane, |ui| show_page(ui, state, i18n, out, now_secs));
+    // One pane, drawn as the page always is: no group, no ring, no second tab stop.
+    ui.push_id(("single", state.active_tab().map(|t| t.0)), |ui| {
+        show_page(ui, state, i18n, out, now_secs)
+    });
 }
 
 fn show_two(
@@ -128,7 +134,6 @@ fn show_two(
         rect: active_rect,
         active: true,
         name: &names.active,
-        ring: true,
     };
     show_pane(ui, &active, |ui| show_page(ui, state, i18n, out, now_secs));
     let divider = DividerView {
@@ -146,7 +151,6 @@ fn show_two(
         rect: other_rect,
         active: false,
         name: &names.other,
-        ring: true,
     };
     show_other(ui, state, &other, (i18n, now_secs), out);
     ui.allocate_rect(area, Sense::hover());
@@ -225,7 +229,7 @@ fn focus_moved_into(ui: &egui::Ui, rect: Rect) -> bool {
         let at = i.pointer.interact_pos();
         at.filter(|p| i.pointer.any_pressed() && rect.contains(*p))
     });
-    let pressed = pressed.is_some_and(|p| ui.ctx().layer_id_at(p) == Some(own));
+    let pressed = pressed.is_some_and(|p| !overlaid(ui.ctx(), p, own));
     let key = Id::new("curlybrace.split.last_focus");
     let focused = ui.memory(|m| m.focused());
     let before: Option<Option<Id>> = ui.data(|d| d.get_temp(key));
@@ -259,4 +263,16 @@ fn in_tab(tab: TabId, touched: bool, event: UiEvent) -> UiEvent {
         }),
         (other, _) => other,
     }
+}
+
+/// Whether something of egui's own lies over `pos`: a popup, a menu, a tooltip or a dialog is a
+/// layer above the page's (its area need not be interactable, so `layer_id_at` alone misses it).
+fn overlaid(ctx: &egui::Context, pos: egui::Pos2, own: egui::LayerId) -> bool {
+    ctx.layer_id_at(pos) != Some(own)
+        || ctx.memory(|m| {
+            m.layer_ids().any(|layer| {
+                layer.order != egui::Order::Background
+                    && m.area_rect(layer.id).is_some_and(|r| r.contains(pos))
+            })
+        })
 }
