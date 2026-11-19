@@ -37,7 +37,8 @@ fn insert(conn: &Connection, id: i64, json: &str) {
 fn file_before_cleanup(dir: &tempfile::TempDir) -> Connection {
     let mut conn = Connection::open(dir.path().join("history.sqlite")).unwrap();
     prepare(&mut conn).unwrap();
-    conn.execute_batch("DROP TABLE shape_cleanup").unwrap();
+    conn.execute_batch("DROP TABLE IF EXISTS shape_cleanup")
+        .unwrap();
     conn
 }
 
@@ -127,9 +128,120 @@ fn cleanup_runs_once_per_file() {
     insert(&conn, 1, OLD_UNKNOWN);
     run_once(&mut conn).unwrap();
     assert_eq!(count(&conn, "shape"), 1);
-    // And a second open of the file does not scan either.
-    prepare(&mut conn).unwrap();
+}
+
+/// A file with one invalid and one valid shape, closed again.
+fn file_with_old_rows(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let path = dir.path().join("history.sqlite");
+    {
+        let conn = file_before_cleanup(dir);
+        insert(&conn, 1, OLD_UNKNOWN);
+        insert(&conn, 2, GOOD);
+    }
+    path
+}
+
+#[test]
+fn opening_the_file_does_not_run_the_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_with_old_rows(&dir);
+    let (db, recovery) = HistoryDb::open(&path).unwrap();
+    assert!(recovery.is_none());
+    drop(db);
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "shape"), 2, "startup never waits for a scan");
+    let marker: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'shape_cleanup'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, 0);
+}
+
+#[test]
+fn an_open_history_is_cleaned_once_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_with_old_rows(&dir);
+    let (db, _) = HistoryDb::open(&path).unwrap();
+    // A read before the cleanup sees the rows as an older build wrote them; nothing re-validates
+    // them on read.
+    let ns_rows = db
+        .shapes_for(
+            uuid::Uuid::nil(),
+            "shop",
+            "orders",
+            crate::history::ChartRange::Day,
+            0,
+        )
+        .unwrap();
+    assert!(ns_rows.is_empty());
+    db.clean_shapes_once().unwrap();
+    db.clean_shapes_once().unwrap();
+    drop(db);
+    let conn = Connection::open(&path).unwrap();
     assert_eq!(count(&conn, "shape"), 1);
+    assert_eq!(count(&conn, "shape_cleanup"), 1);
+}
+
+#[test]
+fn a_locked_file_skips_the_cleanup_quickly_and_keeps_the_normal_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_with_old_rows(&dir);
+    let (db, _) = HistoryDb::open(&path).unwrap();
+    let holder = Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let started = std::time::Instant::now();
+    db.clean_shapes_once().unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "the cleanup held the history for {:?}",
+        started.elapsed()
+    );
+    holder.execute_batch("ROLLBACK").unwrap();
+    // Skipped, so the next request does it; and the connection's own wait is back to normal.
+    db.clean_shapes_once().unwrap();
+    drop(db);
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "shape"), 1);
+}
+
+/// Timing on a large synthetic history: `cargo test -p curlybrace-core --lib timing -- --ignored
+/// --nocapture`. Not a pass/fail check of speed, only of the result.
+#[test]
+#[ignore = "timing on 100 000 rows; run by hand"]
+fn timing_of_the_cleanup_on_a_large_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = file_before_cleanup(&dir);
+    {
+        let tx = conn.transaction().unwrap();
+        for id in 1..=100_000_i64 {
+            let json = if id % 10 == 0 { OLD_UNKNOWN } else { GOOD };
+            tx.execute(
+                "INSERT INTO shape (id, connection, host, db, collection, hash, source, shape_json)
+                 VALUES (?1, 'c', 'h', 'shop', 'orders', ?2, 'app', ?3)",
+                rusqlite::params![id, format!("hash{id}"), json],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO shape_bucket
+                    (shape_id, tier, start_secs, executions, misses, total_millis, max_millis,
+                     worst, gap_secs)
+                 VALUES (?1, 0, 600, 3, 1, 30, 20, 'collscan', 0)",
+                [id],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    let started = std::time::Instant::now();
+    run_once(&mut conn).unwrap();
+    println!(
+        "cleanup of 100000 shapes (10000 invalid): {:?}",
+        started.elapsed()
+    );
+    assert_eq!(count(&conn, "shape"), 90_000);
 }
 
 #[test]
@@ -164,6 +276,7 @@ fn cleanup_on_a_v1_file_migrates_then_runs() {
     }
     let (db, recovery) = HistoryDb::open(&path).unwrap();
     assert!(recovery.is_none());
+    db.clean_shapes_once().unwrap();
     drop(db);
     let conn = Connection::open(&path).unwrap();
     assert_eq!(user_version(&conn), 3);

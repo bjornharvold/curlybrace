@@ -9,13 +9,14 @@
 //!
 //! Limits: it runs once per file, so a row an older build writes after this one has run is never
 //! cleaned (only a build before the allowlist can write one, and the shape normalizer of this
-//! build never does). It runs inside `HistoryDb::open`, synchronously: the open waits for the
-//! write lock for up to the busy timeout (5 s); a lock still held then skips the cleanup until the
-//! next open.
+//! build never does). It does not run in `HistoryDb::open`: the runtime starts it on the blocking
+//! pool right after the open (`HistoryDb::clean_shapes_once`), so startup never waits for it. It
+//! waits only 250 ms for a write lock held elsewhere and then skips until the next start.
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
 
+use super::db::{BUSY_TIMEOUT, HistoryDb};
 use super::db_schema::SchemaError;
 use crate::shape::Shape;
 
@@ -24,6 +25,9 @@ const RULE: i64 = 1;
 
 /// Rows read per step, so a large history is never held in memory whole.
 const BATCH: i64 = 500;
+
+/// How long the pass waits for a write lock held elsewhere before it gives up until the next run.
+const CLEANUP_BUSY_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 const CREATE_MARKER: &str = "CREATE TABLE IF NOT EXISTS shape_cleanup (rule INTEGER PRIMARY KEY)";
 
@@ -42,6 +46,19 @@ pub(super) fn run_once(conn: &mut Connection) -> Result<(), SchemaError> {
             );
             Ok(())
         }
+    }
+}
+
+impl HistoryDb {
+    /// Runs the cleanup on this history (see [`run_once`]), meant for a background task after
+    /// startup: it holds the connection for its pass (2.3 s in a debug build for 100 000 rows, 10 000
+    /// of them invalid), so a read made meanwhile waits for it, and one made before it started shows the
+    /// rows as an older build wrote them (readers do not re-validate a stored shape; the Queries
+    /// view just offers no suggestion for one that does not parse). Only a damaged file is an
+    /// error.
+    pub fn clean_shapes_once(&self) -> crate::error::Result<()> {
+        run_once(&mut self.lock())
+            .map_err(|error| crate::error::CoreError::Database(format!("history: {error:?}")))
     }
 }
 
@@ -76,7 +93,11 @@ fn cleanup(conn: &mut Connection) -> rusqlite::Result<()> {
     // Deleted shapes are zeroed on their pages, not left behind in the file (0600 or not).
     let secure: i64 = conn.pragma_query_value(None, "secure_delete", |r| r.get(0))?;
     conn.pragma_update(None, "secure_delete", true)?;
+    // The pass holds the history's one connection: a lock another process keeps must not make
+    // every reader wait the normal five seconds, so it waits briefly and tries again next time.
+    conn.busy_timeout(CLEANUP_BUSY_WAIT)?;
     let result = sweep(conn);
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     if let Err(error) = conn.pragma_update(None, "secure_delete", secure) {
         log::warn!(
             "history secure_delete not restored: {:?}",

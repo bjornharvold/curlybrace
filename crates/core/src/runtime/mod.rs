@@ -108,6 +108,8 @@ mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
+#[cfg(test)]
+mod shape_cleanup_start_tests;
 mod shell_handlers;
 mod shell_history_queue;
 #[cfg(test)]

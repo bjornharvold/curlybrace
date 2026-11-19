@@ -86,7 +86,6 @@ pub fn prepare(conn: &mut Connection) -> Result<(), SchemaError> {
         migrate_to_v3(conn)?;
     }
     ensure_profile_mark(conn)?;
-    super::shape_cleanup::run_once(conn)?;
     Ok(())
 }
 
