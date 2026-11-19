@@ -215,6 +215,25 @@ fn an_index_without_a_plain_key_pattern_is_not_judged() {
 }
 
 #[test]
+fn an_index_scan_without_a_name_is_described_by_its_keys() {
+    let plan = doc! {
+        "stage": "FETCH",
+        "inputStage": {
+            "stage": "IXSCAN",
+            "keyPattern": { "createdAt": 1, "status": -1 },
+        },
+    };
+    let v = classify(&explain_of(plan), &status_and_created()).unwrap();
+    assert_eq!(v.kind, VerdictKind::FieldOrder);
+    assert_eq!(v.index_name, None);
+    let params = &v.reasons[0].params;
+    assert!(
+        params.contains(&("index", "{ createdAt: 1, status: -1 }".to_string())),
+        "{params:?}"
+    );
+}
+
+#[test]
 fn plan_only_explain_is_judged_by_keys() {
     let mut explain = real_field_order();
     explain.remove("executionStats");
@@ -251,8 +270,12 @@ fn queries_the_check_cannot_judge_stay_index_used() {
         doc! { "createdAt": 1, "status": 1 },
     ));
     for filter in [
-        // a logical operator at the top
-        doc! { "$or": [{ "status": "a" }, { "createdAt": { "$gt": 2 } }] },
+        // a logical operator at the top, next to fields that would trip the check on their own
+        doc! {
+            "status": "a",
+            "createdAt": { "$gt": 2 },
+            "$or": [{ "x": 1 }, { "y": 1 }],
+        },
         // `$in` with a sort
         doc! { "status": { "$in": ["a", "b"] }, "createdAt": { "$gt": 2 } },
     ] {

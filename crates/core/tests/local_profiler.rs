@@ -21,7 +21,7 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::VerdictKind;
 use curlybrace_core::mongo_store::MongoStore;
-use curlybrace_core::profile::{ProfileEntry, classify_entry, entry_has_filter, is_own_traffic};
+use curlybrace_core::profile::{ProfileEntry, classify_entry, is_own_traffic};
 use curlybrace_core::read_only_store::ReadOnlyStore;
 use curlybrace_core::shape::{Shape, from_profile_command};
 use curlybrace_core::store::{DocumentStore, Namespace, Query};
@@ -270,7 +270,7 @@ async fn real_entries_classify_as_expected() {
         capture(name, raw_of(&raw, &ns(coll), "find", &pred));
     }
     let e = entry_of(&read, &ns("scan"), "find", no_filter);
-    assert!(!entry_has_filter(e));
+    assert!(!from_profile_command(&e.op, &e.command).is_some_and(|shape| shape.has_filter()));
     assert_eq!(verdict(e), VerdictKind::NoFilter, "{e:?}");
     capture(
         "find_no_filter",

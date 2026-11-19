@@ -194,8 +194,8 @@ async fn real_sort_on_unindexed_field_is_sort_not_covered() {
 
 #[tokio::test]
 #[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
-async fn real_compound_index_wrong_order_is_inefficient() {
-    if !local_enabled("real_compound_index_wrong_order_is_inefficient") {
+async fn real_range_first_compound_index_is_field_order_with_both_reasons() {
+    if !local_enabled("real_range_first_compound_index_is_field_order_with_both_reasons") {
         return;
     }
     let _serial = serial().await;
@@ -225,6 +225,55 @@ async fn real_compound_index_wrong_order_is_inefficient() {
     assert_eq!(v.kind, VerdictKind::FieldOrder, "{v:?}");
     let reasons: Vec<&str> = v.reasons.iter().map(|r| r.key).collect();
     assert_eq!(reasons, ["field_order", "inefficient"]);
+}
+
+/// The ratio check on its own: a single-key index with a wide range and an exact match nothing
+/// indexes reads thousands of entries to return a few, and no key order is wrong.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn real_wide_range_with_an_unindexed_match_is_inefficient_not_field_order() {
+    if !local_enabled("real_wide_range_with_an_unindexed_match_is_inefficient_not_field_order") {
+        return;
+    }
+    let _serial = serial().await;
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("orders");
+    let many: Vec<Document> = (0..6000)
+        .map(|i| doc! { "a": i, "b": i % 1000, "pad": "x" })
+        .collect();
+    insert_labelled(&client, &ns, &many).await;
+    create_index(&client, &ns, doc! { "a": 1 }).await;
+    let q = query(doc! { "a": { "$gte": 0, "$lt": 6000 }, "b": 3 });
+    let (explain, v) = verdict_of("inefficient_single_key", &store, &ns, &q).await;
+    assert!(!explain.plan_only && !v.plan_only);
+    assert_eq!(v.index_name.as_deref(), Some("a_1"));
+    assert_eq!(v.kind, VerdictKind::InefficientIndex, "{v:?}");
+    assert_eq!(v.reasons[0].key, "inefficient");
+}
+
+/// A regex literal on a range-first index is no exact match, so it is no field-order problem.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn real_regex_literal_after_a_range_is_not_field_order() {
+    if !local_enabled("real_regex_literal_after_a_range_is_not_field_order") {
+        return;
+    }
+    let _serial = serial().await;
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("orders");
+    let ten: Vec<Document> = (0..10)
+        .map(|i| doc! { "ts": i, "name": format!("foo{i}") })
+        .collect();
+    insert_labelled(&client, &ns, &ten).await;
+    create_index(&client, &ns, doc! { "ts": 1, "name": 1 }).await;
+    let regex = Bson::RegularExpression(bson::Regex {
+        pattern: "foo".into(),
+        options: String::new(),
+    });
+    let q = query(doc! { "ts": { "$gt": 1 }, "name": regex });
+    let (_, v) = verdict_of("regex_after_range", &store, &ns, &q).await;
+    assert_ne!(v.kind, VerdictKind::FieldOrder, "{v:?}");
+    assert!(v.suggestion.is_none_or(|s| s.keys[0].0 == "ts"));
 }
 
 /// The issue's headline case, on a tiny collection where the examined/returned ratio never

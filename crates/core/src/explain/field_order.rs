@@ -73,6 +73,13 @@ fn used_prefix<'a>(
 /// `filter` and `sort`; `None` when every used key is in equality, sort, range order, when a key
 /// value is not 1 or -1, or when there is nothing to judge. Only top-level filter fields are
 /// looked at: a filter with a `$`-key (`$or`, `$and`, `$expr`...) is not judged.
+///
+/// Deliberate gaps, all to avoid a false alarm:
+/// - With a sort and an `$in` among the used keys the answer is always `None`, so a real
+///   range-before-equality problem next to a sorted `$in` goes unreported (not fixed on purpose).
+/// - A range field that is also a sort key is never reported.
+/// - A regex (a BSON regex, or an `$in` holding one) counts as a range, not an exact match.
+/// - A range before a sort key is reported only when every sort key is one of the used keys.
 pub(crate) fn check(
     keys: &Document,
     filter: &Document,
@@ -103,10 +110,17 @@ pub(crate) fn check(
                 .map(|(field, _)| ((*range).to_owned(), (*field).to_owned()))
         })
     };
+    // The key order can only be what forces the in-memory sort when every sort key is one of
+    // the used keys.
+    let sort_in_used_keys = sort.is_some_and(|s| {
+        s.keys()
+            .all(|key| prefix.iter().any(|(name, _)| *name == key.as_str()))
+    });
     found(|usage| matches!(usage, Use::Equality { .. }))
         .map(|(range, field)| FieldOrderFinding::RangeBeforeEquality { range, field })
         .or_else(|| {
             found(|usage| *usage == Use::SortOnly)
+                .filter(|_| sort_in_used_keys)
                 .map(|(range, field)| FieldOrderFinding::RangeBeforeSort { range, field })
         })
 }
@@ -134,8 +148,8 @@ fn summary_key(entry: &str) -> Option<(&str, i32)> {
 
 /// The key pattern of a profiler plan summary that names exactly one index scan
 /// (`IXSCAN { a: 1, b: -1 }`). `None` for no scan or several, for anything after the key list
-/// but another stage, for a key that is not 1 or -1 (hashed, text...), and for a name that
-/// contains `,` `:` `{` `}` or a quote.
+/// but another stage, for a key that is not 1 or -1 (hashed, text...), and for a name that is
+/// empty or contains whitespace, `,` `:` `{` `}` or a quote.
 pub(crate) fn summary_keys(plan_summary: &str) -> Option<Document> {
     let scans = plan_summary
         .split(|c: char| !is_stage_char(c))

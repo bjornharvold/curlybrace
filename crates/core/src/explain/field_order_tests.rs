@@ -50,6 +50,20 @@ fn range_before_sort_is_found() {
 }
 
 #[test]
+fn range_before_sort_needs_every_sort_key_in_the_used_keys() {
+    // `other` is not an index key, so the server sorts in memory whatever the key order is: the
+    // order of the keys is not what is wrong.
+    let keys = doc! { "createdAt": 1, "name": 1 };
+    let filter = doc! { "createdAt": { "$gt": 5 } };
+    let sort = doc! { "name": 1, "other": 1 };
+    assert_eq!(check(&keys, &filter, Some(&sort)), None);
+    // A sort key past the first unused index key is not in the used keys either.
+    let keys = doc! { "createdAt": 1, "name": 1, "gap": 1, "last": 1 };
+    let sort = doc! { "name": 1, "last": 1 };
+    assert_eq!(check(&keys, &filter, Some(&sort)), None);
+}
+
+#[test]
 fn a_range_field_that_is_also_the_sort_is_not_wrong() {
     let keys = doc! { "createdAt": 1, "name": 1 };
     let filter = doc! { "createdAt": { "$gt": 5 } };

@@ -164,6 +164,19 @@ impl Plan<'_> {
     }
 }
 
+/// How a reason names the index: its name, or for a scan that reports none its keys as
+/// `{ a: 1, b: -1 }`, so the sentence never has a blank in it.
+fn index_label(name: Option<&str>, key_pattern: Option<&Document>) -> String {
+    match (name, key_pattern) {
+        (Some(name), _) if !name.is_empty() => name.to_owned(),
+        (_, Some(keys)) => {
+            let list: Vec<String> = keys.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+            format!("{{ {} }}", list.join(", "))
+        }
+        _ => String::new(),
+    }
+}
+
 /// The plain-words reason for an order problem. Params are field and index names only.
 fn field_order_reason(finding: &FieldOrderFinding, index: &str) -> Reason {
     let (key, range, field) = match finding {
@@ -278,15 +291,11 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         field_order,
     };
     let kind = plan.kind();
+    let index_label = index_label(first.name.as_deref(), first.key_pattern);
     let index_name = first.name;
     Ok(Verdict {
         kind,
-        reasons: reasons(
-            &plan,
-            kind,
-            (keys, docs, returned),
-            index_name.as_deref().unwrap_or_default(),
-        ),
+        reasons: reasons(&plan, kind, (keys, docs, returned), &index_label),
         index_name,
         keys_examined: keys,
         docs_examined: docs,
