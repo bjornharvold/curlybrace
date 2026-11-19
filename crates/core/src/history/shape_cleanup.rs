@@ -4,7 +4,14 @@
 //! other `$`-key (which may have been data) is rejected by `Shape::from_json` today. The cleanup
 //! deletes such rows (their buckets cascade) once per file. A `shape_cleanup` marker row, written
 //! in the same transaction as the deletes, says the rule ran, so a later open does not scan and
-//! the schema version does not change. It never stores or logs a shape: it logs a count only.
+//! the schema version does not change. It never stores or logs a shape: it logs a count only
+//! (at `info`, which the app's logger hides below `CURLYBRACE_LOG=info`).
+//!
+//! Limits: it runs once per file, so a row an older build writes after this one has run is never
+//! cleaned (only a build before the allowlist can write one, and the shape normalizer of this
+//! build never does). It runs inside `HistoryDb::open`, synchronously: the open waits for the
+//! write lock for up to the busy timeout (5 s); a lock still held then skips the cleanup until the
+//! next open.
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
@@ -94,8 +101,23 @@ fn sweep(conn: &mut Connection) -> rusqlite::Result<()> {
     tx.commit()?;
     if removed > 0 {
         log::info!("removed {removed} recorded query shapes that no longer validate");
+        checkpoint(conn);
     }
     Ok(())
+}
+
+/// Empties the write-ahead log so the deleted shapes are not left in uncheckpointed frames
+/// (`secure_delete` zeroes pages of the database file, not frames already in the log). Cheap, as
+/// the log of a history file is small and this runs only when something was deleted; in a file
+/// that is not in WAL mode it does nothing. A busy file just keeps its log until the next
+/// checkpoint, so a failure is logged and ignored.
+fn checkpoint(conn: &Connection) {
+    if let Err(error) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())) {
+        log::warn!(
+            "history shape cleanup: checkpoint skipped: {:?}",
+            error.sqlite_error_code()
+        );
+    }
 }
 
 /// Whether the stored `shape_json` is a shape this build accepts; a non-text value is not.

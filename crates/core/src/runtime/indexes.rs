@@ -35,9 +35,11 @@ pub struct IndexSeries {
 }
 
 /// Opens the history database. Called once, synchronously, when the runtime is spawned: a
-/// SQLite open is a few milliseconds and the spawn functions are not async. A failure, or a
-/// corrupt file that had to be set aside, is logged; on failure history is off for this run
-/// rather than the app failing to start.
+/// SQLite open is a few milliseconds and the spawn functions are not async. The open also runs
+/// the one-time shape cleanup (once per file, a pass over the recorded shapes in one
+/// transaction), which takes the write lock and so can wait up to the 5 s busy timeout; a lock
+/// still held then skips it until the next open. A failure, or a corrupt file that had to be set
+/// aside, is logged; on failure history is off for this run rather than the app failing to start.
 pub(super) fn open_history(path: Option<&Path>) -> Option<Arc<HistoryDb>> {
     let path = path?;
     if let Some(parent) = path.parent() {

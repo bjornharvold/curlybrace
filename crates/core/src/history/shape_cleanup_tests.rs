@@ -79,6 +79,19 @@ fn cleanup_keeps_valid_shapes() {
 }
 
 #[test]
+fn cleanup_keeps_a_within_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = file_before_cleanup(&dir);
+    insert(&conn, 1, r#"{"filter":{"loc":{"$within":"?"}}}"#);
+    insert(&conn, 2, r#"{"filter":{"loc":{"$box":"?"}}}"#);
+    run_once(&mut conn).unwrap();
+    let kept: i64 = conn
+        .query_row("SELECT id FROM shape", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(kept, 1);
+}
+
+#[test]
 fn cleanup_is_bounded_per_batch_and_handles_many_rows() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = file_before_cleanup(&dir);
@@ -164,6 +177,30 @@ fn a_read_only_file_still_opens_and_is_cleaned_later() {
     let mut conn = Connection::open(&path).unwrap();
     run_once(&mut conn).unwrap();
     assert_eq!(count(&conn, "shape"), 0);
+}
+
+#[test]
+fn a_wal_file_holds_no_deleted_shape_after_the_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    let mut conn = file_before_cleanup(&dir);
+    // A file an earlier run left in WAL mode (the mode is persistent): the deleted pages would
+    // sit in the log until a checkpoint.
+    let _: String = conn
+        .pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))
+        .unwrap();
+    conn.execute_batch("PRAGMA wal_autocheckpoint = 0").unwrap();
+    insert(&conn, 1, OLD_UNKNOWN);
+    run_once(&mut conn).unwrap();
+    for suffix in ["", "-wal"] {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        let bytes = std::fs::read(std::path::PathBuf::from(name)).unwrap_or_default();
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("secretkey"),
+            "the deleted shape is still in the file{suffix}"
+        );
+    }
 }
 
 #[test]
