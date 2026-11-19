@@ -71,10 +71,16 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
         | SidebarAction::Drop { .. } => sidebar(state, action),
         other => {
             let state = super::copy_actions::clicked(state, session, &other);
-            sidebar(
-                super::aggregate_counts_actions::switched_to(state, session),
-                other,
-            )
+            let shown = super::aggregate_counts_actions::switched_to(state, session);
+            // The connection's tab is the shown one now: a stale one reads again (opening a
+            // collection replaces what it shows, so that one needs no read first).
+            let replaces = matches!(other, SidebarAction::Open(_));
+            let (shown, reads) = match replaces {
+                true => (shown, Vec::new()),
+                false => super::tab_actions::shown_now(shown),
+            };
+            let (next, commands) = sidebar(shown, other);
+            (next, [reads, commands].concat())
         }
     }
 }

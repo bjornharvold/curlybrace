@@ -24,10 +24,12 @@ pub(super) fn take_shortcuts(ctx: &egui::Context, state: &AppState, out: &mut Ve
 }
 
 pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
-    let shown = labels(state, i18n);
-    if shown.len() < 2 {
+    // The common case first and cheapest: one tab in all (or one shown) builds no label at all,
+    // every frame.
+    if state.tabs.order.len() < 2 || state.visible_tabs().len() < 2 {
         return;
     }
+    let shown = labels(state, i18n);
     let view = StripView {
         labels: &shown,
         active: state.active_tab(),

@@ -15,7 +15,7 @@ use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
 
 /// Both tabs answered, then a write to `app.orders` (the parked tab's collection) is answered.
-fn with_stale_second(t: Two) -> (AppState, TabId) {
+pub(super) fn with_stale_second(t: Two) -> (AppState, TabId) {
     let s = ev(t.s, results(t.a, users(), t.first_find, 1));
     let s = ev(s, results(t.a, orders(), t.second_find, 1));
     let s = ev(

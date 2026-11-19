@@ -89,6 +89,19 @@ pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
     }
 }
 
+/// The limit notice stays until the person does something else: any input that is not a tab
+/// action dismisses it (a tab action decides for itself in `on_action`; a runtime answer does not
+/// pass here, so it cannot take the notice away before it was read).
+pub(super) fn notice_dismissed_by(state: AppState, input: &super::reducer::Input) -> AppState {
+    match state.tabs.notice.is_some() && !matches!(input, super::reducer::Input::Tabs(_)) {
+        true => AppState {
+            tabs: state.tabs.clone().with_notice(None),
+            ..state
+        },
+        false => state,
+    }
+}
+
 /// `state` refused a new tab: the notice says why. Nothing else changes.
 fn refused(state: AppState) -> Out {
     let tabs = state
@@ -136,8 +149,11 @@ fn without_empty(state: AppState, left: TabId) -> AppState {
         .owner
         .get(&left)
         .is_none_or(|session| state.tabs.of_session(*session).len() < 2);
-    match lonely || state.tab_ns(left).is_some() {
+    // The same test as the sweep: a tab with a collection, a draft or an editor holds work.
+    let idle = state.glance(left).is_some_and(|g| g.is_idle_empty());
+    match lonely || !idle {
         true => state,
+        // Nothing in it: nothing to remember either.
         false => state.tab_closed(left),
     }
 }
@@ -190,12 +206,20 @@ pub(super) fn activate(state: AppState, tab: TabId) -> Out {
     if !state.tabs.owner.contains_key(&tab) {
         return (state, Vec::new());
     }
-    let freshness = state.freshness_of(tab);
-    let session = state.tabs.owner.get(&tab).copied().unwrap_or_default();
-    let reads =
-        freshness == Freshness::Stale && state.status_of(session) == Some(ConnStatus::Connected);
-    let state = shown(state, tab);
-    match reads {
+    shown_now(shown(state, tab))
+}
+
+/// The one step every path takes when a tab has just become the shown one (a tab switch, a
+/// connection picked in the tree, a closed connection's neighbour, a successor after a close): a
+/// stale tab reads the page it shows again (and its index list on Indexes), a read it already ran;
+/// a dormant tab sends nothing. Stale is cleared only by that read, never by itself: while the
+/// connection is down the mark stays.
+pub(super) fn shown_now(state: AppState) -> Out {
+    let Some(tab) = state.active_tab() else {
+        return (state, Vec::new());
+    };
+    let stale = state.freshness_of(tab) == Freshness::Stale;
+    match stale && state.status == ConnStatus::Connected {
         true => refetch(refreshed(state, tab)),
         false => (state, Vec::new()),
     }
@@ -234,7 +258,7 @@ fn duplicate(state: AppState, tab: TabId) -> Out {
         return refused(state);
     }
     let (state, seed) = seed_of(state, tab);
-    let Some(seed) = seed else {
+    let Some(seed) = seed.map(Seed::without_editor) else {
         return (state, Vec::new());
     };
     let (state, new) = state.tab_opened_after(session, Some(tab));
@@ -303,9 +327,17 @@ fn close(state: AppState, tab: TabId) -> Out {
     }
 }
 
-/// Closes every tab shown other than `keep` (or only those after it), then shows `keep`.
+/// Closes every tab of `keep`'s connection other than `keep` (or only those after it), then shows
+/// `keep`. Another connection's tabs are not touched: they would be emptied and pushed onto the
+/// closed stack by a click on this connection's tab. (The spec names the entries without a scope;
+/// the strip shows every connection, so the menu acts on the tab's own.)
 fn close_many(state: AppState, keep: TabId, right_only: bool) -> Out {
-    let visible = state.visible_tabs();
+    let session = state.tabs.owner.get(&keep).copied();
+    let visible: Vec<TabId> = state
+        .visible_tabs()
+        .into_iter()
+        .filter(|t| state.tabs.owner.get(t).copied() == session)
+        .collect();
     let from = match right_only {
         true => visible.iter().position(|t| *t == keep).map_or(0, |p| p + 1),
         false => 0,
@@ -369,6 +401,9 @@ mod dormant_tests;
 #[cfg(test)]
 #[path = "tab_hidden_tests.rs"]
 mod hidden_tests;
+#[cfg(test)]
+#[path = "tab_review3_tests.rs"]
+mod review3_tests;
 #[cfg(test)]
 #[path = "tab_review_fix_tests.rs"]
 mod review_fix_tests;

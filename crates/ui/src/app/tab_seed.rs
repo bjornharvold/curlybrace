@@ -42,6 +42,15 @@ impl Seed {
         }
     }
 
+    /// The seed of a duplicate: an editor holds a document body, and two editors on one document
+    /// would each replace it on save. (A reopened tab keeps its editor: the tab it was in is gone.)
+    pub(super) fn without_editor(self) -> Self {
+        Self {
+            editor: None,
+            ..self
+        }
+    }
+
     pub(super) fn has_collection(&self) -> bool {
         self.ns.is_some()
     }

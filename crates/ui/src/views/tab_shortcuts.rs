@@ -1,13 +1,14 @@
 //! The keyboard shortcuts of the tabs (#159). `Cmd` is `Modifiers::COMMAND` (Ctrl off macOS).
-//! None of these keys types text, so they work while a text field has the keyboard too (egui's
-//! `wants_keyboard_input` is true for any focused widget, a button included, so it cannot tell
-//! typing from a focused tab); they are held back while a dialog is open (`enabled`). None is
+//! They are consumed only while no text field has the keyboard (typing is never taken) and no
+//! dialog is open: the caller decides (`enabled`, see `app::tab_strip_panel`, which tells a text
+//! field from a focused button with `text_has_focus`; egui's `wants_keyboard_input` is true for
+//! both). Each chord matches exactly: Cmd+Shift+W is not Cmd+W. None is
 //! bound by eframe, egui or winit's macOS menu (which binds only Cmd+Q, Cmd+H and Cmd+Alt+H);
 //! egui's own keys are Tab / Shift+Tab and the arrows for focus, and Cmd+Plus / Minus / 0 for
 //! zoom. Ctrl+Tab therefore also moves keyboard focus one widget, which egui does for every Tab
 //! press before the app sees it.
 use crate::app::tab_actions::TabAction;
-use eframe::egui::{Context, Key, Modifiers};
+use eframe::egui::{Context, Event, InputState, Key, Modifiers};
 
 const CMD: Modifiers = Modifiers::COMMAND;
 const CMD_SHIFT: Modifiers = Modifiers {
@@ -70,8 +71,25 @@ pub fn tab_shortcuts(ctx: &Context, enabled: bool) -> Vec<TabAction> {
     ctx.input_mut(|input| {
         table
             .into_iter()
-            .filter(|(mods, key, _)| input.consume_key(*mods, *key))
+            .filter(|(mods, key, _)| consume_exact(input, *mods, *key))
             .map(|(_, _, action)| action)
             .collect()
     })
+}
+
+/// Consumes `key` pressed with exactly `mods`. egui's own `consume_key` matches logically: a
+/// chord with an extra Shift or Alt still counts, so Cmd+Shift+W would close a tab and
+/// Cmd+Shift+3 would pick one. A tab shortcut is the chord and nothing more.
+fn consume_exact(input: &mut InputState, mods: Modifiers, key: Key) -> bool {
+    let mut hit = false;
+    input.events.retain(|event| {
+        let is_it = matches!(
+            event,
+            Event::Key { key: pressed, pressed: true, modifiers, .. }
+                if *pressed == key && modifiers.matches_exact(mods)
+        );
+        hit |= is_it;
+        !is_it
+    });
+    hit
 }

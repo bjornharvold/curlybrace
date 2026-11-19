@@ -119,6 +119,32 @@ fn nothing_acts_behind_the_forget_host_confirm() {
 }
 
 #[test]
+fn a_chord_with_an_extra_modifier_is_not_the_shortcut() {
+    let mut page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &["invoices", "notes"]);
+    });
+    let first = app_state(&mut page).active_tab();
+    let shift = Modifiers::COMMAND | Modifiers::SHIFT;
+    let alt = Modifiers::COMMAND | Modifiers::ALT;
+    // Cmd+Shift+W is not Cmd+W; Cmd+Shift+3 and Cmd+Alt+3 are not Cmd+3; Cmd+Shift+9 is not Cmd+9.
+    press(&mut page, shift, Key::W);
+    press(&mut page, alt, Key::W);
+    press(&mut page, shift, Key::Num3);
+    press(&mut page, alt, Key::Num3);
+    press(&mut page, shift, Key::Num9);
+    assert_eq!(tab_count(&page), 3, "a chord closed a tab");
+    assert_eq!(app_state(&mut page).active_tab(), first, "a chord switched");
+    // Ctrl+Alt+Tab is not Ctrl+Tab.
+    press(&mut page, Modifiers::CTRL | Modifiers::ALT, Key::Tab);
+    assert_eq!(app_state(&mut page).active_tab(), first);
+    // The real ones still work.
+    press(&mut page, Modifiers::COMMAND, Key::Num3);
+    assert_ne!(app_state(&mut page).active_tab(), first);
+    press(&mut page, Modifiers::COMMAND, Key::W);
+    assert_eq!(tab_count(&page), 2);
+}
+
+#[test]
 fn nothing_acts_behind_the_tool_settings() {
     nothing_closes_behind(|page| {
         let state = app_state(page);
