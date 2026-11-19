@@ -92,6 +92,64 @@ fn active(f: &Fixture) -> curlybrace_ui::app::tabs::TabId {
     f.harness.state().state().active_tab().expect("a tab")
 }
 
+/// Server-side evidence, read through a client of the test's own (never through the app).
+struct Server {
+    handle: tokio::runtime::Handle,
+    client: mongodb::Client,
+    db: String,
+}
+
+impl Server {
+    fn of(f: &Fixture) -> Self {
+        Self {
+            handle: f.runtime().handle().clone(),
+            client: f.db.client.clone(),
+            db: f.db.name.clone(),
+        }
+    }
+
+    /// The server logs every operation on the test's database from now on (level 2).
+    fn profile_everything(&self) {
+        let db = self.client.database(&self.db);
+        self.handle
+            .block_on(async { db.run_command(doc! {"profile": 2_i32}).await })
+            .expect("profiling level 2");
+    }
+
+    /// How many finds on `collection` the server has run since profiling began.
+    fn finds_on(&self, collection: &str) -> u64 {
+        let profile = self
+            .client
+            .database(&self.db)
+            .collection::<bson::Document>("system.profile");
+        let filter = doc! {"op": "query", "ns": format!("{}.{collection}", self.db)};
+        self.handle
+            .block_on(async { profile.count_documents(filter).await })
+            .expect("count the profile")
+    }
+
+    /// Whether the slow `$where` find is still running on the server.
+    fn slow_find_running(&self) -> bool {
+        let admin = self.client.database("admin");
+        let reply = self
+            .handle
+            .block_on(async {
+                admin
+                    .run_command(doc! {"currentOp": 1_i32, "active": true})
+                    .await
+            })
+            .expect("currentOp");
+        reply.get_array("inprog").is_ok_and(|ops| {
+            ops.iter().any(|op| {
+                op.as_document()
+                    .and_then(|d| d.get_document("command").ok())
+                    .and_then(|c| c.get_document("filter").ok())
+                    .is_some_and(|filter| filter.contains_key("$where"))
+            })
+        })
+    }
+}
+
 #[test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn two_tabs_run_different_filters_and_keep_their_pages() {
@@ -181,20 +239,32 @@ fn closing_a_tab_drops_its_late_answer() {
         filter: doc! {"$where": "sleep(2000) || true"},
         ..Query::default()
     };
+    let server = Server::of(&f);
     f.harness
         .state_mut()
         .dispatch(Input::Find(FindAction::Run(slow)));
-    settle(&mut f.harness);
-    assert!(f.harness.state().state().loading_page || docs_shown(&f).is_some());
-    // Leave it and close it while the server is still busy.
+    // The server has started it...
+    wait_until(&mut f.harness, "the slow find on the server", SHORT, |_| {
+        server.slow_find_running()
+    });
+    // ... and the tab is left and closed while it is busy.
     tab(&mut f, TabAction::Activate(words));
     tab(&mut f, TabAction::Close(things));
     assert!(!f.harness.state().state().tabs.owner.contains_key(&things));
-    let until = Instant::now() + Duration::from_millis(3500);
-    while Instant::now() < until {
-        f.harness.step();
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    // The server finishes and its answer is sent; then the app has had time to read it.
+    wait_until(
+        &mut f.harness,
+        "the server to finish the find",
+        SHORT,
+        |_| !server.slow_find_running(),
+    );
+    let answered_by = Instant::now() + Duration::from_millis(500);
+    wait_until(
+        &mut f.harness,
+        "the answer to have been read",
+        SHORT,
+        |_| Instant::now() >= answered_by,
+    );
     let s = f.harness.state().state();
     assert_eq!(s.status, ConnStatus::Connected);
     assert!(s.banner.is_none(), "a late answer raised {:?}", s.banner);
@@ -205,6 +275,7 @@ fn closing_a_tab_drops_its_late_answer() {
     );
     assert_eq!(s.selected_ns().map(|n| n.collection.as_str()), Some(WORDS));
     assert_eq!(s.tabs_of(session(&f)).len(), 1);
+    assert!(!s.loading_page, "no read is left waiting in the open tab");
 }
 
 #[test]
@@ -217,6 +288,10 @@ fn lost_and_reconnected_tabs_stay_dormant_until_run() {
     wait_docs(&mut f, 2);
     let things = active(&f);
     let id = session(&f);
+    // From here the server logs every operation, to prove which finds it was asked for.
+    let server = Server::of(&f);
+    server.profile_everything();
+    let (words_before, things_before) = (server.finds_on(WORDS), server.finds_on(THINGS));
     // The connection is lost: the session fails, the tabs stay.
     f.harness.state_mut().dispatch(Input::Event(Event::Failed {
         session: id,
@@ -240,10 +315,15 @@ fn lost_and_reconnected_tabs_stay_dormant_until_run() {
     assert!(s.page.is_none() && !s.loading_page, "no find was sent");
     assert_eq!(s.freshness_of(things), Freshness::Dormant);
     assert_eq!(s.freshness_of(words), Freshness::Dormant);
+    // The server agrees: neither tab's collection was read, the shown tab's or the parked one's.
+    assert_eq!(server.finds_on(WORDS), words_before, "the parked tab read");
+    assert_eq!(server.finds_on(THINGS), things_before, "the shown tab read");
     // Run wakes one tab; the other stays dormant until its own Run.
     tab(&mut f, TabAction::Run(things));
     wait_docs(&mut f, 2);
     let s = f.harness.state().state();
     assert_eq!(s.freshness_of(things), Freshness::Fresh);
     assert_eq!(s.freshness_of(words), Freshness::Dormant);
+    assert_eq!(server.finds_on(THINGS), things_before + 1, "Run read once");
+    assert_eq!(server.finds_on(WORDS), words_before, "and only its own tab");
 }
