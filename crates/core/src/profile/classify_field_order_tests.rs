@@ -69,6 +69,28 @@ fn unparseable_summary_is_not_field_order() {
 }
 
 #[test]
+fn a_regex_in_the_filter_is_a_range_not_an_exact_match() {
+    let regex = |p: &str| {
+        bson::Bson::RegularExpression(bson::Regex {
+            pattern: p.into(),
+            options: String::new(),
+        })
+    };
+    for name in [
+        regex("foo"),
+        bson::Bson::Document(doc! { "$in": [regex("^a")] }),
+        bson::Bson::Document(doc! { "$regex": "foo" }),
+    ] {
+        let command = doc! {
+            "find": "orders",
+            "filter": { "ts": { "$gt": 1 }, "name": name },
+        };
+        let e = entry_for("IXSCAN { ts: 1, name: 1 }", command);
+        assert_eq!(classify_entry(&e, &shape_of(&e)), VerdictKind::IndexUsed);
+    }
+}
+
+#[test]
 fn a_collection_scan_still_wins_over_field_order() {
     assert_eq!(
         find_verdict("COLLSCAN, IXSCAN { createdAt: 1, status: 1 }"),

@@ -133,6 +133,22 @@ fn sort_after_range_stays_sort_not_covered_with_field_order_reason() {
 }
 
 #[test]
+fn a_regex_literal_filter_is_not_a_false_field_order() {
+    let plan = explain_of(ixscan("ts_1_name_1", doc! { "ts": 1, "name": 1 }));
+    let regex = bson::Bson::RegularExpression(bson::Regex {
+        pattern: "foo".into(),
+        options: String::new(),
+    });
+    let query = Query {
+        filter: doc! { "ts": { "$gt": 1 }, "name": regex },
+        ..Query::default()
+    };
+    let v = classify(&plan, &query).unwrap();
+    assert_eq!(v.kind, VerdictKind::IndexUsed, "{v:?}");
+    assert!(v.suggestion.is_none());
+}
+
+#[test]
 fn collscan_still_wins_over_field_order() {
     let plan = doc! {
         "stage": "COLLSCAN",

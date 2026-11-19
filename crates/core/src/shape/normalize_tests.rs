@@ -82,7 +82,25 @@ fn regex_pattern_is_masked() {
     );
     let bson_regex = shape_of(doc! { "name": Bson::RegularExpression(Regex {
     pattern: "^hunter2".into(), options: "i".into() }) });
-    assert_eq!(bson_regex.json(), r#"{"filter":{"name":"?"}}"#);
+    // A BSON regex keeps the fact that it is a pattern (it is a range, not an exact match) and
+    // never the pattern: it reads like the `$regex` operator form without its options.
+    assert_eq!(bson_regex.json(), r#"{"filter":{"name":{"$regex":"?"}}}"#);
+    assert!(!bson_regex.json().contains("hunter2"));
+    assert_eq!(Shape::from_json(&bson_regex.json()).unwrap(), bson_regex);
+}
+
+#[test]
+fn an_in_list_with_a_regex_keeps_the_fact_but_not_the_pattern() {
+    let pattern = Bson::RegularExpression(Regex {
+        pattern: "^SECRET".into(),
+        options: String::new(),
+    });
+    let with = shape_of(doc! { "name": { "$in": [pattern, "plain"] } });
+    let without = shape_of(doc! { "name": { "$in": ["a", "b"] } });
+    assert_eq!(with.json(), r#"{"filter":{"name":{"$in":["?","$regex"]}}}"#);
+    assert_ne!(with.hash(), without.hash());
+    assert!(!with.json().contains("SECRET"));
+    assert_eq!(Shape::from_json(&with.json()).unwrap(), with);
 }
 
 #[test]

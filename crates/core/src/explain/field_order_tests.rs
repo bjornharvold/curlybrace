@@ -1,4 +1,4 @@
-use bson::{Document, doc};
+use bson::{Bson, Document, doc};
 
 use super::field_order::{FieldOrderFinding, check, summary_keys};
 
@@ -96,6 +96,47 @@ fn ne_and_regex_count_as_range() {
         let filter = doc! { "a": op, "b": 2 };
         assert_eq!(check(&keys, &filter, None), before_equality("a", "b"));
     }
+}
+
+fn pattern(text: &str) -> Bson {
+    Bson::RegularExpression(bson::Regex {
+        pattern: text.into(),
+        options: String::new(),
+    })
+}
+
+#[test]
+fn a_regex_literal_is_a_range_not_an_exact_match() {
+    let keys = doc! { "ts": 1, "name": 1 };
+    let filter = doc! { "ts": { "$gt": 1 }, "name": pattern("foo") };
+    assert_eq!(check(&keys, &filter, None), None);
+    // With a real exact match after the range the order is still found.
+    let keys = doc! { "ts": 1, "name": 1, "status": 1 };
+    let filter = doc! { "ts": { "$gt": 1 }, "name": pattern("foo"), "status": "a" };
+    assert_eq!(check(&keys, &filter, None), before_equality("ts", "status"));
+}
+
+#[test]
+fn a_regex_in_an_in_list_is_a_range_not_an_exact_match() {
+    let keys = doc! { "ts": 1, "name": 1 };
+    let filter = doc! { "ts": { "$gt": 1 }, "name": { "$in": [pattern("^a")] } };
+    assert_eq!(check(&keys, &filter, None), None);
+    // The shape's marker for the same thing.
+    let filter = doc! { "ts": { "$gt": 1 }, "name": { "$in": ["?", "$regex"] } };
+    assert_eq!(check(&keys, &filter, None), None);
+}
+
+#[test]
+fn the_regex_operator_form_is_still_a_range() {
+    let keys = doc! { "ts": 1, "name": 1 };
+    let filter = doc! { "ts": { "$gt": 1 }, "name": { "$regex": "foo" } };
+    assert_eq!(check(&keys, &filter, None), None);
+    let keys = doc! { "name": 1, "status": 1 };
+    let filter = doc! { "name": { "$regex": "^a" }, "status": "a" };
+    assert_eq!(
+        check(&keys, &filter, None),
+        before_equality("name", "status")
+    );
 }
 
 #[test]
