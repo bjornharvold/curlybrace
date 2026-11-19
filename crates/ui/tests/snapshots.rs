@@ -43,6 +43,9 @@ macro_rules! shot {
     };
 }
 
+#[path = "snapshot_suites/tabs.rs"]
+mod tabs_suite;
+
 fn production() -> ConnectionConfig {
     let mut cfg = ConnectionConfig::new("Production replica", "mongodb://db.example.com:27017");
     cfg.username = Some("reporting".into());
