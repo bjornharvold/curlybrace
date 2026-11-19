@@ -152,6 +152,71 @@ fn elem_match_and_not_still_recurse() {
     );
 }
 
+/// The words that are valid at the root of a query (not in a field's operator document).
+const ROOT_ONLY: [&str; 6] = [
+    "$comment",
+    "$expr",
+    "$jsonSchema",
+    "$sampleRate",
+    "$text",
+    "$where",
+];
+
+#[test]
+fn root_only_keys_in_an_elem_match_operand_keep_the_field_names() {
+    for key in ROOT_ONLY {
+        let shape = shape_of(doc! { "a": { "$elemMatch": { "qty": { "$gt": 1 }, key: "x" } } });
+        let expected =
+            format!(r#"{{"filter":{{"a":{{"$elemMatch":{{"{key}":"?","qty":{{"$gt":"?"}}}}}}}}}}"#);
+        assert_eq!(shape.json(), expected, "{key}");
+        assert!(Shape::from_json(&shape.json()).is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn root_only_keys_next_to_operators_in_an_elem_match_operand_read_as_before() {
+    for key in ROOT_ONLY {
+        let shape = shape_of(doc! { "a": { "$elemMatch": { "$in": [1], key: "x" } } });
+        // An operator document prints its keys sorted.
+        let (key_part, in_part) = (format!(r#""{key}":"?""#), r#""$in":["?"]"#);
+        let body = if key < "$in" {
+            format!("{key_part},{in_part}")
+        } else {
+            format!("{in_part},{key_part}")
+        };
+        let expected = format!(r#"{{"filter":{{"a":{{"$elemMatch":{{{body}}}}}}}}}"#);
+        assert_eq!(shape.json(), expected, "{key}");
+        let alone = shape_of(doc! { "a": { "$elemMatch": { key: "x" } } });
+        assert_eq!(
+            alone.json(),
+            format!(r#"{{"filter":{{"a":{{"$elemMatch":{{"{key}":"?"}}}}}}}}"#),
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_operator_beside_root_only_keys_still_collapses() {
+    let shape = shape_of(doc! { "a": { "$elemMatch": { "$comment": "x", "$secret": 1 } } });
+    assert_eq!(shape.json(), r#"{"filter":{"a":{"$elemMatch":"?"}}}"#);
+}
+
+#[test]
+fn logical_and_nested_operands_keep_root_only_keys() {
+    let shape = shape_of(doc! {
+        "$and": [ { "a": { "$gt": 1 }, "$comment": "x" } ],
+        "b": { "$elemMatch": { "$or": [ { "c": 1, "$comment": "y" } ], "d": { "$not": { "$gt": 2 } } } },
+    });
+    assert_eq!(
+        shape.json(),
+        concat!(
+            r#"{"filter":{"$and":[{"$comment":"?","a":{"$gt":"?"}}],"#,
+            r#""b":{"$elemMatch":{"$or":[{"$comment":"?","c":"?"}],"d":{"$not":{"$gt":"?"}}}}}}"#
+        )
+    );
+    assert!(Shape::from_json(&shape.json()).is_ok());
+}
+
 #[test]
 fn an_unknown_operator_inside_elem_match_or_not_collapses() {
     let shape = shape_of(doc! {

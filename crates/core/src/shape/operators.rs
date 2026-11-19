@@ -45,6 +45,22 @@ pub(crate) const QUERY_OPERATORS: [&str; 28] = [
     "$within",
 ];
 
+/// Words valid at the root of a query. They are not field-level operators, but a `$elemMatch`
+/// operand holding one keeps its field names, as it did before the allowlist.
+const ROOT_OPERATORS: [&str; 6] = [
+    "$comment",
+    "$expr",
+    "$jsonSchema",
+    "$sampleRate",
+    "$text",
+    "$where",
+];
+
+/// Whether `key` is a root-level query word.
+pub(crate) fn is_root_operator(key: &str) -> bool {
+    ROOT_OPERATORS.contains(&key)
+}
+
 /// Whether `key` is a known operator of a field's operator document.
 pub(crate) fn is_query_operator(key: &str) -> bool {
     QUERY_OPERATORS.contains(&key)

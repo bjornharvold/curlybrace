@@ -92,6 +92,22 @@ fn cleanup_keeps_a_within_shape() {
 }
 
 #[test]
+fn cleanup_keeps_rows_with_root_only_keys_in_an_elem_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = file_before_cleanup(&dir);
+    for (id, key) in ["$comment", "$expr", "$jsonSchema", "$text", "$where"]
+        .iter()
+        .enumerate()
+    {
+        let json =
+            format!(r#"{{"filter":{{"a":{{"$elemMatch":{{"{key}":"?","qty":{{"$gt":"?"}}}}}}}}}}"#);
+        insert(&conn, id as i64 + 1, &json);
+    }
+    run_once(&mut conn).unwrap();
+    assert_eq!(count(&conn, "shape"), 5);
+}
+
+#[test]
 fn cleanup_is_bounded_per_batch_and_handles_many_rows() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = file_before_cleanup(&dir);
