@@ -360,6 +360,12 @@ impl TabView {
 - Throwaway mongod: `local_e2e_flows`, `local_find_options_flows`, `local_aggregate_options_flows`, `local_aggregate_plan_flows`, `local_undo_flows`.
 - `cargo llvm-cov -p curlybrace-ui`: new files at 80% or more.
 - PR body: the list of mechanically edited assertions (T2, T3).
+- **One deliberate change a one-tab session can see (T3, found in review).** A late failure of an
+  older find, explain or estimated count, or an `Explain` / `EstimatedCount` answer carrying an old
+  number, is now dropped by the tab that no longer awaits it. Before, a late `Failed { find }`
+  raised a banner and ended the newer find's loading, and an explain or count answer was accepted by
+  collection and query alone. Visible only as the absence of a spurious banner or verdict; a lost
+  server still fails the root. The transcripts do not cover it, so `tab_single_tab_tests.rs` pins it.
 - Size: L (about 1800 lines with tests). Highest risk of the four slices.
 
 ---

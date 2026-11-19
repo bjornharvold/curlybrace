@@ -173,6 +173,9 @@ Each slice ships on its own, behind no flag, on its own branch with a PR to `mai
         - a scripted browse transcript (connect, open, run, page, edit and save, Indexes, Aggregate preview, explain, lost connection, reconnect, a second session) recording every command sent and the key state after each step, with request numbers normalised to their order of first appearance;
         - a second transcript of a session's background events while another is active.
         Both must produce byte-identical output after the refactor.
+     2a. One deliberate exception, pinned by its own test (`tab_single_tab_tests.rs`): a late failure
+        or answer of a find, explain or estimated count whose number the tab no longer awaits is
+        dropped, so a one-tab session no longer shows a spurious banner for a replaced request.
      3. Reducer-level tests build two tabs through the model API (no UI) and prove the routing, which is Done-when 1 at the model level.
      4. The throwaway-mongod e2e flows (`local_e2e_flows.rs`, `local_find_options_flows.rs`, `local_aggregate_*_flows.rs`) pass.
 2. **Slice 2: tabs** (`feat/159-tabs`). The strip, open in new tab, duplicate, close, reopen, reorder, keyboard, titles, badges, accessible names, the 20-tab limit, eviction, stale and dormant states, lost connection keeps the tabs. **Left out:** split, restore.

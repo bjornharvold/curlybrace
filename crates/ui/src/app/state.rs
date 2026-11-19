@@ -98,25 +98,44 @@ pub enum Banner {
     IndexSuggestionGone,
 }
 
+/// The failure contexts of the document and index writes of a collection view: the one list that
+/// the banner rule below, the error wording in `reducer::specific` and the routing of a write's
+/// failure to its tab (`is_tab_write_context`) all read.
+pub fn is_row_or_index_write(context: &str) -> bool {
+    matches!(
+        context,
+        "insert"
+            | "replace"
+            | "delete"
+            | "clone"
+            | "create_index"
+            | "drop_index"
+            | "set_index_hidden"
+            | "set_index_ttl"
+    )
+}
+
+/// The failure contexts of every write a tab sends: the above, the profiler change and an
+/// aggregation run. Their failure follows `Pending::tab` to the tab that sent the write.
+pub fn is_tab_write_context(context: &str) -> bool {
+    is_row_or_index_write(context) || matches!(context, "set_profiling_level" | "aggregate_run")
+}
+
 impl Banner {
     /// A failed data command of a session (not a connect, not a local operation).
     pub fn is_data_failure(&self) -> bool {
+        // The row and index writes come from the one list in `is_row_or_index_write`.
+        if matches!(self, Banner::Failure { context, .. } if is_row_or_index_write(context)) {
+            return true;
+        }
         matches!(
             self,
             Banner::Failure {
                 context: "find"
-                    | "insert"
-                    | "replace"
-                    | "delete"
-                    | "clone"
                     | "list_databases"
                     | "list_collections"
                     | "list_indexes"
                     | "index_history"
-                    | "create_index"
-                    | "drop_index"
-                    | "set_index_hidden"
-                    | "set_index_ttl"
                     // `bulk_cancel` is deliberately absent: its failure raises a banner while
                     // the flow stays open, and a later connect must not withdraw it.
                     | "bulk_count"

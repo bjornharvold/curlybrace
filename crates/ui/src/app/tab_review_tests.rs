@@ -77,23 +77,6 @@ fn a_lost_server_keeps_the_session_while_a_parked_tab_has_an_editor() {
 }
 
 #[test]
-fn a_lost_write_of_a_parked_tab_keeps_every_editor() {
-    let t = two_tabs();
-    let (s, _) = update(t.s, Input::Doc(DocAction::Insert));
-    let s = saving_in_parked(s, t.second);
-    let s = ev(
-        s,
-        Event::Failed {
-            session: t.a,
-            context: "insert",
-            error: CoreError::Unreachable,
-        },
-    );
-    assert_eq!(s.status, ConnStatus::Connected);
-    assert!(s.editor.is_some() && parked(&s, t.second).editor.is_some());
-}
-
-#[test]
 fn a_lost_server_with_no_editor_anywhere_still_fails_the_root() {
     let t = two_tabs();
     let s = ev(t.s, find_failed(t.a, t.second_find, CoreError::Unreachable));

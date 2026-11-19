@@ -250,6 +250,9 @@ pub(super) fn profiling_level(mut state: AppState, db: &str, level: &ProfilingSt
 #[path = "tab_fanout_guard_tests.rs"]
 mod guard_tests;
 #[cfg(test)]
+#[path = "tab_profiler_tests.rs"]
+mod profiler_tests;
+#[cfg(test)]
 #[path = "tab_review_tests.rs"]
 mod review_tests;
 #[cfg(test)]

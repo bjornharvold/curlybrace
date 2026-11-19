@@ -223,7 +223,7 @@ pub(super) fn browsing_steps(id: Uuid) -> Script {
 }
 
 /// Connects `a` and opens `app.users` on a first page, through the reducer.
-pub(super) fn browsing_one() -> (AppState, Uuid, Vec<Command>) {
+pub(crate) fn browsing_one() -> (AppState, Uuid, Vec<Command>) {
     let (mut state, ids) = connections(&["a"]);
     let a = ids[0];
     let mut sent = Vec::new();

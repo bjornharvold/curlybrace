@@ -541,20 +541,8 @@ fn lost_failure(state: AppState, context: &'static str, error: CoreError, backgr
 /// tunnel says so too, but a write that failed it was never sent, so it has no write wording.
 /// Read while the session is the active one.
 fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
-    let write = matches!(
-        context,
-        "insert"
-            | "replace"
-            | "delete"
-            | "clone"
-            | "create_index"
-            | "drop_index"
-            | "set_index_hidden"
-            | "set_index_ttl"
-            | "bulk_update"
-            | "bulk_delete"
-            | "bulk_undo"
-    );
+    let write = super::state::is_row_or_index_write(context)
+        || matches!(context, "bulk_update" | "bulk_delete" | "bulk_undo");
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,
         (CoreError::Unreachable, false, true) => CoreError::UnreachableSsh,
@@ -748,7 +736,7 @@ mod tests;
 mod reducer_request_failed_tests;
 #[cfg(test)]
 #[path = "tab_characterisation_script.rs"]
-mod tab_characterisation_script;
+pub(crate) mod tab_characterisation_script;
 #[cfg(test)]
 #[path = "tab_characterisation_sites_tests.rs"]
 mod tab_characterisation_sites_tests;

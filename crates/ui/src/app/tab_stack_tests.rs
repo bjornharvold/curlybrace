@@ -39,6 +39,15 @@ fn on_bounded_stack(state: AppState, input: Input) -> AppState {
     on_stack_of(state, input, stack_bytes())
 }
 
+/// `kib` KiB, or `STACK_KIB` when set (to find the real minimum of a bounded test).
+fn bound_kib(kib: usize) -> usize {
+    std::env::var("STACK_KIB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(kib)
+        * 1024
+}
+
 /// Applies `input` to `state` on a thread whose stack is `bytes` long.
 fn on_stack_of(state: AppState, input: Input, bytes: usize) -> AppState {
     let moved = Handoff(state);
@@ -215,15 +224,73 @@ fn a_lost_find_of_a_parked_tab_stays_within_its_measured_bound() {
     let (s, a, _) = counting(true, false);
     let second = *s.parked_tabs.keys().next().expect("a parked tab");
     let request = s.parked_tabs[&second].issued_request;
-    let s = on_stack_of(s, find_lost(a, request, true), 1792 * 1024);
+    let s = on_stack_of(s, find_lost(a, request, true), bound_kib(1792));
     assert_eq!(s.status, ConnStatus::Failed);
 }
 
 #[test]
 fn a_bare_lost_find_with_one_tab_stays_within_its_measured_bound() {
     let (s, a, _) = counting(false, false);
-    let s = on_stack_of(s, find_lost(a, 0, false), 1536 * 1024);
+    let s = on_stack_of(s, find_lost(a, 0, false), bound_kib(1536));
     assert_eq!(s.status, ConnStatus::Failed);
+}
+
+/// A state whose parked tab has an insert in flight (its editor is open), and the session.
+fn writing_in_a_parked_tab() -> (AppState, Uuid) {
+    use crate::viewmodel::EditorAction;
+    let (s, a, _) = counting(true, false);
+    let second = *s.parked_tabs.keys().next().expect("a parked tab");
+    let (s, _) = act(s, Some(second), Input::Doc(DocAction::Insert));
+    let text = s.parked_tabs[&second]
+        .editor
+        .as_ref()
+        .expect("an editor")
+        .text
+        .clone();
+    let (s, commands) = act(
+        s,
+        Some(second),
+        Input::Editor(EditorAction::Save {
+            original_id: None,
+            text,
+        }),
+    );
+    assert!(matches!(commands.as_slice(), [Command::Insert { .. }]));
+    (s, a)
+}
+
+fn insert_failed(session: Uuid, error: CoreError) -> Input {
+    Input::Event(Event::Failed {
+        session,
+        context: "insert",
+        error,
+    })
+}
+
+// The write of a parked tab fails through `with_tab` (the answer follows `Pending::tab`): a lost
+// server with the editor open (the session stays) needs 1548 KiB event-only, a refusal 1484 KiB;
+// the bound is 1792 KiB, like the parked find (1576 KiB).
+
+#[test]
+fn a_lost_write_of_a_parked_tab_stays_within_its_measured_bound() {
+    let (s, a) = writing_in_a_parked_tab();
+    let s = on_stack_of(s, insert_failed(a, CoreError::Unreachable), bound_kib(1792));
+    assert_eq!(
+        s.status,
+        ConnStatus::Connected,
+        "the editor keeps the session"
+    );
+}
+
+#[test]
+fn a_refused_write_of_a_parked_tab_stays_within_its_measured_bound() {
+    let (s, a) = writing_in_a_parked_tab();
+    let s = on_stack_of(
+        s,
+        insert_failed(a, CoreError::Database("no".into())),
+        bound_kib(1792),
+    );
+    assert_eq!(s.status, ConnStatus::Connected);
 }
 
 #[test]

@@ -25,7 +25,7 @@ pub(super) fn owner_of(state: &AppState, session: Uuid, ev: &Event) -> Option<Ta
         return None;
     }
     if let Event::Failed { context, .. } = ev {
-        if WRITE_CONTEXTS.contains(context) {
+        if super::state::is_tab_write_context(context) {
             return written_from(state, session);
         }
     }
@@ -171,19 +171,6 @@ pub(super) fn draft_for<'a>(
     }
 }
 
-/// The commands whose failure belongs to the tab the write was sent from (see `Pending::tab`).
-const WRITE_CONTEXTS: [&str; 9] = [
-    "insert",
-    "replace",
-    "delete",
-    "clone",
-    "create_index",
-    "drop_index",
-    "set_index_hidden",
-    "set_index_ttl",
-    "aggregate_run",
-];
-
 /// The parked tab of `session` the write in flight was sent from.
 fn written_from(state: &AppState, session: Uuid) -> Option<TabId> {
     let tab = state.pending.as_ref().and_then(|p| p.tab)?;
@@ -240,6 +227,10 @@ impl TabView {
             Event::RequestFailed {
                 context, request, ..
             } => self.awaits_failure(context, *request),
+            // A profiler read that failed as a command (the writes follow `Pending::tab`).
+            Event::Failed { context, .. } => {
+                *context == "profiling_state" && self.awaits_profiling_read()
+            }
             // Not numbered: the answer to the profiler read or change this tab has in flight for
             // the database.
             Event::ProfilingState { db, .. } => self.awaits_profiling(db),
@@ -251,7 +242,6 @@ impl TabView {
             | Event::Databases { .. }
             | Event::Collections { .. }
             | Event::Mutated { .. }
-            | Event::Failed { .. }
             | Event::Compare(_)
             | Event::Copy(_)
             | Event::TestConnection { .. }
@@ -276,6 +266,12 @@ impl TabView {
             | Event::ShellHistory { .. }
             | Event::ShellHistoryChanged { .. } => false,
         }
+    }
+
+    /// This tab has a profiling read in flight, whatever the database.
+    fn awaits_profiling_read(&self) -> bool {
+        use crate::viewmodel::queries::InFlight;
+        matches!(self.indexes.queries.in_flight, Some(InFlight::Read(_)))
     }
 
     /// This tab asked for the profiling state of `db` (or changed it) and has no answer yet.
@@ -335,6 +331,9 @@ mod aggregate_tests;
 #[cfg(test)]
 #[path = "tab_routing_events_tests.rs"]
 mod events_tests;
+#[cfg(test)]
+#[path = "tab_single_tab_tests.rs"]
+mod single_tab_tests;
 #[cfg(test)]
 #[path = "tab_stack_tests.rs"]
 mod stack_tests;
