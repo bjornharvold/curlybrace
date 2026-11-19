@@ -52,6 +52,7 @@ pub mod json_cache;
 pub mod page_key;
 pub mod queries;
 pub mod queries_chart;
+pub mod queries_last_run;
 pub mod queries_status;
 pub mod shell;
 pub mod shell_check;
@@ -123,7 +124,7 @@ pub use json_cache::{JsonCache, view_json_cache};
 pub use page_key::{PageKey, page_key};
 pub use queries::{
     InFlight, IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
-    QueriesAction, QueriesState, QueryRow, rows,
+    QueriesAction, QueriesState, QueryRow, rows, suggested_of,
 };
 pub use sidebar::{
     DbNode, SidebarAction, SidebarState, collection_click_action, compare_database_to_action,

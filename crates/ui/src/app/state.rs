@@ -91,6 +91,9 @@ pub enum Banner {
     WriteNotSentConnectionChanged,
     /// The user confirmed a production write while another write was still in flight.
     WriteNotSentBusy,
+    /// Create index... was pressed for a query or verdict that no longer suggests an index (the
+    /// row changed or the verdict is gone); the builder was not opened.
+    IndexSuggestionGone,
 }
 
 impl Banner {

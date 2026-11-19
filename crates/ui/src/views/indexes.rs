@@ -4,7 +4,7 @@
 use super::create_index::CreateIndex;
 use super::index_detail::{DetailInput, show_detail};
 use super::index_sampling::{sampling_toggle, show_sampling_body};
-use super::queries::show_queries_led;
+use super::queries::show_queries;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
 use crate::theme::{PILL_HEIGHT, filled_button, gate, pill, segmented, tonal_button};
@@ -23,38 +23,22 @@ const LIST_SHARE: f32 = 0.3;
 
 /// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
 /// per frame; nothing in here reads the clock, so the output depends only on the arguments.
-/// `read_only` disables the write controls (Create index) and says why. `sampling` is the list of
-/// databases the sampler skips, shown in the Sampling section, which is opened per collection
+/// `create` is the state of the Create index buttons: read-only disables the write controls and
+/// says why, and the Queries view's rows also go off while another write or dialog is open (the
+/// caller reads those from the app state, see `app::create_index_state`). `sampling` is the list
+/// of databases the sampler skips, shown in the Sampling section, which is opened per collection
 /// (under the id of `ui`, so a caller showing several connections gives each its own).
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
-    read_only: bool,
+    create: CreateIndex,
     i18n: &I18n,
     now_secs: i64,
     sampling: &SamplingSettings,
 ) -> Option<IndexesAction> {
-    show_indexes_warned(ui, state, (read_only, false), i18n, now_secs, sampling)
-}
-
-/// [`show_indexes`] that also knows whether a document write waits for the production warning
-/// (`(read_only, write_warning)`), which turns the Queries view's Create index... off.
-pub fn show_indexes_warned(
-    ui: &mut egui::Ui,
-    state: &IndexesState,
-    (read_only, write_warning): (bool, bool),
-    i18n: &I18n,
-    now_secs: i64,
-    sampling: &SamplingSettings,
-) -> Option<IndexesAction> {
+    let read_only = create == CreateIndex::ReadOnly;
     if state.view == IndexesView::Queries {
-        let create = CreateIndex::of(
-            read_only,
-            state.writing.is_some(),
-            state.has_prompt(),
-            write_warning,
-        );
-        return queries_view(ui, state, (read_only, create), i18n, now_secs);
+        return queries_view(ui, state, create, i18n, now_secs);
     }
     let sampling_scope = ui.id().with(("indexes_sampling", &state.ns));
     // The toggle, the toolbar and the Sampling disclosure share one wrapping row.
@@ -150,7 +134,7 @@ fn view_toggle(ui: &mut egui::Ui, view: IndexesView, i18n: &I18n) -> Option<Inde
 fn queries_view(
     ui: &mut egui::Ui,
     state: &IndexesState,
-    create: (bool, CreateIndex),
+    create: CreateIndex,
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<IndexesAction> {
@@ -158,8 +142,7 @@ fn queries_view(
     let Some(ns) = state.ns.as_ref() else {
         return ui.horizontal_wrapped(toggle).inner;
     };
-    let (queries, toggled) =
-        show_queries_led(ui, &state.queries, ns, create, i18n, now_secs, toggle);
+    let (queries, toggled) = show_queries(ui, &state.queries, ns, create, i18n, now_secs, toggle);
     queries.map(IndexesAction::Queries).or(toggled)
 }
 

@@ -22,7 +22,7 @@ use crate::views::findbar::{
 };
 use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
-use crate::views::indexes::show_indexes_warned;
+use crate::views::indexes::show_indexes;
 use crate::views::verdict_badge::{
     VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
 };
@@ -60,7 +60,7 @@ pub(super) fn show_collection(
     let leaving = picked.is_some_and(|tab| tab != state.tab);
     match state.tab {
         CollectionTab::Indexes => {
-            show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
+            show_indexes_tab(ui, state, i18n, out, now_secs);
             return;
         }
         CollectionTab::Aggregate => {
@@ -252,7 +252,6 @@ fn show_aggregate_tab(
 fn show_indexes_tab(
     ui: &mut egui::Ui,
     state: &AppState,
-    read_only: bool,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
     now_secs: i64,
@@ -261,10 +260,10 @@ fn show_indexes_tab(
     // is not shared with the same collection on another connection.
     let shown = ui
         .push_id(("indexes_tab", state.active), |ui| {
-            show_indexes_warned(
+            show_indexes(
                 ui,
                 &state.indexes,
-                (read_only, state.write_warning.is_some()),
+                create_index_state(state),
                 i18n,
                 now_secs,
                 &state.sampling,

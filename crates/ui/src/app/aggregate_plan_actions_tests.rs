@@ -283,9 +283,12 @@ fn create_index_is_refused_on_a_read_only_connection() {
 
 #[test]
 fn create_index_on_production_opens_and_create_is_guarded() {
-    let (s, _) = with_plan_of(with_flags(true, false), &[MATCH, SORT]);
+    let (s, id) = with_plan_of(with_flags(true, false), &[MATCH, SORT]);
     let (s, _) = create_index(s);
     assert!(s.indexes.builder.is_some());
+    // The opening asked for the index list; its answer lets Create work.
+    let listed = super::super::index_write_tests::listed_event(id, &s);
+    let (s, _) = update(s, Input::Event(listed));
     let (s, commands) = update(s, Input::Indexes(IndexesAction::Create));
     assert!(commands.is_empty(), "nothing is sent before the answer");
     let parked = s.write_warning.as_ref().expect("the write is parked");

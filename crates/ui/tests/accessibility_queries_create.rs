@@ -8,7 +8,7 @@ use curlybrace_core::store::{Namespace, ProfilingState, Query};
 use curlybrace_ui::I18n;
 use curlybrace_ui::viewmodel::{ProfilingView, QueriesAction, QueriesState};
 use curlybrace_ui::views::create_index::CreateIndex;
-use curlybrace_ui::views::queries::show_queries_led;
+use curlybrace_ui::views::queries::show_queries;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -65,12 +65,11 @@ fn open(state: QueriesState, create: CreateIndex, size: egui::Vec2) -> Harness<'
     let mut harness = Harness::builder().with_size(size).build_ui_state(
         |ui, frame: &mut Frame| {
             let ns = Namespace::new("shop", "orders");
-            let read_only = frame.create == CreateIndex::ReadOnly;
-            let (action, ()) = show_queries_led(
+            let (action, ()) = show_queries(
                 ui,
                 &frame.state,
                 &ns,
-                (read_only, frame.create),
+                frame.create,
                 &I18n::english(),
                 NOW,
                 |_| (),
@@ -207,6 +206,29 @@ fn each_row_says_when_it_last_ran() {
     quiet.buckets.clear();
     let harness = open(known(vec![quiet]), CreateIndex::On, big());
     assert!(!texts(&harness).contains("Last run"));
+}
+
+#[test]
+fn an_open_bucket_reads_within_its_width_and_never_just_now() {
+    for (width, key) in [
+        (600, "indexes.queries.last_run_within_ten_minutes"),
+        (3_600, "indexes.queries.last_run_within_hour"),
+        (86_400, "indexes.queries.last_run_within_day"),
+    ] {
+        let mut shape = summary("status", VerdictKind::CollectionScan, ShapeSource::App);
+        // Started a minute ago, so it ends after now.
+        shape.buckets = vec![ShapeBucket {
+            start_secs: NOW - 60,
+            width_secs: width,
+            executions: 1,
+            misses: 1,
+            gap_secs: 0,
+        }];
+        let harness = open(known(vec![shape]), CreateIndex::On, big());
+        let all = texts(&harness);
+        assert!(all.contains(&t(key)), "{key} not in:\n{all}");
+        assert!(!all.contains("just now"), "width {width}:\n{all}");
+    }
 }
 
 #[test]

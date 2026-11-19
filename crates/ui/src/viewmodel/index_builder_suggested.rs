@@ -37,6 +37,15 @@ impl IndexBuilderState {
             ..Self::new(ns)
         }
     }
+
+    /// The same builder, noting that the query this index was suggested for may have used a
+    /// collation that is not recorded (a shape carries none).
+    pub fn with_collation_unrecorded(self) -> Self {
+        Self {
+            collation_unrecorded: true,
+            ..self
+        }
+    }
 }
 
 #[cfg(test)]

@@ -162,6 +162,33 @@ fn why_popup_offers_create_index_beside_copy() {
 }
 
 #[test]
+fn clicking_create_index_closes_the_why_popup() {
+    let mut harness = open(&ready(scan()));
+    expand(&mut harness);
+    assert!(harness.query_by_label("Suggested index").is_some());
+    harness
+        .get_by_role_and_label(Role::Button, "Create index...")
+        .click();
+    harness.run_steps(4);
+    assert_eq!(harness.state().seen, vec![VerdictAction::CreateIndex]);
+    assert!(
+        harness.query_by_label("Suggested index").is_none(),
+        "the popup closes with the builder opening"
+    );
+}
+
+#[test]
+fn clicking_copy_keeps_the_why_popup_open() {
+    let mut harness = open(&ready(scan()));
+    expand(&mut harness);
+    harness
+        .get_by_role_and_label(Role::Button, "Copy index command")
+        .click();
+    harness.run_steps(4);
+    assert!(harness.query_by_label("Suggested index").is_some());
+}
+
+#[test]
 fn create_index_is_off_with_its_reason_when_read_only_or_busy() {
     let i18n = I18n::english();
     for (create, key) in [

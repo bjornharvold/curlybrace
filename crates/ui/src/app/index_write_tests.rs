@@ -64,7 +64,24 @@ pub(super) fn edit(s: AppState, edit: BuilderEdit) -> AppState {
 pub(super) fn building(cfg: ConnectionConfig, field: &str) -> (AppState, Uuid) {
     let (s, id) = browsing(cfg);
     let (s, _) = act(s, IndexesAction::OpenBuilder);
+    // The opening asked for the collection's index list; the answer lets Create work.
+    let listed = listed_event(id, &s);
+    let (s, _) = update(s, Input::Event(listed));
     (edit(s, BuilderEdit::SetField(0, field.into())), id)
+}
+
+/// The server's answer to the index list the builder's opening asked for: one unrelated index.
+pub(super) fn listed_event(session: Uuid, s: &AppState) -> Event {
+    let other = CollectionIndex {
+        spec: mock_index_spec_named("zz_unrelated_1", &[("zz_unrelated", KeyKind::Asc)]),
+        size_bytes: None,
+    };
+    Event::Indexes {
+        session,
+        ns: ns(),
+        indexes: vec![other],
+        request: s.indexes.request,
+    }
 }
 
 /// `Command` is not `PartialEq`; its `Debug` text is a faithful stand-in.
@@ -414,6 +431,8 @@ fn the_embedded_session_creates_without_a_warning() {
     s.sidebar = s.sidebar.selecting(ns());
     s.indexes = IndexesState::default().for_collection(ns());
     let (s, _) = act(s, IndexesAction::OpenBuilder);
+    let listed = listed_event(EMBEDDED_SESSION, &s);
+    let (s, _) = update(s, Input::Event(listed));
     let s = edit(s, BuilderEdit::SetField(0, "a".into()));
     let (_, commands) = act(s, IndexesAction::Create);
     assert_eq!(sent_spec(&commands).keys.len(), 1);

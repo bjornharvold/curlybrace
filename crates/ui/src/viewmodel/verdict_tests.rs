@@ -241,6 +241,30 @@ fn an_unknown_planned_namespace_keeps_the_suggestion() {
 }
 
 #[test]
+fn the_offered_suggestion_is_the_one_the_badge_shows_the_command_of() {
+    let v = scan_with_suggestion(Some("shop.orders"));
+    let state = ready(v.clone());
+    let offered = offered_suggestion(&state, &orders()).expect("a scan with a suggestion");
+    assert_eq!(Some(offered), v.suggestion.as_ref());
+    let shown = badge(&state, Some(&orders())).unwrap().suggestion;
+    assert_eq!(shown, Some(offered.command(&orders())));
+}
+
+#[test]
+fn nothing_is_offered_for_a_good_verdict_a_view_or_a_verdict_not_ready() {
+    let mut good = scan_with_suggestion(None);
+    good.kind = VerdictKind::IndexUsed;
+    assert_eq!(offered_suggestion(&ready(good), &orders()), None);
+    let view = scan_with_suggestion(Some("shop.orders_source"));
+    assert_eq!(offered_suggestion(&ready(view), &orders()), None);
+    let pending = VerdictState::Pending {
+        query: Query::default(),
+    };
+    assert_eq!(offered_suggestion(&pending, &orders()), None);
+    assert_eq!(offered_suggestion(&VerdictState::None, &orders()), None);
+}
+
+#[test]
 fn an_unauthorized_explain_gets_its_own_reason_because_retrying_cannot_help() {
     let m = unavailable(CoreError::Unauthorized);
     assert_eq!(m.reasons[0].key, "unauthorized");

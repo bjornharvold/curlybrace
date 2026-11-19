@@ -1,3 +1,4 @@
+use super::super::index_builder::BuilderEdit;
 use super::*;
 use curlybrace_core::explain::SuggestedIndex;
 use curlybrace_core::pipeline_options::{CaseFirst, CollationOption, Strength};
@@ -77,4 +78,32 @@ fn the_builder_spec_is_the_suggested_index() {
     let fields: Vec<&str> = spec.keys.iter().map(|k| k.field.as_str()).collect();
     assert_eq!(fields, ["status", "total"]);
     assert_eq!(spec.options.collation, None);
+}
+
+#[test]
+fn a_suggested_builder_does_not_claim_an_unrecorded_collation_by_default() {
+    let builder = IndexBuilderState::from_suggested(ns(), &index(), None);
+    assert!(!builder.collation_unrecorded);
+}
+
+#[test]
+fn marking_the_collation_unrecorded_changes_only_that_flag() {
+    let plain = IndexBuilderState::from_suggested(ns(), &index(), None);
+    let marked = plain.clone().with_collation_unrecorded();
+    assert!(marked.collation_unrecorded);
+    let cleared = IndexBuilderState {
+        collation_unrecorded: false,
+        ..marked
+    };
+    assert_eq!(cleared, plain);
+}
+
+#[test]
+fn typing_a_collation_keeps_the_flag_for_the_view_to_hide_the_note() {
+    // The note shows while the collation box is empty; the state itself is not rewritten.
+    let marked =
+        IndexBuilderState::from_suggested(ns(), &index(), None).with_collation_unrecorded();
+    let typed = marked.edited(BuilderEdit::SetCollationText("{\"locale\":\"en\"}".into()));
+    assert!(typed.collation_unrecorded);
+    assert!(!typed.collation_text.is_empty());
 }

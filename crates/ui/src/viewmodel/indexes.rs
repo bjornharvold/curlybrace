@@ -135,6 +135,22 @@ impl IndexesState {
         }
     }
 
+    /// The same state waiting for a list asked for under the request number it already has (a
+    /// read for that number may still be on its way and stays valid).
+    pub fn awaiting_list(self) -> Self {
+        Self {
+            loading: true,
+            ..self
+        }
+    }
+
+    /// Whether the collection's index list has not arrived: it is being read and nothing is
+    /// listed yet. A real collection always lists `_id_`, so an empty list is one not loaded. A
+    /// refresh of a list already on screen is not this.
+    pub fn list_unloaded(&self) -> bool {
+        self.loading && self.indexes.is_empty()
+    }
+
     /// The listed indexes; the selection is dropped when its index is gone.
     pub fn with_indexes(self, indexes: Vec<CollectionIndex>) -> Self {
         let selected = self

@@ -22,10 +22,29 @@ pub enum CreateIndex {
     WriteWarning,
 }
 
+/// What can turn Create index... off, by name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CreateBlockers {
+    /// The connection is read-only.
+    pub read_only: bool,
+    /// An index write is waiting for the server.
+    pub index_write: bool,
+    /// Another dialog of the index or profiler flows is open.
+    pub prompt: bool,
+    /// A document write is parked for the production warning.
+    pub write_warning: bool,
+}
+
 impl CreateIndex {
     /// The state for these blockers, the first that applies winning: read-only, an index write in
     /// flight, a parked write warning, another open dialog.
-    pub fn of(read_only: bool, index_write: bool, prompt: bool, write_warning: bool) -> Self {
+    pub fn of(blockers: CreateBlockers) -> Self {
+        let CreateBlockers {
+            read_only,
+            index_write,
+            prompt,
+            write_warning,
+        } = blockers;
         match (read_only, index_write, write_warning, prompt) {
             (true, ..) => Self::ReadOnly,
             (_, true, ..) => Self::IndexWrite,
@@ -33,6 +52,14 @@ impl CreateIndex {
             (_, _, _, true) => Self::Prompt,
             _ => Self::On,
         }
+    }
+
+    /// Read-only or nothing in the way, for a view with no other blocker to report.
+    pub fn read_only(read_only: bool) -> Self {
+        Self::of(CreateBlockers {
+            read_only,
+            ..CreateBlockers::default()
+        })
     }
 
     /// Why the button is off (its `en.json` key); `None` while it works or is hidden.

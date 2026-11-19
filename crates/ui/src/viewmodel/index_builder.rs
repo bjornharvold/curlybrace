@@ -145,6 +145,9 @@ pub struct IndexBuilderState {
     pub editing: Option<IndexSpec>,
     /// The name a copy was offered with, to tell whether anything was changed.
     pub suggested_name: String,
+    /// The index was suggested for a recorded query shape, which carries no collation: the query
+    /// may have used one the app cannot know. The view says so while the collation box is empty.
+    pub collation_unrecorded: bool,
 }
 
 impl IndexBuilderState {
@@ -167,6 +170,7 @@ impl IndexBuilderState {
             submitted: false,
             editing: None,
             suggested_name: String::new(),
+            collation_unrecorded: false,
         }
     }
 

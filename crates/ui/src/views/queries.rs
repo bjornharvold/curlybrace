@@ -21,31 +21,20 @@ use eframe::egui;
 const READ_ONLY_NOTE_KEY: &str = "indexes.queries.read_only_note";
 
 /// Draws the view for `ns` at the wall-clock time `now_secs` (Unix seconds, read once per frame
-/// by the caller). `read_only` turns the profiler button off and says why.
-pub fn show_queries(
-    ui: &mut egui::Ui,
-    state: &QueriesState,
-    ns: &Namespace,
-    read_only: bool,
-    i18n: &I18n,
-    now_secs: i64,
-) -> Option<QueriesAction> {
-    let create = CreateIndex::of(read_only, false, false, false);
-    show_queries_led(ui, state, ns, (read_only, create), i18n, now_secs, |_| ()).0
-}
-
-/// [`show_queries`] with `leading` drawn at the start of the range and refresh row (the Indexes
+/// by the caller), with `leading` drawn at the start of the range and refresh row (the Indexes
 /// tab puts its Indexes | Queries toggle there); returns what `leading` returned too. `create` is
-/// the state of the rows' Create index... buttons (off when read-only or something else is open).
-pub fn show_queries_led<R>(
+/// the state of the rows' Create index... buttons: read-only also turns the profiler button off
+/// and says why; another open write or dialog turns only the rows' buttons off.
+pub fn show_queries<R>(
     ui: &mut egui::Ui,
     state: &QueriesState,
     ns: &Namespace,
-    (read_only, create): (bool, CreateIndex),
+    create: CreateIndex,
     i18n: &I18n,
     now_secs: i64,
     leading: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (Option<QueriesAction>, R) {
+    let read_only = create == CreateIndex::ReadOnly;
     let (toolbar_action, led) = toolbar(ui, state, i18n, leading);
     let status = show_status(ui, &status_row(state, read_only), i18n);
     let mut action = toolbar_action.or(status);

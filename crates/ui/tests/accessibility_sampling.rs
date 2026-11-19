@@ -4,6 +4,7 @@
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::{IndexesAction, IndexesState};
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -25,7 +26,8 @@ fn open(sampling: SamplingSettings) -> Harness<'static, Frame> {
         .build_ui_state(
             |ui, (sampling, seen): &mut Frame| {
                 let state = IndexesState::default();
-                let action = show_indexes(ui, &state, false, &I18n::english(), NOW, sampling);
+                let action =
+                    show_indexes(ui, &state, CreateIndex::On, &I18n::english(), NOW, sampling);
                 seen.extend(action);
             },
             (sampling, Vec::new()),
@@ -127,7 +129,14 @@ fn opening_the_section_on_one_collection_leaves_another_closed() {
                     ..IndexesState::default()
                 };
                 let sampling = SamplingSettings::default();
-                let _ = show_indexes(ui, &state, false, &I18n::english(), NOW, &sampling);
+                let _ = show_indexes(
+                    ui,
+                    &state,
+                    CreateIndex::On,
+                    &I18n::english(),
+                    NOW,
+                    &sampling,
+                );
             },
             a.clone(),
         );

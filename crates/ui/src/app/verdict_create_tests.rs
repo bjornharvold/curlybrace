@@ -109,6 +109,10 @@ fn create_from_verdict_without_a_collation_has_none() {
     let (s, _) = create(s);
     let builder = s.indexes.builder.as_ref().expect("the builder is open");
     assert_eq!(builder.collation_text, "");
+    assert!(
+        !builder.collation_unrecorded,
+        "the verdict knows the query's options: nothing is unrecorded"
+    );
 }
 
 #[test]
@@ -119,6 +123,7 @@ fn create_from_verdict_without_suggestion_does_nothing() {
     let (s, commands) = create(s);
     assert!(commands.is_empty());
     assert!(s.indexes.builder.is_none());
+    assert_eq!(s.banner, Some(Banner::IndexSuggestionGone));
 }
 
 #[test]
@@ -130,6 +135,7 @@ fn create_from_a_verdict_planned_on_another_collection_does_nothing() {
     let (s, commands) = create(s);
     assert!(commands.is_empty());
     assert!(s.indexes.builder.is_none());
+    assert_eq!(s.banner, Some(Banner::IndexSuggestionGone));
 }
 
 #[test]
@@ -147,6 +153,7 @@ fn create_from_a_pending_or_unavailable_verdict_does_nothing() {
         let (s, commands) = create(showing(s, &q, state));
         assert!(commands.is_empty());
         assert!(s.indexes.builder.is_none());
+        assert_eq!(s.banner, Some(Banner::IndexSuggestionGone));
     }
 }
 

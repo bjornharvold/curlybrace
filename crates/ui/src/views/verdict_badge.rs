@@ -99,7 +99,9 @@ fn show_row(
                     .inner
             });
         action = popup.inner;
-        if popup.response.clicked_elsewhere() && !toggle.clicked() {
+        // The builder opens over the popup: leaving it open would sit behind the dialog.
+        let opened_builder = action == Some(VerdictAction::CreateIndex);
+        if opened_builder || (popup.response.clicked_elsewhere() && !toggle.clicked()) {
             open = false;
         }
     }

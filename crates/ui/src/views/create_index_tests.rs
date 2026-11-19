@@ -1,44 +1,45 @@
 use super::*;
 
+fn only(f: impl FnOnce(&mut CreateBlockers)) -> CreateIndex {
+    let mut blockers = CreateBlockers::default();
+    f(&mut blockers);
+    CreateIndex::of(blockers)
+}
+
 #[test]
 fn nothing_in_the_way_means_on() {
-    assert_eq!(CreateIndex::of(false, false, false, false), CreateIndex::On);
+    assert_eq!(CreateIndex::of(CreateBlockers::default()), CreateIndex::On);
+    assert_eq!(CreateIndex::read_only(false), CreateIndex::On);
 }
 
 #[test]
 fn each_cause_has_its_own_state() {
-    assert_eq!(
-        CreateIndex::of(true, false, false, false),
-        CreateIndex::ReadOnly
-    );
-    assert_eq!(
-        CreateIndex::of(false, true, false, false),
-        CreateIndex::IndexWrite
-    );
-    assert_eq!(
-        CreateIndex::of(false, false, true, false),
-        CreateIndex::Prompt
-    );
-    assert_eq!(
-        CreateIndex::of(false, false, false, true),
-        CreateIndex::WriteWarning
-    );
+    assert_eq!(only(|b| b.read_only = true), CreateIndex::ReadOnly);
+    assert_eq!(only(|b| b.index_write = true), CreateIndex::IndexWrite);
+    assert_eq!(only(|b| b.prompt = true), CreateIndex::Prompt);
+    assert_eq!(only(|b| b.write_warning = true), CreateIndex::WriteWarning);
+    assert_eq!(CreateIndex::read_only(true), CreateIndex::ReadOnly);
 }
 
 #[test]
 fn read_only_wins_then_the_write_in_flight_then_the_warning() {
-    assert_eq!(
-        CreateIndex::of(true, true, true, true),
-        CreateIndex::ReadOnly
-    );
-    assert_eq!(
-        CreateIndex::of(false, true, true, true),
-        CreateIndex::IndexWrite
-    );
-    assert_eq!(
-        CreateIndex::of(false, false, true, true),
-        CreateIndex::WriteWarning
-    );
+    let all = CreateBlockers {
+        read_only: true,
+        index_write: true,
+        prompt: true,
+        write_warning: true,
+    };
+    assert_eq!(CreateIndex::of(all), CreateIndex::ReadOnly);
+    let no_read_only = CreateBlockers {
+        read_only: false,
+        ..all
+    };
+    assert_eq!(CreateIndex::of(no_read_only), CreateIndex::IndexWrite);
+    let no_write = CreateBlockers {
+        index_write: false,
+        ..no_read_only
+    };
+    assert_eq!(CreateIndex::of(no_write), CreateIndex::WriteWarning);
 }
 
 #[test]
