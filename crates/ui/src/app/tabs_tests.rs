@@ -76,6 +76,7 @@ fn busy(state: AppState) -> AppState {
         len: 1,
         skip: 0,
         fingerprint: 7,
+        ..PageKey::default()
     });
     s.verdict = crate::app::VerdictState::Pending {
         query: Query::default(),

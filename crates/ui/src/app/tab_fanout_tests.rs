@@ -51,9 +51,12 @@ fn lost_connection_resets_every_tab_of_the_session_and_no_other() {
     let s = ev(s, lost(t.a));
     assert_eq!(s.status_of(t.a), Some(ConnStatus::Failed));
     let second = parked(&s, t.second);
+    // Slice 2 (T8): a lost connection keeps what the person chose and typed, and drops what the
+    // server showed. Before, the tab lost its collection too.
     assert_eq!(
-        second.ns, None,
-        "the parked tab is cleared like the current one"
+        second.ns,
+        Some(orders()),
+        "the parked tab keeps its collection"
     );
     assert!(second.page.is_none() && !second.loading_page);
     assert_eq!(second.issued_request, 0);

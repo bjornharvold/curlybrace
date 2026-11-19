@@ -339,13 +339,18 @@ impl AppState {
         self
     }
 
-    /// The foreground tab after its connection was lost: it keeps what the person typed and
-    /// chose, and loses what the server showed (see `TabView::on_connection_lost`). In place: this
-    /// is on the deepest event path.
+    /// The foreground tab as a lost connection leaves it: what the person typed and chose, not
+    /// what the server showed (see `TabView::on_connection_lost`). Boxed and out of line: this is
+    /// on the deepest event path. Put it back with [`AppState::tab_put`].
     #[inline(never)]
-    pub(super) fn current_tab_connection_lost(&mut self) {
-        let kept = self.take_tab().on_connection_lost();
-        self.restore_tab(kept);
+    pub(super) fn lost_tab_taken(&mut self) -> Box<TabView> {
+        Box::new(self.take_tab().on_connection_lost())
+    }
+
+    /// `view` is the foreground tab (see [`AppState::lost_tab_taken`]).
+    #[inline(never)]
+    pub(super) fn tab_put(&mut self, view: Box<TabView>) {
+        self.restore_tab(*view);
     }
 
     /// The current tab of `session`, taken out of its view for a reconnect to give back

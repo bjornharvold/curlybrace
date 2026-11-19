@@ -9,6 +9,8 @@ pub struct PageKey {
     pub skip: u64,
     /// Hash of the full BSON content of every document (types and values included).
     pub fingerprint: u64,
+    /// Total BSON size of the documents, for the bound on what parked tabs retain.
+    pub bytes: usize,
 }
 
 /// Marker folded into the hash when a document cannot be serialised.
@@ -18,9 +20,13 @@ const UNSERIALISABLE_MARKER: u8 = 0xFF;
 /// bytes (pages are small). Compute it once per frame and pass it down.
 pub fn page_key(page: &Page) -> PageKey {
     let mut hasher = DefaultHasher::new();
+    let mut size = 0usize;
     for doc in &page.docs {
         match bson::to_vec(doc) {
-            Ok(bytes) => bytes.hash(&mut hasher),
+            Ok(bytes) => {
+                size = size.saturating_add(bytes.len());
+                bytes.hash(&mut hasher)
+            }
             Err(_) => {
                 UNSERIALISABLE_MARKER.hash(&mut hasher);
                 doc.keys().collect::<Vec<_>>().hash(&mut hasher);
@@ -31,6 +37,7 @@ pub fn page_key(page: &Page) -> PageKey {
         len: page.docs.len(),
         skip: page.skip,
         fingerprint: hasher.finish(),
+        bytes: size,
     }
 }
 
@@ -45,6 +52,15 @@ mod tests {
             skip,
             has_more: false,
         }
+    }
+
+    #[test]
+    fn page_key_counts_bytes() {
+        let one = doc! { "_id": 1_i32 };
+        let size = bson::to_vec(&one).expect("serialises").len();
+        let p = page(vec![one.clone(), one], 0);
+        assert_eq!(page_key(&p).bytes, 2 * size);
+        assert_eq!(page_key(&page(Vec::new(), 0)).bytes, 0);
     }
 
     #[test]

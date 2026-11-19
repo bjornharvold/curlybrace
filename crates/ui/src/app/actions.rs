@@ -237,7 +237,12 @@ fn with_skip_text(state: AppState, skip: u64) -> AppState {
 /// Records `query` as the latest requested one and fetches it for the selected collection.
 /// The displayed page (and its `page_query`) stay as they are until results are accepted.
 pub(super) fn issue_find(state: AppState, query: Query) -> Out {
-    let Some(ns) = state.selected_ns().cloned() else {
+    // A tab keeps its collection through a lost connection: nothing is read until it is back.
+    let Some(ns) = state
+        .selected_ns()
+        .cloned()
+        .filter(|_| state.status == ConnStatus::Connected)
+    else {
         return (state, Vec::new());
     };
     let request = super::request_numbers::next();

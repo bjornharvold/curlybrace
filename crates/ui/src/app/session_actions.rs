@@ -19,6 +19,12 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         Some(_) => return (activate_in_browser(state, id), Vec::new()),
     }
     let state = super::aggregate_run_actions::dialog_closed(state);
+    // A reconnect gives the session's current tab back what the person typed and chose (the other
+    // tabs never left): they stay dormant until Run.
+    let (state, lent) = match state.status_of(id) {
+        Some(ConnStatus::Failed) => state.current_tab_lent(id),
+        _ => (state, None),
+    };
     let epoch = state.epoch_counter + 1;
     let cancel = super::shell_actions::cancel_running(&state, id);
     // A reconnect keeps the Aggregate draft, like the shell's: it is the person's work.
@@ -45,6 +51,10 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
             id,
         )
         .opened_with(id, view)
+    };
+    let next = match lent {
+        Some(view) => next.current_tab_returned(id, view),
+        None => next,
     };
     // A reconnect resets the shell: a run it still showed is cancelled first (see
     // `shell_actions::cancel_running`).

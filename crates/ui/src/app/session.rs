@@ -367,9 +367,10 @@ impl AppState {
             .admin_dropped_for(session)
             .bulk_dropped_for(session, true)
             .shell_reset_for(session);
+        // The current tab keeps what the person typed and chose (its collection, find bar,
+        // sub-tab, draft, editor) and loses what the server showed; the other tabs follow below.
+        let kept = next.lost_tab_taken();
         let old = next.take_view();
-        // The Aggregate draft is the person's work, not the server's: it stays (its preview stale).
-        let (aggregate, aggregate_view) = carried_aggregate(&old.aggregate, &old.aggregate_view);
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
             failure: Some(error),
@@ -377,10 +378,9 @@ impl AppState {
             ssh_endpoint: old.ssh_endpoint,
             production: old.production,
             read_only: old.read_only,
-            aggregate,
-            aggregate_view,
             ..SessionView::default()
         });
+        next.tab_put(kept);
         // The session's other tabs lose what they showed as well, and keep their drafts.
         super::tab_fanout::connection_lost(&mut next, session);
         next

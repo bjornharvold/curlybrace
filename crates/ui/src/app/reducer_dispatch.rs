@@ -19,6 +19,7 @@ use super::write_guard;
 pub(super) fn update_view(state: AppState, input: Input) -> Out {
     let mut out = dispatch(state, input);
     super::code_export_actions::close_if_stale(&mut out.0);
+    super::tab_eviction::evict(&mut out.0);
     out
 }
 

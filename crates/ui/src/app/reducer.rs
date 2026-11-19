@@ -87,6 +87,7 @@ pub fn update(state: AppState, input: Input) -> Out {
 fn event_then_close_stale(state: AppState, ev: Event) -> Out {
     let mut out = on_event(state, ev);
     super::code_export_actions::close_if_stale(&mut out.0);
+    super::tab_eviction::evict(&mut out.0);
     out
 }
 

@@ -73,6 +73,7 @@ fn busy_view(n: i32) -> SessionView {
             len: 1,
             skip: 0,
             fingerprint: n as u64,
+            ..PageKey::default()
         }),
         verdict: crate::app::explain_actions::VerdictState::Pending {
             query: Query {
