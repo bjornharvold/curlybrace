@@ -41,6 +41,7 @@ mod connections_list_tests;
 pub mod context_menu;
 pub mod copy_dialog;
 pub mod copy_progress;
+pub mod create_index;
 mod dialog_body;
 pub mod doc_select;
 #[cfg(test)]

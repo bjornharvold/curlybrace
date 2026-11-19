@@ -13,6 +13,7 @@ use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::{
     IndexesAction, IndexesState, IndexesView, ProfilingView, QueriesAction, QueriesState,
 };
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::indexes::show_indexes;
 use curlybrace_ui::views::queries::show_queries;
 use eframe::egui;
@@ -77,14 +78,9 @@ fn open(state: QueriesState, read_only: bool) -> Harness<'static, Frame> {
         .build_ui_state(
             |ui, frame: &mut Frame| {
                 let ns = Namespace::new("shop", "orders");
-                let action = show_queries(
-                    ui,
-                    &frame.state,
-                    &ns,
-                    frame.read_only,
-                    &I18n::english(),
-                    NOW,
-                );
+                let create = CreateIndex::read_only(frame.read_only);
+                let (action, ()) =
+                    show_queries(ui, &frame.state, &ns, create, &I18n::english(), NOW, |_| ());
                 frame.seen.extend(action);
                 let copies: Vec<String> = ui.ctx().output(|o| {
                     o.commands
@@ -654,7 +650,9 @@ fn at_a_narrow_width_nothing_of_the_status_row_is_beyond_the_edge() {
                 |ui, frame: &mut Frame| {
                     let ns = Namespace::new("shop", "orders");
                     let read_only = frame.read_only;
-                    let _ = show_queries(ui, &frame.state, &ns, read_only, &I18n::english(), NOW);
+                    let create = CreateIndex::read_only(read_only);
+                    let _ =
+                        show_queries(ui, &frame.state, &ns, create, &I18n::english(), NOW, |_| ());
                 },
                 Frame {
                     state: state.clone(),
@@ -689,7 +687,7 @@ fn the_toggle_switches_views_and_opens_the_queries() {
                 seen.extend(show_indexes(
                     ui,
                     state,
-                    false,
+                    CreateIndex::On,
                     &I18n::english(),
                     NOW,
                     &SamplingSettings::default(),

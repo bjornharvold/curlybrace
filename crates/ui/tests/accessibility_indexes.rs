@@ -10,6 +10,7 @@ use curlybrace_ui::I18n;
 use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
 use curlybrace_ui::viewmodel::{IndexWrite, IndexesAction, IndexesState};
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
 use eframe::egui::accesskit::{Role, Toggled};
@@ -104,7 +105,7 @@ fn open_at(state: IndexesState, read_only: bool, now: i64) -> Harness<'static, F
                 let action = show_indexes(
                     ui,
                     state,
-                    read_only,
+                    CreateIndex::read_only(read_only),
                     &I18n::english(),
                     now,
                     &SamplingSettings::default(),

@@ -22,6 +22,16 @@ pub(super) fn open_with(
     state: AppState,
     make: impl FnOnce(&AppState, &Namespace) -> Option<IndexBuilderState>,
 ) -> Out {
+    open_checked(state, make, None)
+}
+
+/// [`open_with`], showing `refused` as a banner when `make` returns nothing (the click was for
+/// something that is gone). The already-busy and read-only refusals are decided before `make`.
+pub(super) fn open_checked(
+    state: AppState,
+    make: impl FnOnce(&AppState, &Namespace) -> Option<IndexBuilderState>,
+    refused: Option<Banner>,
+) -> Out {
     gated(state, |s| {
         if s.active_is_read_only() {
             let banner = Some(Banner::ReadOnly);
@@ -34,7 +44,8 @@ pub(super) fn open_with(
             return (s, Vec::new());
         }
         let Some(builder) = make(&s, &ns) else {
-            return (s, Vec::new());
+            let banner = refused.or_else(|| s.banner.clone());
+            return (AppState { banner, ..s }, Vec::new());
         };
         let session = s.session_id();
         let held = s.indexes.ns.as_ref() == Some(&ns);
@@ -42,9 +53,26 @@ pub(super) fn open_with(
             true => s.indexes,
             false => s.indexes.for_collection(ns.clone()),
         };
+        // Opened from Browse or the Queries view, the Indexes tab may never have listed this
+        // collection; the builder checks for an existing index only against a loaded list. A
+        // real collection always has `_id_`, so an empty list is one not loaded. The request
+        // keeps its number: a history read already on its way is still answered.
+        let list_wanted = base.indexes.is_empty() && !base.loading;
+        let list = list_wanted.then(|| Command::ListIndexes {
+            session,
+            ns: ns.clone(),
+            request: base.request,
+        });
+        let base = match list_wanted {
+            true => base.awaiting_list(),
+            false => base,
+        };
         let indexes = base.with_builder(Some(builder));
-        let request = Command::EstimatedCount { session, ns };
-        (AppState { indexes, ..s }, vec![request])
+        let count = Command::EstimatedCount { session, ns };
+        (
+            AppState { indexes, ..s },
+            [Some(count), list].into_iter().flatten().collect(),
+        )
     })
 }
 
@@ -74,8 +102,12 @@ pub(super) fn edit_builder(state: AppState, edit: BuilderEdit) -> Out {
 
 /// Sends `CreateIndex` for what the builder describes, through the write guard: refused on a
 /// read-only connection, parked for the production warning on a production one. Nothing is sent
-/// while the builder is invalid or another write is in flight; the builder stays open either way.
+/// while the builder is invalid, another write is in flight or the collection's index list has not
+/// arrived (its duplicate check would run against nothing); the builder stays open either way.
 pub(super) fn create(state: AppState) -> Out {
+    if state.indexes.list_unloaded() {
+        return (state, Vec::new());
+    }
     let spec = state
         .indexes
         .builder

@@ -11,6 +11,7 @@ use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::{
     ConnectionBadge, DropConfirm, DropOld, IndexWrite, IndexesAction, IndexesState, TtlPrompt,
 };
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
 };
@@ -71,7 +72,7 @@ fn open_tab(state: IndexesState, read_only: bool) -> Harness<'static, Frame> {
                 seen.extend(show_indexes(
                     ui,
                     state,
-                    read_only,
+                    CreateIndex::read_only(read_only),
                     &I18n::english(),
                     NOW,
                     &SamplingSettings::default(),
@@ -649,6 +650,7 @@ fn a_copy_builder_names_its_original_and_keeps_hashed_and_2d_rows_read_only() {
                     connection: "local",
                     read_only: false,
                     busy: false,
+                    list_loading: false,
                     existing: &[],
                 };
                 show_index_builder(ctx, builder, &context, &I18n::english());

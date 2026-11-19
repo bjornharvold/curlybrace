@@ -163,6 +163,20 @@ fn a_blocking_sort_says_it_would_sort_in_memory() {
 }
 
 #[test]
+fn guard_notice_has_no_create_index() {
+    // The notice is about to run a query, not about the collection's indexes: Copy only.
+    for kind in [VerdictKind::CollectionScan, VerdictKind::SortNotCovered] {
+        let harness = open(warn(kind));
+        harness.get_by_role_and_label(Role::Button, &t("query.verdict.copy"));
+        assert!(
+            harness
+                .query_by_label(&t("indexes.create_suggested"))
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn both_buttons_and_the_copy_button_are_named() {
     let harness = open(warn(VerdictKind::CollectionScan));
     for label in [run_anyway(), cancel(), t("query.verdict.copy")] {

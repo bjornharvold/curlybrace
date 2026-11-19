@@ -3,6 +3,7 @@
 //! a collection or sort in memory, with Run anyway and Cancel. The buttons share the title's row
 //! and the findings scroll in a short area, so a long list never takes the output pane's room.
 //! Cancel takes the first focus, so a stray Enter never runs the script the notice warned about.
+use super::create_index::CreateIndex;
 use super::guard_notice::{Announce, GuardNoticeAction, announced, on_container};
 use super::index_dialogs::focus_once;
 use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
@@ -124,8 +125,9 @@ fn show_finding(
         .warn
         .suggestion
         .as_deref()
-        .and_then(|command| show_suggestion(ui, command, i18n))
-        .map(|VerdictAction::CopySuggestion(command)| GuardNoticeAction::Copy(command))
+        .and_then(|command| show_suggestion(ui, command, CreateIndex::Hidden, i18n))
+        .and_then(VerdictAction::copied)
+        .map(GuardNoticeAction::Copy)
 }
 
 /// Run anyway and Cancel. Cancel is the one with the first focus and the filled look.

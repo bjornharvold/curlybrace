@@ -37,6 +37,9 @@ pub struct BuilderContext<'a> {
     pub read_only: bool,
     /// A write is in flight: Create waits for it.
     pub busy: bool,
+    /// The collection's index list has not arrived, so a clash with an existing index cannot be
+    /// told yet: Create waits for it and says so.
+    pub list_loading: bool,
     /// The indexes the collection has, so a clash with one of them disables Create.
     pub existing: &'a [CollectionIndex],
 }
@@ -349,6 +352,9 @@ fn options(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Optio
         ),
         error_of(&BuilderProblem::CollationInvalid).as_deref(),
     );
+    if builder.collation_unrecorded && builder.collation_text.trim().is_empty() {
+        ui.weak(i18n.t("indexes.builder.collation_unrecorded_note"));
+    }
     let partial = json_box(
         ui,
         (
@@ -441,9 +447,13 @@ fn footer(
     if context.busy {
         ui.label(i18n.t("indexes.builder.busy"));
     }
+    if context.list_loading {
+        ui.label(i18n.t("indexes.builder.list_loading"));
+    }
     let mut action = None;
     ui.horizontal(|ui| {
-        let enabled = problem.is_none() && !context.read_only && !context.busy;
+        let enabled =
+            problem.is_none() && !context.read_only && !context.busy && !context.list_loading;
         let create = gate(ui, enabled, |ui| {
             filled_button(ui, i18n.t("indexes.builder.create"))
         });

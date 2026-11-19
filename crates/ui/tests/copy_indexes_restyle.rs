@@ -27,6 +27,7 @@ use curlybrace_ui::viewmodel::{
     ProfilingView, QueriesAction, QueriesState,
 };
 use curlybrace_ui::views::copy_dialog::show_copy_modal;
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::index_builder::{BuilderContext, show_index_builder};
 use curlybrace_ui::views::index_dialogs::{DialogContext, show_drop_confirm};
 use curlybrace_ui::views::indexes::show_indexes;
@@ -148,7 +149,7 @@ fn indexes_in(
                 let action = show_indexes(
                     ui,
                     state,
-                    read_only,
+                    CreateIndex::read_only(read_only),
                     &I18n::english(),
                     NOW,
                     &SamplingSettings::default(),
@@ -216,6 +217,7 @@ fn builder_harness(builder: IndexBuilderState) -> Harness<'static, Built> {
                     connection: "local",
                     read_only: false,
                     busy: false,
+                    list_loading: false,
                     existing: &[],
                 };
                 let action = show_index_builder(ctx, &built.builder, &context, &I18n::english());
@@ -531,8 +533,15 @@ fn queries() -> Harness<'static, QueriesState> {
                 themed(ctx, &mut installed);
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let ns = Namespace::new("shop", "orders");
-                    let _: Option<QueriesAction> =
-                        show_queries(ui, state, &ns, false, &I18n::english(), NOW);
+                    let _: (Option<QueriesAction>, ()) = show_queries(
+                        ui,
+                        state,
+                        &ns,
+                        CreateIndex::On,
+                        &I18n::english(),
+                        NOW,
+                        |_| (),
+                    );
                 });
             },
             state,
@@ -629,8 +638,15 @@ fn status_at(width: f32, level: i32) -> Harness<'static, QueriesState> {
                 themed(ctx, &mut installed);
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let ns = Namespace::new("shop", "orders");
-                    let _: Option<QueriesAction> =
-                        show_queries(ui, state, &ns, false, &I18n::english(), NOW);
+                    let _: (Option<QueriesAction>, ()) = show_queries(
+                        ui,
+                        state,
+                        &ns,
+                        CreateIndex::On,
+                        &I18n::english(),
+                        NOW,
+                        |_| (),
+                    );
                 });
             },
             state,

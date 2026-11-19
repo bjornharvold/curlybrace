@@ -2,6 +2,7 @@
 //! Documents | Indexes | Aggregate tabs; the find bar; one wrapping row with the two global switches and
 //! the index verdict; the guard's notice (only while it has something to say); then the
 //! documents with their one-row toolbar. Kept dense so the data starts high on the window.
+use super::create_index_state::create_index_state;
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
@@ -59,7 +60,7 @@ pub(super) fn show_collection(
     let leaving = picked.is_some_and(|tab| tab != state.tab);
     match state.tab {
         CollectionTab::Indexes => {
-            show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
+            show_indexes_tab(ui, state, i18n, out, now_secs);
             return;
         }
         CollectionTab::Aggregate => {
@@ -148,15 +149,17 @@ fn show_switches_and_verdict(
                 show_guard_setting(ui, state.guard_enabled(), i18n),
             ];
             remember_switches_width(ui, memory, known, start);
-            show_verdict(ui, state, i18n);
+            let created = show_verdict(ui, state, i18n);
             show_page_options_status(ui, &state.page_query.options, i18n);
-            switches
+            (switches, created)
         })
         .inner;
+    let (switches, created) = actions;
     out.extend(
-        actions
+        switches
             .into_iter()
             .flatten()
+            .chain(created)
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
 }
@@ -192,14 +195,20 @@ fn show_guard(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<Ui
 }
 
 /// The index verdict of the current run in its fixed-size area (reserved whenever explain is
-/// on, so nothing shifts); its copy button goes to the clipboard here.
-fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
+/// on, so nothing shifts); its copy button goes to the clipboard here, and Create index... goes
+/// to the reducer, which opens the index builder.
+fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<FindAction> {
     if !state.explain_enabled() {
-        return;
+        return None;
     }
     let model = badge(&super::explain_actions::shown(state), state.selected_ns());
-    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
-        ui.ctx().copy_text(text);
+    match show_verdict_row(ui, model.as_ref(), create_index_state(state), i18n) {
+        Some(VerdictAction::CopySuggestion(text)) => {
+            ui.ctx().copy_text(text);
+            None
+        }
+        Some(VerdictAction::CreateIndex) => Some(FindAction::CreateSuggestedIndex),
+        None => None,
     }
 }
 
@@ -243,7 +252,6 @@ fn show_aggregate_tab(
 fn show_indexes_tab(
     ui: &mut egui::Ui,
     state: &AppState,
-    read_only: bool,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
     now_secs: i64,
@@ -255,7 +263,7 @@ fn show_indexes_tab(
             show_indexes(
                 ui,
                 &state.indexes,
-                read_only,
+                create_index_state(state),
                 i18n,
                 now_secs,
                 &state.sampling,

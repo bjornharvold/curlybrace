@@ -62,6 +62,9 @@ pub enum FindAction {
     HintListWanted,
     /// The person asked to read a hint list that failed again.
     HintListRetry,
+    /// Create index... in the verdict popup: open the index builder with the suggestion of the
+    /// verdict on screen.
+    CreateSuggestedIndex,
 }
 
 /// A raw user gesture on the find bar, before validation.

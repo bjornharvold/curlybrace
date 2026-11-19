@@ -1,7 +1,7 @@
 //! The query bar's index verdict as a badge: tone, icon, title and reasons, all as i18n keys.
 use crate::app::VerdictState;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::explain::{Reason, Verdict, VerdictKind};
+use curlybrace_core::explain::{Reason, SuggestedIndex, Verdict, VerdictKind};
 use curlybrace_core::store::Namespace;
 
 /// How the badge reads at a glance. Never the only signal: the icon and title say it too.
@@ -102,13 +102,29 @@ fn presentation(kind: VerdictKind) -> (Tone, &'static str, &'static str) {
     }
 }
 
+/// The index the badge for `state` offers on `ns`: only a ready verdict that is not good, planned
+/// on `ns` itself. The badge's command and Create index... both come from this one rule.
+pub fn offered_suggestion<'a>(
+    state: &'a VerdictState,
+    ns: &Namespace,
+) -> Option<&'a SuggestedIndex> {
+    let VerdictState::Ready { verdict, .. } = state else {
+        return None;
+    };
+    offered(verdict, ns)
+}
+
+fn offered<'a>(verdict: &'a Verdict, ns: &Namespace) -> Option<&'a SuggestedIndex> {
+    match presentation(verdict.kind).0 {
+        Tone::Good => None,
+        _ if !planned_on(verdict, ns) => None,
+        _ => verdict.suggestion.as_ref(),
+    }
+}
+
 fn ready(verdict: &Verdict, ns: Option<&Namespace>) -> BadgeModel {
     let (tone, icon, title_key) = presentation(verdict.kind);
-    let suggestion = match (tone, ns) {
-        (Tone::Good, _) | (_, None) => None,
-        (_, Some(ns)) if !planned_on(verdict, ns) => None,
-        (_, Some(ns)) => verdict.suggestion.as_ref().map(|s| s.command(ns)),
-    };
+    let suggestion = ns.and_then(|ns| offered(verdict, ns).map(|s| s.command(ns)));
     BadgeModel {
         tone,
         icon,

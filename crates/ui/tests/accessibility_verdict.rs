@@ -7,6 +7,7 @@ use curlybrace_core::store::{Namespace, Query};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::VerdictState;
 use curlybrace_ui::viewmodel::verdict::{BadgeModel, badge};
+use curlybrace_ui::views::create_index::CreateIndex;
 use curlybrace_ui::views::verdict_badge::{VerdictAction, show_verdict_row};
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -18,6 +19,7 @@ const COMMAND: &str =
 
 struct Frame {
     model: Option<BadgeModel>,
+    create: CreateIndex,
     seen: Vec<VerdictAction>,
     /// Where the next widget (the documents list) would start.
     below_y: f32,
@@ -55,18 +57,24 @@ fn scan() -> Verdict {
 }
 
 fn open(state: &VerdictState) -> Harness<'static, Frame> {
+    open_with(state, CreateIndex::On)
+}
+
+fn open_with(state: &VerdictState, create: CreateIndex) -> Harness<'static, Frame> {
     let model = badge(state, Some(&Namespace::new("shop", "orders")));
     let mut harness = Harness::builder()
         .with_size(egui::vec2(800.0, 400.0))
         .build_ui_state(
             |ui, frame: &mut Frame| {
-                let action = show_verdict_row(ui, frame.model.as_ref(), &I18n::english());
+                let action =
+                    show_verdict_row(ui, frame.model.as_ref(), frame.create, &I18n::english());
                 frame.seen.extend(action);
                 frame.below_y = ui.next_widget_position().y;
                 ui.label("documents");
             },
             Frame {
                 model,
+                create,
                 seen: Vec::new(),
                 below_y: 0.0,
             },
@@ -139,6 +147,88 @@ fn warn_shows_its_title_and_the_why_opens_on_demand() {
         harness.state().seen,
         vec![VerdictAction::CopySuggestion(COMMAND.into())]
     );
+}
+
+#[test]
+fn why_popup_offers_create_index_beside_copy() {
+    let mut harness = open(&ready(scan()));
+    expand(&mut harness);
+    harness.get_by_role_and_label(Role::Button, "Copy index command");
+    let create = harness.get_by_role_and_label(Role::Button, "Create index...");
+    assert!(!create.accesskit_node().is_disabled());
+    create.click();
+    harness.run_steps(4);
+    assert_eq!(harness.state().seen, vec![VerdictAction::CreateIndex]);
+}
+
+#[test]
+fn clicking_create_index_closes_the_why_popup() {
+    let mut harness = open(&ready(scan()));
+    expand(&mut harness);
+    assert!(harness.query_by_label("Suggested index").is_some());
+    harness
+        .get_by_role_and_label(Role::Button, "Create index...")
+        .click();
+    harness.run_steps(4);
+    assert_eq!(harness.state().seen, vec![VerdictAction::CreateIndex]);
+    assert!(
+        harness.query_by_label("Suggested index").is_none(),
+        "the popup closes with the builder opening"
+    );
+}
+
+#[test]
+fn clicking_copy_keeps_the_why_popup_open() {
+    let mut harness = open(&ready(scan()));
+    expand(&mut harness);
+    harness
+        .get_by_role_and_label(Role::Button, "Copy index command")
+        .click();
+    harness.run_steps(4);
+    assert!(harness.query_by_label("Suggested index").is_some());
+}
+
+#[test]
+fn create_index_is_off_with_its_reason_when_read_only_or_busy() {
+    let i18n = I18n::english();
+    for (create, key) in [
+        (CreateIndex::ReadOnly, "indexes.create_suggested_read_only"),
+        (CreateIndex::IndexWrite, "indexes.write_busy"),
+        (CreateIndex::Prompt, "indexes.create_prompt_open"),
+        (CreateIndex::WriteWarning, "indexes.create_warning_open"),
+    ] {
+        let mut harness = open_with(&ready(scan()), create);
+        expand(&mut harness);
+        let reason = i18n.t(key);
+        let button = harness.get_by_role_and_label(Role::Button, "Create index...");
+        assert!(button.accesskit_node().is_disabled());
+        assert_eq!(
+            button.accesskit_node().description().as_deref(),
+            Some(reason.as_str())
+        );
+        button.click();
+        harness.run_steps(4);
+        assert!(harness.state().seen.is_empty(), "{key}");
+    }
+}
+
+#[test]
+fn no_suggestion_means_no_create_index() {
+    let mut harness = open(&ready(verdict(
+        VerdictKind::CollectionScan,
+        vec![Reason::new("collscan")],
+        false,
+    )));
+    expand(&mut harness);
+    assert!(harness.query_by_label("Create index...").is_none());
+}
+
+#[test]
+fn a_hidden_create_index_is_not_drawn() {
+    let mut harness = open_with(&ready(scan()), CreateIndex::Hidden);
+    expand(&mut harness);
+    harness.get_by_role_and_label(Role::Button, "Copy index command");
+    assert!(harness.query_by_label("Create index...").is_none());
 }
 
 #[test]

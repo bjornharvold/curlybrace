@@ -1,7 +1,8 @@
-//! The index verdict as one fixed-height row above the documents: icon and title as one text in a tonal chip,
-//! plus a "Why" button that opens the reasons, the suggested index (with a copy button) and the
-//! estimate note in a popup under the row. The row is reserved even when there is no verdict
-//! and the popup floats, so the documents never move.
+//! The index verdict as one fixed-height row above the documents: icon and title as one text in a
+//! tonal chip, plus a "Why" button that opens the reasons, the suggested index (with Copy and
+//! Create index... buttons) and the estimate note in a popup under the row. The row is reserved
+//! even when there is no verdict and the popup floats, so the documents never move.
+use super::create_index::{CreateIndex, create_button};
 use crate::I18n;
 use crate::theme::{self, chip, compact_text_button};
 use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
@@ -14,6 +15,19 @@ const MIN_ROW_WIDTH: f32 = 320.0;
 #[derive(Debug, Clone, PartialEq)]
 pub enum VerdictAction {
     CopySuggestion(String),
+    /// Create index... was pressed: open the index builder with the shown suggestion.
+    CreateIndex,
+}
+
+impl VerdictAction {
+    /// The command to put on the clipboard, for the copy action only (the guard notices offer no
+    /// other).
+    pub(super) fn copied(self) -> Option<String> {
+        match self {
+            Self::CopySuggestion(command) => Some(command),
+            Self::CreateIndex => None,
+        }
+    }
 }
 
 /// The height of the verdict's row: tall enough for the chip and the Why button, so the documents
@@ -39,6 +53,7 @@ pub fn fits_beside(ui: &egui::Ui, beside: f32) -> bool {
 pub fn show_verdict_row(
     ui: &mut egui::Ui,
     model: Option<&BadgeModel>,
+    create: CreateIndex,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
     let height = verdict_row_height(ui);
@@ -52,12 +67,17 @@ pub fn show_verdict_row(
         // The area occupies its whole width even when empty (an allocation only advances by what
         // is drawn), so what follows it does not move when a verdict appears.
         ui.set_min_size(egui::vec2(width, height));
-        action = model.and_then(|model| show_row(ui, model, i18n));
+        action = model.and_then(|model| show_row(ui, model, create, i18n));
     });
     action
 }
 
-fn show_row(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<VerdictAction> {
+fn show_row(
+    ui: &mut egui::Ui,
+    model: &BadgeModel,
+    create: CreateIndex,
+    i18n: &I18n,
+) -> Option<VerdictAction> {
     let title = format!("{} {}", model.icon, i18n.t(model.title_key));
     chip(ui, chip_tone(model.tone), &title);
     if !has_details(model) {
@@ -75,11 +95,13 @@ fn show_row(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<Verdic
             .fixed_pos(toggle.rect.left_bottom())
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
-                    .show(ui, |ui| show_details(ui, model, i18n))
+                    .show(ui, |ui| show_details(ui, model, create, i18n))
                     .inner
             });
         action = popup.inner;
-        if popup.response.clicked_elsewhere() && !toggle.clicked() {
+        // The builder opens over the popup: leaving it open would sit behind the dialog.
+        let opened_builder = action == Some(VerdictAction::CreateIndex);
+        if opened_builder || (popup.response.clicked_elsewhere() && !toggle.clicked()) {
             open = false;
         }
     }
@@ -108,7 +130,12 @@ pub(super) fn chip_tone(tone: Tone) -> theme::Tone {
     }
 }
 
-fn show_details(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<VerdictAction> {
+fn show_details(
+    ui: &mut egui::Ui,
+    model: &BadgeModel,
+    create: CreateIndex,
+    i18n: &I18n,
+) -> Option<VerdictAction> {
     ui.set_max_width(480.0);
     for reason in &model.reasons {
         ui.label(reason_line(reason.key, &reason.params, i18n));
@@ -119,7 +146,7 @@ fn show_details(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<Ve
     model
         .suggestion
         .as_deref()
-        .and_then(|command| show_suggestion(ui, command, i18n))
+        .and_then(|command| show_suggestion(ui, command, create, i18n))
 }
 
 /// A reason's text; one core emits that the badge has no string for still says something
@@ -134,16 +161,26 @@ pub(super) fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I
     }
 }
 
+/// The suggested index with its Copy button and, unless `create` is hidden, Create index..., which
+/// only opens the index builder.
 pub(super) fn show_suggestion(
     ui: &mut egui::Ui,
     command: &str,
+    create: CreateIndex,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
     ui.label(i18n.t("query.verdict.suggestion"));
     ui.label(egui::RichText::new(command).monospace());
-    compact_text_button(ui, i18n.t("query.verdict.copy"))
-        .clicked()
-        .then(|| VerdictAction::CopySuggestion(command.to_string()))
+    ui.horizontal_wrapped(|ui| {
+        let copy = compact_text_button(ui, i18n.t("query.verdict.copy")).clicked();
+        let create_clicked = create != CreateIndex::Hidden && create_button(ui, create, None, i18n);
+        match (copy, create_clicked) {
+            (true, _) => Some(VerdictAction::CopySuggestion(command.to_string())),
+            (false, true) => Some(VerdictAction::CreateIndex),
+            (false, false) => None,
+        }
+    })
+    .inner
 }
 
 #[cfg(test)]

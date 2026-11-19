@@ -3,6 +3,7 @@
 //! shapes. It draws state and reports what the person did; the reducer decides what happens.
 //! The status row has a fixed height, so nothing below it moves when the profiler or the poller
 //! changes state.
+use super::create_index::CreateIndex;
 use super::queries_chart::show_miss_chart;
 use super::queries_rows::show_rows;
 use super::tone_notice::tone_notice;
@@ -20,32 +21,23 @@ use eframe::egui;
 const READ_ONLY_NOTE_KEY: &str = "indexes.queries.read_only_note";
 
 /// Draws the view for `ns` at the wall-clock time `now_secs` (Unix seconds, read once per frame
-/// by the caller). `read_only` turns the profiler button off and says why.
-pub fn show_queries(
+/// by the caller), with `leading` drawn at the start of the range and refresh row (the Indexes
+/// tab puts its Indexes | Queries toggle there); returns what `leading` returned too. `create` is
+/// the state of the rows' Create index... buttons: read-only also turns the profiler button off
+/// and says why; another open write or dialog turns only the rows' buttons off.
+pub fn show_queries<R>(
     ui: &mut egui::Ui,
     state: &QueriesState,
     ns: &Namespace,
-    read_only: bool,
-    i18n: &I18n,
-    now_secs: i64,
-) -> Option<QueriesAction> {
-    show_queries_led(ui, state, ns, read_only, i18n, now_secs, |_| ()).0
-}
-
-/// [`show_queries`] with `leading` drawn at the start of the range and refresh row (the Indexes
-/// tab puts its Indexes | Queries toggle there); returns what `leading` returned too.
-pub fn show_queries_led<R>(
-    ui: &mut egui::Ui,
-    state: &QueriesState,
-    ns: &Namespace,
-    read_only: bool,
+    create: CreateIndex,
     i18n: &I18n,
     now_secs: i64,
     leading: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (Option<QueriesAction>, R) {
+    let read_only = create == CreateIndex::ReadOnly;
     let (toolbar_action, led) = toolbar(ui, state, i18n, leading);
     let status = show_status(ui, &status_row(state, read_only), i18n);
-    let action = toolbar_action.or(status);
+    let mut action = toolbar_action.or(status);
     // The chart ends at a bucket boundary, so it holds still between frames.
     let end = anchored_now(state.range, now_secs);
     show_miss_chart(ui, &state.shapes, state.range, end, i18n);
@@ -68,10 +60,12 @@ pub fn show_queries_led<R>(
     let list = rows(state, ns);
     match body(state, list.len()) {
         Body::Rows => {
-            egui::ScrollArea::vertical()
+            let chosen = egui::ScrollArea::vertical()
                 .id_salt("queries_rows")
                 .auto_shrink([false; 2])
-                .show(ui, |ui| show_rows(ui, &list, i18n));
+                .show(ui, |ui| show_rows(ui, &list, create, now_secs, i18n))
+                .inner;
+            action = action.or(chosen);
         }
         // The inline error above says why there is nothing; "no queries yet" would be untrue.
         Body::ReadFailed => {}

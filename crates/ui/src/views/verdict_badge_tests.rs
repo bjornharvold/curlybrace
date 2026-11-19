@@ -52,7 +52,7 @@ fn painted(model: BadgeModel, mode: Mode) -> Vec<egui::epaint::ClippedShape> {
                 });
                 installed = true;
             }
-            show_verdict_row(ui, Some(&model), &I18n::english());
+            show_verdict_row(ui, Some(&model), CreateIndex::On, &I18n::english());
         });
     harness.run();
     harness.output().shapes.clone()
@@ -110,7 +110,7 @@ fn row_metrics(model: Option<BadgeModel>) -> (f32, Option<f32>) {
                 installed = true;
             }
             let top = ui.cursor().top();
-            show_verdict_row(ui, model.as_ref(), &I18n::english());
+            show_verdict_row(ui, model.as_ref(), CreateIndex::On, &I18n::english());
             let height = ui.cursor().top() - top;
             ui.ctx()
                 .data_mut(|d| d.insert_temp(egui::Id::new("row_height"), height));

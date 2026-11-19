@@ -26,6 +26,7 @@ struct Frame {
     seen: Vec<IndexesAction>,
     read_only: bool,
     busy: bool,
+    list_loading: bool,
 }
 
 fn builder() -> IndexBuilderState {
@@ -44,11 +45,24 @@ fn open(builder: IndexBuilderState) -> Harness<'static, Frame> {
 /// Draws the modal; an edit is applied to the state the way the reducer would, so typing and
 /// clicking can be followed over several frames.
 fn open_with(builder: IndexBuilderState, read_only: bool, busy: bool) -> Harness<'static, Frame> {
+    open_full(builder, (read_only, busy, false))
+}
+
+/// [`open_with`] while the collection's index list is still being read.
+fn open_listing(builder: IndexBuilderState) -> Harness<'static, Frame> {
+    open_full(builder, (false, false, true))
+}
+
+fn open_full(
+    builder: IndexBuilderState,
+    (read_only, busy, list_loading): (bool, bool, bool),
+) -> Harness<'static, Frame> {
     let frame = Frame {
         builder,
         seen: Vec::new(),
         read_only,
         busy,
+        list_loading,
     };
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1000.0, 900.0))
@@ -58,6 +72,7 @@ fn open_with(builder: IndexBuilderState, read_only: bool, busy: bool) -> Harness
                     connection: "local",
                     read_only: frame.read_only,
                     busy: frame.busy,
+                    list_loading: frame.list_loading,
                     existing: &[],
                 };
                 let action = show_index_builder(ctx, &frame.builder, &context, &I18n::english());
@@ -367,6 +382,49 @@ fn create_waits_while_another_write_is_in_flight() {
             .is_disabled()
     );
     harness.get_by_label(&t("indexes.builder.busy"));
+}
+
+#[test]
+fn create_waits_while_the_index_list_is_loading_and_says_why() {
+    let mut harness = open_listing(builder().with_field(0, "a"));
+    assert!(
+        button(&harness, &t("indexes.builder.create"))
+            .accesskit_node()
+            .is_disabled()
+    );
+    harness.get_by_label(&t("indexes.builder.list_loading"));
+    button(&harness, &t("indexes.builder.create")).click();
+    harness.run_steps(3);
+    assert!(seen(&harness).is_empty());
+    // Once the list is known, the reason is gone and Create works.
+    let ready = open(builder().with_field(0, "a"));
+    assert!(
+        !button(&ready, &t("indexes.builder.create"))
+            .accesskit_node()
+            .is_disabled()
+    );
+    assert!(
+        ready
+            .query_by_label(&t("indexes.builder.list_loading"))
+            .is_none()
+    );
+}
+
+#[test]
+fn an_index_suggested_for_a_recorded_query_says_its_collation_is_unknown() {
+    let note = t("indexes.builder.collation_unrecorded_note");
+    let suggested = builder().with_field(0, "a").with_collation_unrecorded();
+    let harness = open(suggested.clone());
+    harness.get_by_label(&note);
+    // A builder opened another way says nothing about it.
+    assert!(
+        open(builder().with_field(0, "a"))
+            .query_by_label(&note)
+            .is_none()
+    );
+    // Once a collation is typed, the note has done its job.
+    let typed = suggested.edited(BuilderEdit::SetCollationText("{\"locale\":\"en\"}".into()));
+    assert!(open(typed).query_by_label(&note).is_none());
 }
 
 #[test]

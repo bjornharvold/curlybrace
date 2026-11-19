@@ -64,7 +64,24 @@ pub(super) fn edit(s: AppState, edit: BuilderEdit) -> AppState {
 pub(super) fn building(cfg: ConnectionConfig, field: &str) -> (AppState, Uuid) {
     let (s, id) = browsing(cfg);
     let (s, _) = act(s, IndexesAction::OpenBuilder);
+    // The opening asked for the collection's index list; the answer lets Create work.
+    let listed = listed_event(id, &s);
+    let (s, _) = update(s, Input::Event(listed));
     (edit(s, BuilderEdit::SetField(0, field.into())), id)
+}
+
+/// The server's answer to the index list the builder's opening asked for: one unrelated index.
+pub(super) fn listed_event(session: Uuid, s: &AppState) -> Event {
+    let other = CollectionIndex {
+        spec: mock_index_spec_named("zz_unrelated_1", &[("zz_unrelated", KeyKind::Asc)]),
+        size_bytes: None,
+    };
+    Event::Indexes {
+        session,
+        ns: ns(),
+        indexes: vec![other],
+        request: s.indexes.request,
+    }
 }
 
 /// `Command` is not `PartialEq`; its `Debug` text is a faithful stand-in.
@@ -86,12 +103,20 @@ fn opening_the_builder_creates_it_for_the_selected_collection_and_asks_for_the_c
     let builder = s.indexes.builder.as_ref().expect("the builder is open");
     assert_eq!(builder.ns, ns());
     assert!(builder.is_untouched());
+    // The test state holds no index list, so the list is asked for with the count.
     assert_eq!(
         shown(&commands),
-        shown(&[Command::EstimatedCount {
-            session: id,
-            ns: ns()
-        }])
+        shown(&[
+            Command::EstimatedCount {
+                session: id,
+                ns: ns()
+            },
+            Command::ListIndexes {
+                session: id,
+                ns: ns(),
+                request: s.indexes.request
+            },
+        ])
     );
     // Opening it again changes nothing and asks nothing.
     let (again, commands) = act(s, IndexesAction::OpenBuilder);
@@ -406,6 +431,8 @@ fn the_embedded_session_creates_without_a_warning() {
     s.sidebar = s.sidebar.selecting(ns());
     s.indexes = IndexesState::default().for_collection(ns());
     let (s, _) = act(s, IndexesAction::OpenBuilder);
+    let listed = listed_event(EMBEDDED_SESSION, &s);
+    let (s, _) = update(s, Input::Event(listed));
     let s = edit(s, BuilderEdit::SetField(0, "a".into()));
     let (_, commands) = act(s, IndexesAction::Create);
     assert_eq!(sent_spec(&commands).keys.len(), 1);

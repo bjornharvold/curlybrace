@@ -59,6 +59,7 @@ mod explain_settings;
 mod guard_actions;
 pub use guard_actions::GuardState;
 mod browse_panel;
+mod create_index_state;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
@@ -69,6 +70,7 @@ pub mod persistence;
 mod pipelines_app;
 pub mod pipelines_store;
 mod queries_actions;
+mod queries_create;
 pub mod reducer;
 mod reducer_dispatch;
 mod reducer_lost;
@@ -87,6 +89,7 @@ pub mod tool_settings;
 mod tools_actions;
 mod tools_app;
 pub mod tools_state;
+mod verdict_create;
 pub mod write_guard;
 
 use crate::I18n;
@@ -916,7 +919,16 @@ mod index_write_tests;
 mod queries_failure_tests;
 
 #[cfg(test)]
+mod create_index_state_tests;
+
+#[cfg(test)]
+mod queries_create_tests;
+
+#[cfg(test)]
 mod queries_test_support;
+
+#[cfg(test)]
+mod verdict_create_tests;
 
 #[cfg(test)]
 mod queries_tests;
