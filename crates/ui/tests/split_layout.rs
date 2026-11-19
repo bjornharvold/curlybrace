@@ -8,7 +8,7 @@ mod support;
 use curlybrace_ui::I18n;
 use curlybrace_ui::viewmodel::split_layout::{MIN_PANE_HEIGHT, MIN_PANE_WIDTH, STAIRS};
 use eframe::egui::{self, Rect, accesskit::Role};
-use egui_kittest::kittest::{NodeT, Queryable};
+use egui_kittest::kittest::NodeT;
 use support::browse_page::{BrowsePage, browse_page};
 
 /// The central panel's inner margin on every side (egui's `Frame::central_panel`).

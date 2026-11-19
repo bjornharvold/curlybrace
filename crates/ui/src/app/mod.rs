@@ -83,6 +83,7 @@ pub mod shell_actions;
 mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
+mod split_actions;
 pub mod state;
 pub mod tab_actions;
 mod tab_eviction;
@@ -988,10 +989,9 @@ mod bulk_reconnect_tests;
 mod bulk_run_tests;
 
 #[cfg(test)]
-mod bulk_undo_tests;
-
-#[cfg(test)]
 mod bulk_test_support;
+#[cfg(test)]
+mod bulk_undo_tests;
 
 #[cfg(test)]
 mod copy_documents_tests;

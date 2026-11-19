@@ -19,14 +19,16 @@ use super::write_guard;
 pub(super) fn update_view(state: AppState, input: Input) -> Out {
     let state = super::tab_shown::notice_dismissed_by(state, &input);
     let mut out = dispatch(state, input);
+    out.0 = super::split_actions::reconciled(out.0);
     super::code_export_actions::close_if_stale(&mut out.0);
     super::tab_eviction::evict(&mut out.0);
     super::tab_eviction::sweep_empty(&mut out.0);
     out
 }
 
-fn dispatch(state: AppState, input: Input) -> Out {
+pub(super) fn dispatch(state: AppState, input: Input) -> Out {
     match input {
+        Input::InTab { tab, input } => super::split_actions::in_tab(state, tab, input),
         Input::Event(ev) => on_event(state, ev),
         Input::Sidebar(a) => actions::sidebar(state, a),
         Input::Find(a) => actions::find(state, a),
