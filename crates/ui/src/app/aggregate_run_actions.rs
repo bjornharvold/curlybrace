@@ -259,7 +259,7 @@ fn written(state: AppState, target: Namespace) -> Out {
         return (next, commands);
     }
     let query = next.page_query.clone();
-    let (next, find) = super::actions::issue_find(next, query);
+    let (next, find) = super::tab_fanout::reread_current(next, query);
     commands.extend(find);
     (next, commands)
 }

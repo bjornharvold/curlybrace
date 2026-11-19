@@ -174,6 +174,7 @@ mod tests {
             len: n,
             skip: 0,
             fingerprint: 7,
+            ..PageKey::default()
         }
     }
 

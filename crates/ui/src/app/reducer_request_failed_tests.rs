@@ -83,7 +83,9 @@ fn a_lost_server_on_a_find_request_fails_the_root_like_before() {
     let (state, _) = update(state, input);
     assert_eq!(state.status, ConnStatus::Failed);
     assert_eq!(state.failure, Some(CoreError::Unreachable));
-    assert_eq!(state.selected_ns(), None);
+    // Slice 2 (T8): the tab keeps its collection through a lost connection (it was cleared).
+    assert!(state.selected_ns().is_some());
+    assert!(state.page.is_none() && !state.loading_page);
 }
 
 #[test]

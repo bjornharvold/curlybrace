@@ -110,6 +110,8 @@ run "ui local_aggregate_options_flows" \
   cargo test -p curlybrace-ui --test local_aggregate_options_flows --locked -- --include-ignored --nocapture "$@"
 run "ui local_undo_flows" \
   cargo test -p curlybrace-ui --test local_undo_flows --locked -- --include-ignored --nocapture "$@"
+run "ui local_tabs_flows" \
+  cargo test -p curlybrace-ui --test local_tabs_flows --locked -- --include-ignored --nocapture "$@"
 
 if [ "${#failed[@]}" -ne 0 ]; then
   echo >&2

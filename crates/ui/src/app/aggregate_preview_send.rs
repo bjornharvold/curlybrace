@@ -28,11 +28,18 @@ pub(super) fn previewed(state: AppState, draft: AggregateState) -> Out {
         None => (draft, None),
     };
     let options = draft.options.clone();
-    let commands = send
+    let commands: Vec<Command> = send
         .map(|(request, pipeline)| preview_command(session, request, ns, pipeline, options))
         .into_iter()
         .collect();
-    (with_draft(state, draft), commands)
+    let state = with_draft(state, draft);
+    // A preview is a read the person asked for by editing: a dormant tab that sends one is no
+    // longer waiting for Run.
+    let state = match commands.is_empty() {
+        true => state,
+        false => state.awake_current(),
+    };
+    (state, commands)
 }
 
 /// The session and collection a preview can be sent for now: the active session when it is

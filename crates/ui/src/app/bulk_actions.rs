@@ -5,7 +5,7 @@
 //! is applied only when it carries the id still awaited, for the flow's own session and
 //! collection. A Back, a Close or a new definition therefore leaves no answer that could describe
 //! something other than what will run.
-use super::actions::{gated, issue_find, mutation};
+use super::actions::{gated, mutation};
 use super::bulk_state::BulkState;
 use super::reducer::{Out, failure, mutated};
 use super::state::{AppState, Banner};
@@ -476,7 +476,7 @@ pub(super) fn finished(
         return match state.selected_ns() == Some(&ns) {
             true => {
                 let query = state.page_query.clone();
-                issue_find(state, query)
+                super::tab_fanout::reread_current(state, query)
             }
             false => unchanged(state),
         };

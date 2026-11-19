@@ -144,10 +144,19 @@ impl AppState {
     /// is its current one instead: its fields are the session view's own. Unknown sessions get
     /// none.
     pub fn tab_opened(self, session: Uuid) -> (AppState, Option<TabId>) {
+        self.tab_opened_after(session, None)
+    }
+
+    /// Like [`AppState::tab_opened`], placed after `after` in the strip (at the end when `None`).
+    pub fn tab_opened_after(
+        self,
+        session: Uuid,
+        after: Option<TabId>,
+    ) -> (AppState, Option<TabId>) {
         if !self.open.contains(&session) {
             return (self, None);
         }
-        let (tabs, tab) = self.tabs.clone().opened_for(session, None);
+        let (tabs, tab) = self.tabs.clone().opened_for(session, after);
         let first = !self.tabs.current.contains_key(&session);
         // A new tab shows what the session already reported: the sampler and the profiler belong
         // to the connection, not to a tab.
@@ -258,9 +267,18 @@ impl AppState {
         if current == tab || !next.parked_tabs.contains_key(&tab) {
             return next;
         }
-        let outgoing = next.take_tab();
+        // The stale mark rides with the tab: in its parked view while parked, in the strip while
+        // current (a current tab has no view of its own to hold it).
+        let mut outgoing = next.take_tab();
+        if next.tabs.stale.contains(&current) {
+            outgoing.freshness = Freshness::Stale;
+            next.tabs = std::mem::take(&mut next.tabs).with_stale(current, false);
+        }
         next.parked_tabs.insert(current, Box::new(outgoing));
         if let Some(incoming) = next.parked_tabs.remove(&tab) {
+            if incoming.freshness == Freshness::Stale {
+                next.tabs = std::mem::take(&mut next.tabs).with_stale(tab, true);
+            }
             next.restore_tab(*incoming);
         }
         next.tabs = std::mem::take(&mut next.tabs).made_current(session, tab);
@@ -295,6 +313,52 @@ impl AppState {
             }
             (s, commands)
         })
+    }
+
+    /// The foreground tab emptied: no collection, no text, no results. What belongs to the
+    /// session (the sampler's and the profiler's status) stays.
+    #[inline(never)]
+    pub(super) fn current_tab_emptied(mut self) -> AppState {
+        let old = self.take_tab();
+        let mut empty = TabView::default();
+        empty.indexes.sampler = old.indexes.sampler;
+        empty.indexes.queries.status = old.indexes.queries.status;
+        self.restore_tab(empty);
+        self
+    }
+
+    /// The foreground tab as a lost connection leaves it: what the person typed and chose, not
+    /// what the server showed (see `TabView::on_connection_lost`). Boxed and out of line: this is
+    /// on the deepest event path. Put it back with [`AppState::tab_put`].
+    #[inline(never)]
+    pub(super) fn lost_tab_taken(&mut self) -> Box<TabView> {
+        Box::new(self.take_tab().on_connection_lost())
+    }
+
+    /// `view` is the foreground tab (see [`AppState::lost_tab_taken`]).
+    #[inline(never)]
+    pub(super) fn tab_put(&mut self, view: Box<TabView>) {
+        self.restore_tab(*view);
+    }
+
+    /// The current tab of `session`, taken out of its view for a reconnect to give back
+    /// (`None` when it has none).
+    pub(super) fn current_tab_lent(self, session: Uuid) -> (AppState, Option<TabView>) {
+        let mut lent = None;
+        let (next, _) = self.with_session(session, |mut s| {
+            lent = Some(s.take_tab());
+            (s, Vec::new())
+        });
+        (next, lent)
+    }
+
+    /// `view` is `session`'s current tab again (after [`AppState::current_tab_lent`]).
+    pub(super) fn current_tab_returned(self, session: Uuid, view: TabView) -> AppState {
+        self.with_session(session, |mut s| {
+            s.restore_tab(view);
+            (s, Vec::new())
+        })
+        .0
     }
 
     /// Every parked tab of `session`, by id.

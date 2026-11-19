@@ -156,6 +156,42 @@ fn session_loss_during_running_still_reports_the_finish() {
     assert!(cmds.is_empty(), "a lost session has nothing to re-query");
 }
 
+/// Slice 2 (T8), deliberate: a bulk write that finishes after a reconnect no longer re-reads the
+/// page. The loss made the tab dormant, and a dormant tab sends no find but through its Run; it
+/// is only marked stale. (Before, the tab was cleared by the loss and had nothing to re-read.)
+#[test]
+fn a_bulk_write_finishing_after_a_reconnect_leaves_the_dormant_tab_to_its_run() {
+    use crate::app::tabs::Freshness;
+    let (s, id, run) = running_delete();
+    let (s, _) = ev(s, failed(id, "find", CoreError::Unreachable));
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    let (s, _) = ev(
+        s,
+        Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        },
+    );
+    assert_eq!(s.status_of(id), Some(ConnStatus::Connected));
+    assert_eq!(
+        flow(&s).step,
+        BulkStep::Running,
+        "the flow outlived the loss"
+    );
+    let (s, cmds) = ev(s, finish(id, run, Ok(applied())));
+    assert_eq!(flow(&s).step, BulkStep::Report);
+    assert!(
+        !cmds.iter().any(|c| matches!(c, Command::Find { .. })),
+        "no find for a dormant tab: {cmds:?}"
+    );
+    assert!(s.page.is_none() && !s.loading_page);
+    let tab = s.active_tab().expect("the tab");
+    assert_eq!(s.freshness_of(tab), Freshness::Dormant);
+    assert!(s.tabs.stale.contains(&tab), "known to be out of date");
+}
+
 #[test]
 fn a_flow_closed_with_its_session_gets_no_report_and_no_crash() {
     let (s, id, run) = running_delete();

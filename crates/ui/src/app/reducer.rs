@@ -1,5 +1,4 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
-use super::actions;
 use super::aggregate_actions::{self, AggregateAction};
 use super::aggregate_run_actions;
 use super::bulk_actions::{self, BulkAction};
@@ -63,6 +62,8 @@ pub enum Input {
     Shell(ShellAction),
     /// The Aggregate tab of the active session.
     Aggregate(AggregateAction),
+    /// Open, close, switch or move collection tabs.
+    Tabs(super::tab_actions::TabAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -85,6 +86,8 @@ pub fn update(state: AppState, input: Input) -> Out {
 fn event_then_close_stale(state: AppState, ev: Event) -> Out {
     let mut out = on_event(state, ev);
     super::code_export_actions::close_if_stale(&mut out.0);
+    super::tab_eviction::evict(&mut out.0);
+    super::tab_eviction::sweep_empty(&mut out.0);
     out
 }
 
@@ -589,7 +592,7 @@ pub(super) fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) ->
         return (state, Vec::new());
     }
     let query = state.page_query.clone();
-    actions::issue_find(state, query)
+    super::tab_fanout::reread_current(state, query)
 }
 
 /// True when the open editor still holds what `pending` was saved from.

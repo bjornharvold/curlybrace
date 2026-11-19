@@ -301,11 +301,11 @@
 ## lost server
   | active=Some(S1) open=[S1] workspace=Browse banner=Some(Failure { context: "find", error: Unreachable }) banner_session=Some(S1)
   | S1 (active)
-  |   Failed failure=Some(Unreachable) databases=[] loading={} selected=None
+  |   Failed failure=Some(Unreachable) databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | write_warning=false admin=false bulk=false
@@ -313,11 +313,11 @@
   send Connect(S1)
   | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
   | S1 (active)
-  |   Connecting failure=None databases=[] loading={} selected=None
+  |   Connecting failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | write_warning=false admin=false bulk=false
@@ -325,11 +325,11 @@
   send ListDatabases { session: S1 }
   | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
   | S1 (active)
-  |   Connected failure=None databases=[] loading={} selected=None
+  |   Connected failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | write_warning=false admin=false bulk=false
@@ -337,11 +337,11 @@
   send Connect(S2)
   | active=Some(S2) open=[S1, S2] workspace=Browse banner=None banner_session=None
   | S1 (parked)
-  |   Connected failure=None databases=[] loading={} selected=None
+  |   Connected failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | S2 (active)
@@ -357,11 +357,11 @@
   send ListDatabases { session: S2 }
   | active=Some(S2) open=[S1, S2] workspace=Browse banner=None banner_session=None
   | S1 (parked)
-  |   Connected failure=None databases=[] loading={} selected=None
+  |   Connected failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | S2 (active)
@@ -376,11 +376,11 @@
 ## second databases
   | active=Some(S2) open=[S1, S2] workspace=Browse banner=None banner_session=None
   | S1 (parked)
-  |   Connected failure=None databases=[] loading={} selected=None
+  |   Connected failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | S2 (active)
@@ -395,11 +395,11 @@
 ## back to the first
   | active=Some(S1) open=[S1, S2] workspace=Browse banner=None banner_session=None
   | S1 (active)
-  |   Connected failure=None databases=[] loading={} selected=None
+  |   Connected failure=None databases=[] loading={} selected=Some(Namespace { db: "app", collection: "users" })
   |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
   |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
-  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
-  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "50", limit: "" }
   |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
   |   aggregate stages=1 selected=0 preview=Idle in_flight=false queued=false
   | S2 (parked)

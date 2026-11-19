@@ -29,6 +29,13 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         }
         SidebarAction::LoadCollections(db) => gated(state, |s| load_collections(s, db)),
         SidebarAction::Open(ns) => gated(state, |s| open(s, ns)),
+        SidebarAction::OpenInNewTab(ns) => {
+            let session = state.session_id();
+            super::tab_actions::on_action(
+                state,
+                super::tab_actions::TabAction::OpenInNew { session, ns },
+            )
+        }
         SidebarAction::Refresh => gated(state, refresh),
         SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
         SidebarAction::CompareDatabaseTo(db) => {
@@ -64,10 +71,10 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
         | SidebarAction::Drop { .. } => sidebar(state, action),
         other => {
             let state = super::copy_actions::clicked(state, session, &other);
-            sidebar(
-                super::aggregate_counts_actions::switched_to(state, session),
-                other,
-            )
+            let shown = super::aggregate_counts_actions::switched_to(state, session);
+            let (shown, reads) = super::tab_shown::shown_for(shown, &other);
+            let (next, commands) = sidebar(shown, other);
+            (next, [reads, commands].concat())
         }
     }
 }
@@ -132,7 +139,8 @@ fn open(state: AppState, ns: Namespace) -> Out {
         aggregate: Box::new(state.aggregate.on_collection_changed()),
         editor: None,
         ..state
-    };
+    }
+    .awake_current();
     // The Indexes tab belongs to one collection: it starts over for the new one (and asks for its
     // data when that tab is the one shown).
     let (next, requests) = super::index_actions::collection_opened(next);
@@ -229,7 +237,12 @@ fn with_skip_text(state: AppState, skip: u64) -> AppState {
 /// Records `query` as the latest requested one and fetches it for the selected collection.
 /// The displayed page (and its `page_query`) stay as they are until results are accepted.
 pub(super) fn issue_find(state: AppState, query: Query) -> Out {
-    let Some(ns) = state.selected_ns().cloned() else {
+    // A tab keeps its collection through a lost connection: nothing is read until it is back.
+    let Some(ns) = state
+        .selected_ns()
+        .cloned()
+        .filter(|_| state.status == ConnStatus::Connected)
+    else {
         return (state, Vec::new());
     };
     let request = super::request_numbers::next();
@@ -244,7 +257,8 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
         issued_request: request,
         loading_page: true,
         ..state
-    };
+    }
+    .awake_current();
     (next, vec![command])
 }
 

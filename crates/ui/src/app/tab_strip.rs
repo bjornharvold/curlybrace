@@ -1,8 +1,34 @@
 //! The order, ownership and recency of the open tabs, apart from what a tab shows. Pure: every op
 //! returns the next strip.
 use super::tabs::TabId;
-use std::collections::BTreeMap;
+use crate::viewmodel::{AggregateState, CollectionTab, EditorState, FindBarState, ViewMode};
+use curlybrace_core::store::Namespace;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
+
+/// What a tab left behind when it was closed: its text and editor, never its results, so closing a
+/// tab never loses typing for good and reopening it costs one read.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClosedTab {
+    pub session: Uuid,
+    pub ns: Option<Namespace>,
+    pub find: FindBarState,
+    pub tab: CollectionTab,
+    pub view_mode: ViewMode,
+    pub aggregate: Box<AggregateState>,
+    pub editor: Option<EditorState>,
+    /// Closed while it had not run since the connection was lost: it reopens the same way.
+    pub dormant: bool,
+    /// The query that produced the page it showed.
+    pub query: curlybrace_core::store::Query,
+}
+
+/// What the strip tells the person that is not about one tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabNotice {
+    /// A new tab was refused: the app is at its tab limit.
+    LimitReached,
+}
 
 /// Every open tab of the app: which session owns it, which tab of each session is the current one
 /// (the one whose fields live in the session's view, see `tabs`), and in what order they were
@@ -19,6 +45,14 @@ pub struct TabStrip {
     pub current: BTreeMap<Uuid, TabId>,
     /// Most recently used first.
     pub mru: Vec<TabId>,
+    /// Tabs whose connection was lost: they keep their text and send nothing until Run.
+    pub dormant: BTreeSet<TabId>,
+    /// Current tabs that show less than the server holds (a parked tab keeps this mark in its own
+    /// view; it moves here while the tab is current and back when it is parked again).
+    pub stale: BTreeSet<TabId>,
+    /// The last closed tabs, newest last (at most `tab_actions::CLOSED_KEPT`).
+    pub closed: Vec<ClosedTab>,
+    pub notice: Option<TabNotice>,
     /// The number the next tab gets; it only grows, so a number is never reused.
     next: u64,
 }
@@ -48,6 +82,7 @@ impl TabStrip {
                 current,
                 mru,
                 next: self.next + 1,
+                ..self
             },
             tab,
         )
@@ -76,21 +111,34 @@ impl TabStrip {
             .filter(|(s, t)| Some(*s) != session || *t != tab)
             .collect();
         let mru = self.mru.into_iter().filter(|t| *t != tab).collect();
+        let mut dormant = self.dormant;
+        dormant.remove(&tab);
+        let mut stale = self.stale;
+        stale.remove(&tab);
         Self {
             order,
             active,
             owner,
             current,
             mru,
-            next: self.next,
+            dormant,
+            stale,
+            ..self
         }
     }
 
     /// Every tab of `session` closed (the session itself is gone).
     pub fn session_closed(self, session: Uuid) -> Self {
-        self.of_session(session)
+        let strip = self
+            .of_session(session)
             .into_iter()
-            .fold(self, |strip, tab| strip.closed(tab))
+            .fold(self, |strip, tab| strip.closed(tab));
+        // What it left behind cannot be reopened: there is nothing to open it on.
+        let closed = strip.closed.into_iter().filter(|c| c.session != session);
+        Self {
+            closed: closed.collect(),
+            ..strip
+        }
     }
 
     /// `tab` is the one being looked at now: first in the recency list.
@@ -125,6 +173,62 @@ impl TabStrip {
             next: self.next,
             ..Self::default()
         }
+    }
+
+    /// `tabs` lost their connection: they run nothing until the person says so.
+    pub fn made_dormant(self, tabs: impl IntoIterator<Item = TabId>) -> Self {
+        let mut dormant = self.dormant;
+        dormant.extend(tabs);
+        Self { dormant, ..self }
+    }
+
+    /// `tab` is no longer dormant (its find was sent, or it was emptied).
+    pub fn awakened(self, tab: TabId) -> Self {
+        let mut dormant = self.dormant;
+        dormant.remove(&tab);
+        Self { dormant, ..self }
+    }
+
+    /// `tab` (a current tab) is, or is no longer, known to show less than the server holds.
+    pub fn with_stale(self, tab: TabId, stale: bool) -> Self {
+        let mut marks = self.stale;
+        match stale {
+            true => marks.insert(tab),
+            false => marks.remove(&tab),
+        };
+        Self {
+            stale: marks,
+            ..self
+        }
+    }
+
+    /// A closed tab remembered (the newest `keep` of them are kept).
+    pub fn with_closed(self, closed: ClosedTab, keep: usize) -> Self {
+        let mut stack = self.closed;
+        stack.push(closed);
+        let excess = stack.len().saturating_sub(keep);
+        stack.drain(..excess);
+        Self {
+            closed: stack,
+            ..self
+        }
+    }
+
+    /// The strip without its newest closed tab, and that tab.
+    pub fn without_newest_closed(self) -> (Self, Option<ClosedTab>) {
+        let mut stack = self.closed;
+        let newest = stack.pop();
+        (
+            Self {
+                closed: stack,
+                ..self
+            },
+            newest,
+        )
+    }
+
+    pub fn with_notice(self, notice: Option<TabNotice>) -> Self {
+        Self { notice, ..self }
     }
 
     /// The tabs of `session`, in strip order.

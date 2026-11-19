@@ -192,7 +192,9 @@ impl<'a> Numbers<'a> {
             Read::AggregateCount => {
                 self.aggregate.counts.awaits(number) || self.aggregate.counts.lingers(number)
             }
-            Read::Run => self.aggregate.run.run == number,
+            // Only a tab that is running waits for its answer: a copy that kept the number
+            // (or a tab whose outcome is unknown) must not take it from the tab that ran.
+            Read::Run => self.aggregate.run.run == number && self.aggregate.run.is_running(),
         }
     }
 

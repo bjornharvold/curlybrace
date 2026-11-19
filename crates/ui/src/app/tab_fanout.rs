@@ -26,11 +26,17 @@ pub(super) fn map_parked_tabs(state: &mut AppState, session: Uuid, f: impl Fn(Ta
 }
 
 impl TabView {
-    /// What a lost connection leaves of a tab: nothing it showed, but the Aggregate draft, which
-    /// is the person's work (its preview made stale, as for the session's current tab).
+    /// What a lost connection leaves of a tab: what the person chose and typed (the collection,
+    /// the find bar, the sub-tab, the view mode, the Aggregate draft with its preview made stale,
+    /// the editor), and nothing the server showed (page, verdict, guard, preview, index lists).
     pub fn on_connection_lost(self) -> TabView {
         let (aggregate, aggregate_view) = carried_aggregate(&self.aggregate, &self.aggregate_view);
         TabView {
+            ns: self.ns,
+            find: self.find,
+            tab: self.tab,
+            view_mode: self.view_mode,
+            editor: self.editor,
             aggregate,
             aggregate_view,
             freshness: self.freshness,
@@ -115,13 +121,15 @@ impl TabView {
     }
 }
 
-/// The connection of `session` was lost: every parked tab is reset. Nothing to do (and no frame
-/// of any size) for the usual session with one tab: this is called at the tip of the deepest event
-/// path.
+/// The connection of `session` was lost: every parked tab loses what it showed (the current tab
+/// did, in `failed`), and every tab of the session waits for Run. Called at the tip of the
+/// deepest event path, so the usual session with one tab does no more than mark it.
 pub(super) fn connection_lost(state: &mut AppState, session: Uuid) {
     if !state.parked_tabs.is_empty() {
         map_parked_tabs(state, session, TabView::on_connection_lost);
     }
+    let tabs = state.tabs.of_session(session);
+    state.tabs = std::mem::take(&mut state.tabs).made_dormant(tabs);
 }
 
 /// Whether a parked tab of the active session has an editor or a modal open: one blip must not
@@ -138,6 +146,18 @@ pub(super) fn parked_tab_typing(state: &AppState) -> bool {
             .get(tab)
             .is_some_and(|view| view.editor.is_some() || view.indexes.has_prompt())
     })
+}
+
+/// The foreground tab reads its page again because of an event (a write or a run answered). A
+/// dormant tab never sends a find but through its Run: it is marked stale and keeps waiting.
+pub(super) fn reread_current(
+    state: AppState,
+    query: curlybrace_core::store::Query,
+) -> super::reducer::Out {
+    match state.dormant_active() {
+        true => (state.current_marked_stale(), Vec::new()),
+        false => super::actions::issue_find(state, query),
+    }
 }
 
 /// The database list changed: the sidebar takes it, and parked tabs whose database vanished lose
@@ -246,6 +266,9 @@ pub(super) fn profiling_level(mut state: AppState, db: &str, level: &ProfilingSt
 #[cfg(test)]
 #[path = "tab_fanout_guard_tests.rs"]
 mod guard_tests;
+#[cfg(test)]
+#[path = "tab_lost_tests.rs"]
+mod lost_tests;
 #[cfg(test)]
 #[path = "tab_profiler_tests.rs"]
 mod profiler_tests;

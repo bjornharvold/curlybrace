@@ -16,9 +16,15 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     };
     match state.status_of(id) {
         Some(ConnStatus::Failed) | None => {}
-        Some(_) => return (activate_in_browser(state, id), Vec::new()),
+        Some(_) => return super::tab_shown::shown_now(activate_in_browser(state, id)),
     }
     let state = super::aggregate_run_actions::dialog_closed(state);
+    // A reconnect gives the session's current tab back what the person typed and chose (the other
+    // tabs never left): they stay dormant until Run.
+    let (state, lent) = match state.status_of(id) {
+        Some(ConnStatus::Failed) => state.current_tab_lent(id),
+        _ => (state, None),
+    };
     let epoch = state.epoch_counter + 1;
     let cancel = super::shell_actions::cancel_running(&state, id);
     // A reconnect keeps the Aggregate draft, like the shell's: it is the person's work.
@@ -45,6 +51,10 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
             id,
         )
         .opened_with(id, view)
+    };
+    let next = match lent {
+        Some(view) => next.current_tab_returned(id, view),
+        None => next,
     };
     // A reconnect resets the shell: a run it still showed is cancelled first (see
     // `shell_actions::cancel_running`).
@@ -93,16 +103,19 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         epoch_counter: epoch,
         ..next
     };
+    // The neighbour that took the focus shows its tab: a stale one reads again.
+    let (next, reads) = super::tab_shown::shown_now(next);
     let commands = cancel
         .into_iter()
         .chain([Command::Disconnect { session: id }])
+        .chain(reads)
         .collect();
     (next, commands)
 }
 
 /// Shows the open session `id`; unknown ids change nothing.
 pub(super) fn activate(state: AppState, id: Uuid) -> Out {
-    (activate_in_browser(state, id), Vec::new())
+    super::tab_shown::shown_now(activate_in_browser(state, id))
 }
 
 /// Shows the connection manager; the open sessions and their views stay as they are.

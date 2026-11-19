@@ -19,6 +19,7 @@ use support::compare_states::{Through, compare_state};
 use support::indexes_shots::{indexes_tab, queries_view, queries_view_field_order};
 use support::shell_shots::empty as shell_empty;
 use support::shots::{browsing, build_app};
+use support::tabs_shots::six_tabs;
 
 const SMALL: egui::Vec2 = egui::vec2(800.0, 500.0);
 /// The smallest a button, field or tab may be, tall (points): the 28 pt controls less a few
@@ -90,6 +91,7 @@ fn is_control(role: Role) -> bool {
     matches!(
         role,
         Role::Button
+            | Role::Tab
             | Role::CheckBox
             | Role::RadioButton
             | Role::ComboBox
@@ -115,7 +117,7 @@ fn controls(page: &Page) -> Vec<(String, Rect)> {
 /// Buttons (tabs are toggle buttons) and text fields; check boxes, radio buttons and combo boxes
 /// keep their own, smaller size.
 fn is_target(label: &str) -> bool {
-    ["Button ", "TextInput ", "MultilineTextInput "]
+    ["Button ", "Tab ", "TextInput ", "MultilineTextInput "]
         .iter()
         .any(|role| label.starts_with(role))
 }
@@ -307,6 +309,57 @@ fn two_connections() -> Vec<ConnectionConfig> {
         ConnectionConfig::new("Production replica", "mongodb://db.example.com:27017"),
         ConnectionConfig::new("Staging", "mongodb://staging.example.com:27017"),
     ]
+}
+
+/// The audit of a page with the tab strip: the tabs scrolled out of the strip (their unclipped
+/// rects lie outside the list) are not on screen and are left out, the rest of the page is audited
+/// as ever. At least three tabs and the active one must be in view.
+fn audit_tabs(name: &str, page: &Page) {
+    let list = page
+        .harness
+        .get_by_role_and_label(Role::TabList, &I18n::english().t("tabs.strip"))
+        .rect();
+    let in_view =
+        |rect: &Rect| rect.left() >= list.left() - 1.0 && rect.right() <= list.right() + 1.0;
+    let shown: Vec<_> = controls(page)
+        .into_iter()
+        .filter(|(label, rect)| {
+            let scrolled = label.starts_with("Tab ") || label.starts_with("Button Close ");
+            !scrolled || in_view(rect)
+        })
+        .collect();
+    let tabs = shown.iter().filter(|(l, _)| l.starts_with("Tab ")).count();
+    assert!(
+        tabs >= 3,
+        "{name}: only {tabs} tabs are in view of the strip {list:?}"
+    );
+    audit_controls(name, shown);
+}
+
+fn six_tab_page() -> Page {
+    page(vec![], six_tabs)
+}
+
+#[test]
+fn browse_with_six_tabs() {
+    audit_tabs("six tabs", &six_tab_page());
+}
+
+#[test]
+fn browse_with_six_tabs_and_the_all_tabs_menu_open() {
+    let behind = controls(&six_tab_page());
+    let mut page = six_tab_page();
+    page.harness
+        .get_by_role_and_label(Role::Button, &I18n::english().t("tabs.all_tabs"))
+        .click();
+    page.harness.run_steps(4);
+    // The menu floats over the page: audit its own entries, as a dialog's buttons are.
+    let menu: Vec<_> = without_page_controls(controls(&page), &behind)
+        .into_iter()
+        .filter(|(label, _)| label.starts_with("Button "))
+        .collect();
+    assert_eq!(menu.len(), 6, "one entry per tab: {menu:?}");
+    audit_controls("six tabs, all-tabs menu", menu);
 }
 
 #[test]

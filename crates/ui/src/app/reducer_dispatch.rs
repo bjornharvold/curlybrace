@@ -17,8 +17,11 @@ use super::write_guard;
 /// What the person does, then the Copy as code dialog closed if the view moved away from it.
 #[inline(never)]
 pub(super) fn update_view(state: AppState, input: Input) -> Out {
+    let state = super::tab_shown::notice_dismissed_by(state, &input);
     let mut out = dispatch(state, input);
     super::code_export_actions::close_if_stale(&mut out.0);
+    super::tab_eviction::evict(&mut out.0);
+    super::tab_eviction::sweep_empty(&mut out.0);
     out
 }
 
@@ -44,6 +47,7 @@ fn dispatch(state: AppState, input: Input) -> Out {
         Input::Copies(a) => saved_copies::on_action(state, a),
         Input::Shell(a) => shell_actions::on_action(state, a),
         Input::Aggregate(a) => aggregate_actions::on_action(state, a),
+        Input::Tabs(a) => super::tab_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (

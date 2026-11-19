@@ -12,7 +12,7 @@ use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::Query;
 
 #[test]
-fn a_lost_connection_clears_the_view_and_keeps_the_aggregate_draft() {
+fn a_lost_connection_clears_what_the_server_showed_and_keeps_the_draft() {
     let (state, a, _) = browsing_one();
     let (state, _) = update(state, Input::Tab(CollectionTab::Aggregate));
     let (state, _) = update(
@@ -22,9 +22,10 @@ fn a_lost_connection_clears_the_view_and_keeps_the_aggregate_draft() {
     let (state, _) = update(state, lost(a, "find"));
     assert_eq!(state.status, ConnStatus::Failed);
     assert_eq!(state.failure, Some(CoreError::Unreachable));
-    assert_eq!(state.selected_ns(), None);
+    // Slice 2 (T8) changes this on purpose: the tab keeps its collection and sub-tab.
+    assert_eq!(state.selected_ns(), Some(&users()));
     assert!(state.page.is_none() && state.page_key.is_none());
-    assert_eq!(state.tab, CollectionTab::Documents);
+    assert_eq!(state.tab, CollectionTab::Aggregate);
     assert_eq!(state.aggregate.stages.len(), 1, "the draft is the person's");
     assert!(matches!(
         state.banner,
@@ -57,7 +58,7 @@ fn a_lost_connection_with_an_editor_open_keeps_the_view_and_the_text() {
 }
 
 #[test]
-fn a_reconnect_keeps_the_draft_and_forgets_the_collection() {
+fn a_reconnect_keeps_the_draft_and_the_collection_dormant() {
     let (state, a, _) = browsing_one();
     let (state, _) = update(state, Input::Tab(CollectionTab::Aggregate));
     let (state, _) = update(
@@ -68,7 +69,8 @@ fn a_reconnect_keeps_the_draft_and_forgets_the_collection() {
     let (state, commands) = update(state, connect(a));
     assert!(matches!(commands.as_slice(), [Command::Connect(cfg)] if cfg.id == a));
     assert_eq!(state.status, ConnStatus::Connecting);
-    assert_eq!(state.selected_ns(), None);
+    // Slice 2 (T8): a reconnect keeps the tab's collection too (dormant until Run).
+    assert_eq!(state.selected_ns(), Some(&users()));
     assert_eq!(state.aggregate.stages.len(), 1);
 }
 

@@ -85,7 +85,8 @@ fn an_unreachable_find_marks_the_focused_root_failed_and_clears_its_view() {
     assert!(cmds.is_empty());
     assert_eq!((s.active, s.status), (Some(a), ConnStatus::Failed));
     assert_eq!(s.failure, Some(CoreError::Unreachable));
-    assert!(s.page.is_none() && s.selected_ns().is_none() && !s.loading_page);
+    // Slice 2 (T8): the collection stays (dormant); what the server showed goes.
+    assert!(s.page.is_none() && s.selected_ns().is_some() && !s.loading_page);
     assert!(is_banner(&s, "find", a));
     assert_eq!(s.forget_target, None);
     let roots = s.roots(&I18n::english());

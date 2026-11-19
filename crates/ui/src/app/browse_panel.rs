@@ -39,6 +39,7 @@ pub(super) fn show_collection(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
+    super::tab_strip_panel::show_strip(ui, state, i18n, out);
     if state.selected_ns().is_none() {
         ui.label(i18n.t("browser.select_collection"));
         return;
@@ -60,6 +61,10 @@ pub(super) fn show_collection(
     let leaving = picked.is_some_and(|tab| tab != state.tab);
     match state.tab {
         CollectionTab::Indexes => {
+            // A dormant tab has no list yet: its Run reads it (and the page behind Documents).
+            if state.dormant_active() {
+                dormant_run(ui, state, i18n, out);
+            }
             show_indexes_tab(ui, state, i18n, out, now_secs);
             return;
         }
@@ -71,7 +76,12 @@ pub(super) fn show_collection(
     }
     let (has_prev, has_next) = state.paging();
     let hints = &state.aggregate.options_ui.hint;
-    let actions = show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n);
+    let salt = ("findbar", state.active_tab());
+    let actions = ui
+        .push_id(salt, |ui| {
+            show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n)
+        })
+        .inner;
     out.extend(
         actions
             .into_iter()
@@ -87,8 +97,14 @@ pub(super) fn show_collection(
     };
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
         // The toolbar row stays in its place (and the view can still be switched) without a page.
+        let dormant = !state.loading_page && state.dormant_active();
+        if dormant {
+            dormant_run(ui, state, i18n, out);
+        }
         let empty = if state.loading_page {
             "browser.loading"
+        } else if dormant {
+            "tabs.dormant_waiting"
         } else {
             "browser.load_failed"
         };
@@ -115,6 +131,14 @@ pub(super) fn show_collection(
     );
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
+    }
+}
+
+/// The Run button of a dormant tab: it sends the tab's query, the one thing that wakes it.
+fn dormant_run(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    if crate::views::tab_dormant::show_dormant_run(ui, i18n) {
+        let run = state.active_tab().map(super::tab_actions::TabAction::Run);
+        out.extend(run.map(|a| UiEvent::Input(Input::Tabs(a))));
     }
 }
 
@@ -233,7 +257,7 @@ fn show_aggregate_tab(
         ns: state.selected_ns().cloned(),
     };
     let mut actions = ui
-        .push_id(("aggregate_tab", state.active), |ui| {
+        .push_id(("aggregate_tab", state.active, state.active_tab()), |ui| {
             let view = &mut state.aggregate_view;
             show_aggregate(ui, &state.aggregate, view, saved, &run, i18n)
         })
@@ -259,7 +283,7 @@ fn show_indexes_tab(
     // Per connection: what the tab keeps in egui's memory (the Sampling section's open state)
     // is not shared with the same collection on another connection.
     let shown = ui
-        .push_id(("indexes_tab", state.active), |ui| {
+        .push_id(("indexes_tab", state.active, state.active_tab()), |ui| {
             show_indexes(
                 ui,
                 &state.indexes,
