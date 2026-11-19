@@ -102,13 +102,15 @@ async fn disconnect_during_slow_connect_leaves_runtime_disconnected() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: FIND_REQUEST,
     })
     .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: EMBEDDED_SESSION,
             context: "find",
+            request: FIND_REQUEST,
             error: CoreError::Unsupported("not connected".into())
         }
     );
@@ -196,6 +198,7 @@ async fn disconnect_during_find_still_emits_exactly_one_event_for_each() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .unwrap();
     started.notified().await;
@@ -232,6 +235,7 @@ async fn find_without_a_session_change_still_delivers_results() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .unwrap();
     started.notified().await;
@@ -346,6 +350,7 @@ async fn dropped_receiver_does_not_panic_or_hang_handlers() {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .unwrap();
     started.notified().await;
@@ -518,6 +523,7 @@ async fn panicking_find(disconnect_first: bool) -> Event {
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: FIND_REQUEST,
     })
     .unwrap();
     started.notified().await;
@@ -550,9 +556,10 @@ async fn a_panic_in_a_replaced_session_is_superseded_otherwise_internal_error() 
     );
     assert_eq!(
         panicking_find(false).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: EMBEDDED_SESSION,
             context: "find",
+            request: FIND_REQUEST,
             error: CoreError::Database("internal error".into())
         }
     );
@@ -612,13 +619,15 @@ async fn a_hanging_find_fails_at_the_command_timeout_even_with_a_long_connect_ti
         session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
+        request: FIND_REQUEST,
     })
     .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: EMBEDDED_SESSION,
             context: "find",
+            request: FIND_REQUEST,
             error: CoreError::Database("timeout".into())
         }
     );

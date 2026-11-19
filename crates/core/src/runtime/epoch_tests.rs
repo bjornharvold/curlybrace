@@ -58,6 +58,7 @@ fn results() -> Event {
             skip: 0,
             has_more: false,
         },
+        request: 0,
     }
 }
 
@@ -164,6 +165,7 @@ async fn a_stale_data_answer_never_follows_the_new_connected() {
             session: EMBEDDED_SESSION,
             ns: mock_namespace(),
             query: Query::default(),
+            request: 0,
         })
         .unwrap();
         // The same session as the Find: only a Connect of that session can supersede it.

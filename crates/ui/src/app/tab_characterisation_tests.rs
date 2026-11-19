@@ -60,23 +60,39 @@ fn last<T>(cmds: &[Command], pick: impl Fn(&Command) -> Option<T>) -> T {
         .expect("the script sent that command before answering it")
 }
 
-fn last_find(cmds: &[Command]) -> (Uuid, Namespace, Query) {
+/// The newest find `session` sent, as (ns, query, request).
+fn last_find_of(cmds: &[Command], session: Uuid) -> (Namespace, Query, u64) {
     last(cmds, |c| match c {
-        Command::Find { session, ns, query } => Some((*session, ns.clone(), query.clone())),
+        Command::Find {
+            session: s,
+            ns,
+            query,
+            request,
+        } if *s == session => Some((ns.clone(), query.clone(), *request)),
         _ => None,
     })
 }
 
-/// The answer to the newest find, with `docs`.
-fn found(cmds: &[Command], docs: Vec<Document>, has_more: bool) -> Event {
-    let (session, ns, query) = last_find(cmds);
+/// The answer to the newest find of `session`, with `docs`: it echoes the find's request.
+fn found_for(session: Uuid, cmds: &[Command], docs: Vec<Document>, has_more: bool) -> Event {
+    let (ns, query, request) = last_find_of(cmds, session);
     let skip = query.skip;
     Event::Results {
         session,
         ns,
         query,
         page: page(docs, skip, has_more),
+        request,
     }
+}
+
+/// The answer to the newest find of the newest session, with `docs`.
+fn found(cmds: &[Command], docs: Vec<Document>, has_more: bool) -> Event {
+    let session = last(cmds, |c| match c {
+        Command::Find { session, .. } => Some(*session),
+        _ => None,
+    });
+    found_for(session, cmds, docs, has_more)
 }
 
 fn indexes_answer(cmds: &[Command]) -> Event {
@@ -236,10 +252,13 @@ fn scripted_browse_session_transcript_is_unchanged() {
         }),
         step("filtered page", |_, c| event(found(c, people(1), true))),
         step("explain answer", |_, c| {
-            let (session, ns, query) = last(c, |c| match c {
-                Command::ExplainFind { session, ns, query } => {
-                    Some((*session, ns.clone(), query.clone()))
-                }
+            let (session, ns, query, request) = last(c, |c| match c {
+                Command::ExplainFind {
+                    session,
+                    ns,
+                    query,
+                    request,
+                } => Some((*session, ns.clone(), query.clone(), *request)),
                 _ => None,
             });
             event(Event::Explain {
@@ -247,6 +266,7 @@ fn scripted_browse_session_transcript_is_unchanged() {
                 ns,
                 query,
                 outcome: Err(CoreError::Database("no plan".into())),
+                request,
             })
         }),
         step("next page", |_, _| Input::Find(FindAction::Next)),
@@ -306,13 +326,8 @@ fn background_session_transcript_is_unchanged() {
         step("background collections", move |_, _| {
             collections(a, "other", &["x", "y"])
         }),
-        step("background results", move |_, _| {
-            event(Event::Results {
-                session: a,
-                ns: users(),
-                query: Query::default(),
-                page: page(people(2), 0, false),
-            })
+        step("background results", move |_, c| {
+            event(found_for(a, c, people(2), false))
         }),
         step("background stale results", move |_, _| {
             event(Event::Results {
@@ -323,6 +338,7 @@ fn background_session_transcript_is_unchanged() {
                     ..Query::default()
                 },
                 page: page(people(9), 50, false),
+                request: 0,
             })
         }),
         step("background results of another collection", move |_, _| {
@@ -331,6 +347,7 @@ fn background_session_transcript_is_unchanged() {
                 ns: orders(),
                 query: Query::default(),
                 page: page(people(9), 0, false),
+                request: 0,
             })
         }),
         step("background old indexes", move |_, _| {
@@ -357,6 +374,7 @@ fn background_session_transcript_is_unchanged() {
                 ns: users(),
                 query: Query::default(),
                 page: page(people(1), 0, false),
+                request: 0,
             })
         }),
     ]);
@@ -381,6 +399,7 @@ fn stale_answers_transcript_is_unchanged() {
                 ns: users(),
                 query: Query::default(),
                 page: page(people(7), 0, false),
+                request: 0,
             })
         }),
         step("indexes tab", |_, _| Input::Tab(CollectionTab::Indexes)),
@@ -423,6 +442,7 @@ fn stale_answers_transcript_is_unchanged() {
                 ns: users(),
                 query: Query::default(),
                 page: page(people(1), 0, false),
+                request: 0,
             })
         }),
         step("indexes after the disconnect", move |_, _| {
@@ -585,6 +605,7 @@ fn a_stale_results_answer_changes_nothing() {
                 ..Query::default()
             },
             page: page(people(9), 50, false),
+            request: 0,
         }),
     );
     assert_eq!(state.page.as_ref().map(|p| p.docs.len()), shown);
@@ -601,6 +622,7 @@ fn an_answer_for_a_closed_session_is_dropped() {
             ns: users(),
             query: Query::default(),
             page: page(people(1), 0, false),
+            request: 0,
         }),
     );
     assert!(commands.is_empty() && state.page.is_none() && state.open.is_empty());

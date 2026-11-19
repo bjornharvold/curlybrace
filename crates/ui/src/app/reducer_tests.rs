@@ -165,6 +165,7 @@ fn results_replace_page_bump_tree_and_memoise_key() {
             ns: ns(),
             query: q,
             page: page.clone(),
+            request: 0,
         },
     );
     assert!(cmds.is_empty());
@@ -184,6 +185,7 @@ fn results_for_another_namespace_are_ignored() {
             ns: Namespace::new("app", "pets"),
             query: Query::default(),
             page: page_of(vec![], false, 0),
+            request: 0,
         },
     );
     assert_eq!(s.page, before);
@@ -204,6 +206,7 @@ fn results_for_an_older_query_are_ignored() {
             ns: ns(),
             query: Query::default(),
             page: page_of(vec![], false, 0),
+            request: 0,
         },
     );
     assert_eq!(s.page, before);
@@ -515,6 +518,7 @@ fn results_for(s: &AppState, has_more: bool) -> Event {
         ns: ns(),
         query: s.issued_query.clone(),
         page: page_of(vec![mock_doc_with_id(1_i32)], has_more, s.issued_query.skip),
+        request: 0,
     }
 }
 
@@ -590,6 +594,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
             ns: ns(),
             query: Query::default(),
             page: edited.clone(),
+            request: 0,
         },
     );
     assert_eq!(s.page, Some(edited));

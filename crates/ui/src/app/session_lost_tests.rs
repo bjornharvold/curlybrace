@@ -55,6 +55,7 @@ fn browsing(state: AppState, id: Uuid) -> AppState {
                 skip: 0,
                 has_more: false,
             },
+            request: 0,
         },
     )
     .0

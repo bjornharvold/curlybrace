@@ -130,7 +130,8 @@ fn create_index_opens_the_builder_with_the_shape_s_keys() {
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: ns()
+                ns: ns(),
+                request: 0
             },
             Command::ListIndexes {
                 session: id,
@@ -265,7 +266,8 @@ fn a_list_that_is_already_loaded_is_not_asked_for_again() {
         shown(&commands),
         shown(&[Command::EstimatedCount {
             session: id,
-            ns: ns()
+            ns: ns(),
+            request: 0
         }])
     );
 }

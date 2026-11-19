@@ -78,7 +78,10 @@ impl Command {
             | Self::BulkCount { request, .. }
             | Self::BulkSample { request, .. }
             | Self::SnapshotList { request }
-            | Self::SnapshotDelete { request, .. } => Some(*request),
+            | Self::SnapshotDelete { request, .. }
+            | Self::Find { request, .. }
+            | Self::ExplainFind { request, .. }
+            | Self::EstimatedCount { request, .. } => Some(*request),
             _ => None,
         }
     }
@@ -250,6 +253,57 @@ impl Event {
             | Self::Copy(_)
             | Self::TestConnection { .. }
             | Self::Snapshots { .. } => None,
+        }
+    }
+
+    /// The number a numbered answer echoes: the `request` of the command it answers (an
+    /// `AggregateRan` gives its `run`). `None` for every event that answers no numbered command.
+    /// Mirrors [`Command::request`], and names every variant so a new event must be classified.
+    pub fn request(&self) -> Option<u64> {
+        match self {
+            Self::Results { request, .. }
+            | Self::Explain { request, .. }
+            | Self::EstimatedCount { request, .. }
+            | Self::Indexes { request, .. }
+            | Self::IndexHistory { request, .. }
+            | Self::QueryShapes { request, .. }
+            | Self::GuardChecked { request, .. }
+            | Self::AggregatePreviewed { request, .. }
+            | Self::AggregateExplained { request, .. }
+            | Self::AggregateCounted { request, .. }
+            | Self::CollectionStats { request, .. }
+            | Self::DatabaseStats { request, .. }
+            | Self::BulkCount { request, .. }
+            | Self::BulkSample { request, .. }
+            | Self::Snapshots { request, .. }
+            | Self::RequestFailed { request, .. } => Some(*request),
+            Self::AggregateRan { run, .. } => Some(*run),
+            Self::Connected { .. }
+            | Self::Disconnected { .. }
+            | Self::ConnectFailed { .. }
+            | Self::Databases { .. }
+            | Self::Collections { .. }
+            | Self::Mutated { .. }
+            | Self::Failed { .. }
+            | Self::Compare(_)
+            | Self::Copy(_)
+            | Self::TestConnection { .. }
+            | Self::ProfilingState { .. }
+            | Self::IndexChanged { .. }
+            | Self::AdminChanged { .. }
+            | Self::BulkPreview { .. }
+            | Self::BulkFinished { .. }
+            | Self::BulkUndoPreview { .. }
+            | Self::BulkUndoFinished { .. }
+            | Self::BulkCancelResult { .. }
+            | Self::Sampler { .. }
+            | Self::Profiler { .. }
+            | Self::ShellOutput { .. }
+            | Self::ShellResult { .. }
+            | Self::ShellFinished { .. }
+            | Self::ShellRefused { .. }
+            | Self::ShellHistory { .. }
+            | Self::ShellHistoryChanged { .. } => None,
         }
     }
 }

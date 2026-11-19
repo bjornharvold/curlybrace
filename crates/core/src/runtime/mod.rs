@@ -57,6 +57,7 @@ mod bulk_write_tests;
 mod command;
 mod compare;
 mod config;
+mod connection_test;
 mod copy;
 #[cfg(test)]
 mod copy_failure_tests;
@@ -71,6 +72,8 @@ mod epoch_tests;
 mod explain_tests;
 #[cfg(test)]
 mod find_options_tests;
+#[cfg(test)]
+mod find_request_tests;
 #[cfg(test)]
 mod guard_tests;
 mod handlers;
@@ -114,6 +117,7 @@ mod shell_handlers;
 mod shell_history_queue;
 #[cfg(test)]
 mod shell_history_tests;
+mod shell_refusal;
 #[cfg(test)]
 mod shell_result_tests;
 mod shell_slot;
@@ -158,11 +162,13 @@ pub use config::{
     BULK_COUNT_MAX_TIME, BULK_WRITE_TIMEOUT, COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT,
     INDEX_BUILD_TIMEOUT, PING_TIMEOUT, RuntimeConfig, default_history_path, default_snapshot_dir,
 };
+pub use connection_test::{PasswordChoice, TestReport, TestSecrets};
 pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
 pub use profiler_status::ProfilerStatus;
 pub use sampler::{MIN_INTERVAL, SamplerConfig, SamplerPause, SamplerStatus};
 pub use session::{EMBEDDED_SESSION, SessionId};
+pub use shell_refusal::ShellRefusal;
 /// What `RuntimeHandle::rx.try_recv()` reports, so callers can tell "no event yet" from "the
 /// runtime is gone" without depending on tokio themselves.
 pub use tokio::sync::mpsc::error::TryRecvError;
@@ -197,35 +203,6 @@ impl Connector for MongoConnector {
     }
 }
 
-/// Which password or SSH secret a connection test uses. Debug redacts through
-/// [`SecretString`](crate::secrets::SecretString).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum PasswordChoice {
-    /// Nothing typed: use the password stored for the connection, if any.
-    #[default]
-    Stored,
-    /// The user chose to clear the saved password: connect without one, ignoring the stored one.
-    Without,
-    /// A password typed into the form for this test only.
-    Typed(crate::secrets::SecretString),
-}
-
-/// Secrets typed into the connection form for one test. `Stored` on either choice means "use the
-/// stored one".
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct TestSecrets {
-    pub password: PasswordChoice,
-    pub ssh_secret: PasswordChoice,
-}
-
-/// What a successful connection test learned.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TestReport {
-    pub server_version: Option<String>,
-    pub tls: bool,
-    pub authenticated: bool,
-}
-
 // Commands are short-lived, moved once into a channel; boxing would ripple through every call site.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
@@ -246,6 +223,8 @@ pub enum Command {
         session: SessionId,
         ns: Namespace,
         query: Query,
+        /// Echoed by the answer, like the other numbered reads'.
+        request: u64,
     },
     /// Explains how the server runs `query` and judges it. A read, allowed on a read-only
     /// connection. Answered by [`Event::Explain`], whose `outcome` also carries any failure.
@@ -253,6 +232,8 @@ pub enum Command {
         session: SessionId,
         ns: Namespace,
         query: Query,
+        /// Echoed by the answer.
+        request: u64,
     },
     /// Plan-only explains `targets` and reports the ones that would miss an index. A read,
     /// allowed on a read-only connection. Answered by [`Event::GuardChecked`], whose `outcome`
@@ -398,6 +379,8 @@ pub enum Command {
     EstimatedCount {
         session: SessionId,
         ns: Namespace,
+        /// Echoed by the answer.
+        request: u64,
     },
     /// The four index writes below are answered with [`Event::IndexChanged`].
     CreateIndex {
@@ -583,15 +566,6 @@ pub enum Command {
     },
 }
 
-/// Why a [`Command::ShellRun`] was not started.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ShellRefusal {
-    ReadOnly,
-    NotConnected,
-    AlreadyRunning,
-    Invalid(crate::shell::ShellError),
-}
-
 // Events are moved through a channel once; boxing `Query` would only add noise
 // for the UI, which pattern-matches on the brief's public shape.
 #[allow(clippy::large_enum_variant)]
@@ -632,6 +606,8 @@ pub enum Event {
         ns: Namespace,
         query: Query,
         page: Page,
+        /// The `request` of the `Find` this answers.
+        request: u64,
     },
     /// The UI re-runs its current query.
     Mutated { session: SessionId, ns: Namespace },
@@ -684,6 +660,8 @@ pub enum Event {
         ns: Namespace,
         query: Query,
         outcome: std::result::Result<Verdict, CoreError>,
+        /// The `request` of the `ExplainFind` this answers.
+        request: u64,
     },
     /// The answer to `GuardCheck`. A timeout is an `Err` outcome; it is never an
     /// [`Event::Failed`], which raises a banner.
@@ -765,6 +743,8 @@ pub enum Event {
         session: SessionId,
         ns: Namespace,
         count: u64,
+        /// The `request` of the `EstimatedCount` this answers.
+        request: u64,
     },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },

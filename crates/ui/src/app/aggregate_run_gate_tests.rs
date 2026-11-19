@@ -29,6 +29,7 @@ fn a_write_warning_waiting_for_its_answer_turns_run_off_with_its_reason() {
         command: Command::EstimatedCount {
             session: EMBEDDED_SESSION,
             ns: people(),
+            request: 0,
         },
         pending: None,
         kind: WriteKind::AggregateRun,
@@ -83,6 +84,7 @@ fn a_failed_count_does_not_overwrite_a_known_one_and_needs_no_dialog() {
             session: EMBEDDED_SESSION,
             ns: dest(),
             count: 5,
+            request: 0,
         },
     );
     let failed = Event::Failed {

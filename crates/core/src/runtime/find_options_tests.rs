@@ -86,10 +86,17 @@ async fn find_failure(error: CoreError) -> (CoreError, bool) {
         session: cfg.id,
         ns: mock_namespace(),
         query,
+        request: 77,
     })
     .unwrap();
+    // A find is a numbered read: its failure echoes the number it was sent with.
     let error = match next(&mut h).await {
-        Event::Failed { error, .. } => error,
+        Event::RequestFailed {
+            error,
+            request: 77,
+            context: "find",
+            ..
+        } => error,
         other => panic!("unexpected {other:?}"),
     };
     // The session is still usable: a ping-settled failure would have marked it lost.

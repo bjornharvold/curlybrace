@@ -89,6 +89,7 @@ fn clicked(state: AppState) -> Out {
     let count = Command::EstimatedCount {
         session: state.session_id(),
         ns: dialog.target_ns(),
+        request: 0,
     };
     let run = state.aggregate.run.clone().opened(dialog);
     (with_run(state, run), vec![count])

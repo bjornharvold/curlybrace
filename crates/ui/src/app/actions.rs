@@ -109,6 +109,7 @@ fn open(state: AppState, ns: Namespace) -> Out {
         session: state.session_id(),
         ns: ns.clone(),
         query: query.clone(),
+        request: 0,
     };
     // `pending` is deliberately kept: a mutation still in flight blocks a second submit even
     // after the user switched collections.
@@ -233,6 +234,7 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
         session: state.session_id(),
         ns,
         query: query.clone(),
+        request: 0,
     };
     let next = AppState {
         issued_query: query,

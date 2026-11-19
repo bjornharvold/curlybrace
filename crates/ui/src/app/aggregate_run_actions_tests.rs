@@ -98,7 +98,7 @@ fn clicking_run_opens_the_dialog_and_asks_for_the_target_count() {
     assert_eq!(dialog.stage, "$out");
     assert!(matches!(
         commands.as_slice(),
-        [Command::EstimatedCount { session, ns }] if *session == EMBEDDED_SESSION && *ns == dest()
+        [Command::EstimatedCount { session, ns, .. }] if *session == EMBEDDED_SESSION && *ns == dest()
     ));
     assert!(run_commands(&commands).is_empty());
 }
@@ -125,6 +125,7 @@ fn the_count_answer_fills_the_dialog() {
             session: EMBEDDED_SESSION,
             ns: dest(),
             count: 12,
+            request: 0,
         },
     );
     assert!(commands.is_empty());
@@ -140,6 +141,7 @@ fn the_count_of_another_collection_does_not_fill_the_dialog() {
             session: EMBEDDED_SESSION,
             ns: people(),
             count: 99,
+            request: 0,
         },
     );
     assert_eq!(s.aggregate.run.dialog.unwrap().count, CountState::Loading);

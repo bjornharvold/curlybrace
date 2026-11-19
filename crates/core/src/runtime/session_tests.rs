@@ -122,11 +122,15 @@ async fn disconnecting_one_session_leaves_the_other_answering() {
     ));
 }
 
+/// The number `find` sends; a failure of the find echoes it.
+const FIND_REQUEST: u64 = 5;
+
 fn find(session: SessionId) -> Command {
     Command::Find {
         session,
         ns: mock_namespace(),
         query: Query::default(),
+        request: FIND_REQUEST,
     }
 }
 
@@ -156,9 +160,10 @@ async fn a_data_command_for_an_unknown_session_fails_closed_for_that_session() {
     h.tx.send(find(stranger)).unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: stranger,
             context: "find",
+            request: FIND_REQUEST,
             error: CoreError::Unsupported("not connected".into()),
         }
     );
@@ -220,15 +225,24 @@ async fn a_data_command_for_an_unknown_session_never_reads_another_sessions_stor
     let commands = [find(a), Command::ListDatabases { session: a }];
     for command in commands {
         let context = command.context();
+        let command_request = command.request();
         h.tx.send(command).unwrap();
-        assert_eq!(
-            next(&mut h).await,
-            Event::Failed {
+        let error = CoreError::Unsupported("not connected".into());
+        // A numbered command (the find) fails as a `RequestFailed` with its number.
+        let expected = match command_request {
+            Some(request) => Event::RequestFailed {
                 session: a,
                 context,
-                error: CoreError::Unsupported("not connected".into()),
-            }
-        );
+                request,
+                error,
+            },
+            None => Event::Failed {
+                session: a,
+                context,
+                error,
+            },
+        };
+        assert_eq!(next(&mut h).await, expected);
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
@@ -471,13 +485,15 @@ async fn a_find_on_a_lost_server_is_answered_with_a_typed_unreachable_failure() 
         session: c.id,
         ns: mock_namespace(),
         query: Query::default(),
+        request: 0,
     })
     .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
+        Event::RequestFailed {
             session: c.id,
             context: "find",
+            request: 0,
             error: CoreError::Unreachable,
         }
     );

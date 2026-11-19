@@ -138,6 +138,7 @@ pub(super) fn run(state: AppState, query: Query, explain_enabled: bool) -> super
         session: state.session_id(),
         ns,
         query: query.clone(),
+        request: 0,
     });
     (
         AppState {

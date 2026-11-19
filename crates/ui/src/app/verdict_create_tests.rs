@@ -90,7 +90,8 @@ fn create_from_verdict_carries_keys_and_the_query_s_collation() {
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: ns()
+                ns: ns(),
+                request: 0
             },
             Command::ListIndexes {
                 session: id,

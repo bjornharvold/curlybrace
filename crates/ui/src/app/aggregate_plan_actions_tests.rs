@@ -258,7 +258,8 @@ fn create_index_opens_the_builder_pre_filled() {
         shown(&[
             Command::EstimatedCount {
                 session: id,
-                ns: people()
+                ns: people(),
+                request: 0
             },
             // The collection's indexes were never listed, so the builder gets the list too.
             Command::ListIndexes {

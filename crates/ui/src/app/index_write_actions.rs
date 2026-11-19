@@ -68,7 +68,11 @@ pub(super) fn open_checked(
             false => base,
         };
         let indexes = base.with_builder(Some(builder));
-        let count = Command::EstimatedCount { session, ns };
+        let count = Command::EstimatedCount {
+            session,
+            ns,
+            request: 0,
+        };
         (
             AppState { indexes, ..s },
             [Some(count), list].into_iter().flatten().collect(),

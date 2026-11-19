@@ -64,6 +64,7 @@ fn results(session: Uuid, who: &str) -> Event {
         ns: users(),
         query: Query::default(),
         page: page_of(who),
+        request: 0,
     }
 }
 

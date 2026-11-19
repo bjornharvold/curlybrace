@@ -82,6 +82,7 @@ async fn two_sessions_answer_independently_and_a_dead_server_fails_only_its_own(
             session: cfg_b.id,
             ns: ns_b.clone(),
             query: Query::default(),
+            request: 0,
         })
         .unwrap();
     match next_event(&mut rt.rx, LIMIT, "find on the live server").await {
@@ -98,6 +99,7 @@ async fn two_sessions_answer_independently_and_a_dead_server_fails_only_its_own(
             session: cfg_a.id,
             ns: ns_a,
             query: Query::default(),
+            request: 0,
         })
         .unwrap();
     match next_event(&mut rt.rx, LIMIT + SLACK, "find on the dead server").await {
