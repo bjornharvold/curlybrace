@@ -7,6 +7,7 @@ use crate::I18n;
 use crate::app::tab_actions::{MAX_TABS, TabAction};
 use crate::app::tabs::TabId;
 use crate::theme::{CONTROL_HEIGHT, current_ui};
+use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::tab_title::TabLabel;
 use crate::views::connection_badge::show_badge;
 use crate::views::tab_strip_menu::{all_tabs_menu, tab_context_menu};
@@ -23,6 +24,8 @@ const PADDING: f32 = 8.0;
 /// The close button's square.
 const CLOSE_SIZE: f32 = 24.0;
 const INDICATOR_HEIGHT: f32 = 3.0;
+/// The production and read-only marks inside a tab.
+const MARK_SIZE: f32 = 12.0;
 
 /// What the strip shows.
 pub struct StripView<'a> {
@@ -65,27 +68,30 @@ fn tab_list(ui: &mut Ui, view: &StripView<'_>, i18n: &I18n, actions: &mut Vec<Ta
     });
     let scrolled_to = ui.id().with("tab_strip_scrolled_to");
     let previous: Option<TabId> = ui.data(|d| d.get_temp(scrolled_to));
-    egui::ScrollArea::horizontal()
-        .id_salt("tab_strip_scroll")
-        .auto_shrink([false, false])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            ui.horizontal(|ui| {
-                let mut rects = Vec::new();
-                let mut dropped = None;
-                for (at, (tab, label)) in view.labels.iter().enumerate() {
-                    let active = view.active == Some(*tab);
-                    let shown = show_tab(ui, (at, *tab, label), active, view, i18n, actions);
-                    if active && previous != Some(*tab) {
-                        ui.scroll_to_rect(shown.rect, None);
+    // The tabs are the list's children in the accessibility tree, not only inside its rectangle.
+    ui.ctx().clone().with_accessibility_parent(list.id, || {
+        egui::ScrollArea::horizontal()
+            .id_salt("tab_strip_scroll")
+            .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.horizontal(|ui| {
+                    let mut rects = Vec::new();
+                    let mut dropped = None;
+                    for (at, (tab, label)) in view.labels.iter().enumerate() {
+                        let active = view.active == Some(*tab);
+                        let shown = show_tab(ui, (at, *tab, label), active, view, i18n, actions);
+                        if active && previous != Some(*tab) {
+                            ui.scroll_to_rect(shown.rect, None);
+                        }
+                        rects.push((*tab, shown.rect));
+                        dropped = dropped.or(shown.dropped_at.map(|pos| (*tab, pos)));
                     }
-                    rects.push((*tab, shown.rect));
-                    dropped = dropped.or(shown.dropped_at.map(|pos| (*tab, pos)));
-                }
-                actions.extend(reordered(&rects, dropped));
+                    actions.extend(reordered(&rects, dropped));
+                });
             });
-        });
+    });
     ui.data_mut(|d| match view.active {
         Some(tab) => d.insert_temp(scrolled_to, tab),
         None => d.remove::<TabId>(scrolled_to),
@@ -185,8 +191,8 @@ fn arrow_keys_activate(
 fn natural_width(label: &TabLabel) -> f32 {
     let badges = [
         label.badge.color.is_some().then_some(18.0),
-        label.badge.production.then_some(84.0),
-        label.badge.read_only.then_some(72.0),
+        label.badge.production.then_some(MARK_SIZE + 4.0),
+        label.badge.read_only.then_some(MARK_SIZE + 4.0),
     ];
     let chars = label.title.chars().count() as f32;
     2.0 * PADDING + CLOSE_SIZE + 6.0 + chars * 7.0 + badges.into_iter().flatten().sum::<f32>()
@@ -256,15 +262,56 @@ fn paint_content(
     // content is smaller than it (an allocation would pull the row's cursor back inside the tab).
     let mut content = ui.new_child(builder);
     content.spacing_mut().item_spacing.x = 4.0;
-    show_badge(&mut content, &label.badge, i18n);
+    // The connection's colour glyph as in the header; production and read-only are short marks
+    // here (the words are in the tab's tooltip and accessible name), so the title keeps its room.
+    let glyph = ConnectionBadge {
+        production: false,
+        read_only: false,
+        ..label.badge
+    };
+    show_badge(&mut content, &glyph, i18n);
+    if label.badge.production {
+        paint_mark(&mut content, MARK_SIZE, s.error, Mark::Exclamation);
+    }
+    if label.badge.read_only {
+        paint_mark(&mut content, MARK_SIZE, s.warning, Mark::Bar);
+    }
     if label.unsaved {
         let (dot, _) = content.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
         content
             .painter()
             .circle_filled(dot.center(), 3.0, s.primary);
     }
-    let title = RichText::new(&label.title).color(color);
+    // A dormant tab is drawn dimmer and slanted: it waits for Run.
+    let mut title = RichText::new(&label.title).color(color);
+    if label.dormant {
+        title = title.italics().color(color.gamma_multiply(0.7));
+    }
     content.add(Label::new(title).truncate().selectable(false));
+}
+
+/// The shape inside a compact production / read-only mark.
+enum Mark {
+    Exclamation,
+    Bar,
+}
+
+/// A small round mark of `fill` with a white `shape` in it: not text, so nothing to translate.
+fn paint_mark(ui: &mut Ui, size: f32, fill: egui::Color32, shape: Mark) {
+    let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+    let painter = ui.painter();
+    painter.circle_filled(rect.center(), size / 2.0, fill);
+    let stroke = Stroke::new(1.5, egui::Color32::WHITE);
+    let c = rect.center();
+    match shape {
+        Mark::Exclamation => {
+            painter.line_segment([c + vec2(0.0, -3.5), c + vec2(0.0, 0.5)], stroke);
+            painter.circle_filled(c + vec2(0.0, 3.0), 0.9, egui::Color32::WHITE);
+        }
+        Mark::Bar => {
+            painter.line_segment([c + vec2(-3.0, 0.0), c + vec2(3.0, 0.0)], stroke);
+        }
+    }
 }
 
 /// The × button, named after its tab. A square drawn from two lines: the icon font has no cross.

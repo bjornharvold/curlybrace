@@ -326,6 +326,7 @@ pub fn show_modals(
         );
         show_forget_confirm(ctx, &message, i18n, out);
     }
+    super::tab_strip_panel::note_text_focus(ctx);
 }
 
 /// The bulk update / delete dialog while a flow is open. It names the connection the flow was

@@ -18,6 +18,9 @@ pub struct TabLabel {
     pub title: String,
     pub tooltip: String,
     pub accessible: String,
+    /// The name of the tab's entry in the All tabs menu: the title and its place, so duplicates
+    /// differ.
+    pub menu_name: String,
     pub badge: ConnectionBadge,
     /// Its connection was lost and it has not run since: it shows the Run row.
     pub dormant: bool,
@@ -107,45 +110,56 @@ fn label_of(
     i18n: &I18n,
 ) -> TabLabel {
     let badge = state.session_badge(row.session);
+    let dormant = state.freshness_of(row.tab) == Freshness::Dormant;
     let namespace = row.glance.ns.as_ref().map_or_else(
         || title.clone(),
-        |ns| format!("{}.{}", ns.db, ns.collection),
+        |ns| {
+            i18n.t_with(
+                "tabs.title_with_db",
+                &[("db", &ns.db), ("collection", &ns.collection)],
+            )
+        },
     );
     let sub = i18n.t(row.glance.sub.label_key());
-    let tooltip = i18n.t_with(
-        "tabs.tooltip",
-        &[
-            ("connection", connection),
-            ("namespace", &namespace),
-            ("sub", &sub),
-        ],
-    );
-    let badges = [
-        badge.production.then(|| i18n.t("tabs.badge_production")),
-        badge.read_only.then(|| i18n.t("tabs.badge_read_only")),
-        row.glance.unsaved.then(|| i18n.t("tabs.unsaved")),
+    // What the tab is in, as whole phrases of the language joined by its list separator.
+    let states = [
+        badge.production.then(|| i18n.t("tabs.state.production")),
+        badge.read_only.then(|| i18n.t("tabs.state.read_only")),
+        row.glance.unsaved.then(|| i18n.t("tabs.state.unsaved")),
+        dormant.then(|| i18n.t("tabs.state.needs_run")),
     ]
     .into_iter()
     .flatten()
-    .collect::<String>();
+    .collect::<Vec<_>>()
+    .join(&i18n.t("connections.list_separator"));
+    let details = [
+        ("connection", connection),
+        ("namespace", namespace.as_str()),
+        ("sub", sub.as_str()),
+        ("state", states.as_str()),
+    ];
+    let tooltip = match states.is_empty() {
+        true => i18n.t_with("tabs.tooltip", &details),
+        false => i18n.t_with("tabs.tooltip_with_state", &details),
+    };
     let position = position.to_string();
-    let accessible = i18n.t_with(
-        "tabs.accessible_name",
-        &[
-            ("title", &title),
-            ("namespace", &namespace),
-            ("connection", connection),
-            ("badges", &badges),
-            ("position", &position),
-            ("count", count),
-        ],
+    let place = [("position", position.as_str()), ("count", count)];
+    let named = [&[("title", title.as_str())][..], &details, &place].concat();
+    let accessible = match states.is_empty() {
+        true => i18n.t_with("tabs.accessible_name", &named),
+        false => i18n.t_with("tabs.accessible_name_with_state", &named),
+    };
+    let menu_name = i18n.t_with(
+        "tabs.menu_entry",
+        &[("title", &title), ("position", &position), ("count", count)],
     );
     TabLabel {
         title,
         tooltip,
         accessible,
+        menu_name,
         badge,
-        dormant: state.freshness_of(row.tab) == Freshness::Dormant,
+        dormant,
         unsaved: row.glance.unsaved,
     }
 }

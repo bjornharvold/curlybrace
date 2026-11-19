@@ -148,6 +148,18 @@ pub(super) fn parked_tab_typing(state: &AppState) -> bool {
     })
 }
 
+/// The foreground tab reads its page again because of an event (a write or a run answered). A
+/// dormant tab never sends a find but through its Run: it is marked stale and keeps waiting.
+pub(super) fn reread_current(
+    state: AppState,
+    query: curlybrace_core::store::Query,
+) -> super::reducer::Out {
+    match state.dormant_active() {
+        true => (state.current_marked_stale(), Vec::new()),
+        false => super::actions::issue_find(state, query),
+    }
+}
+
 /// The database list changed: the sidebar takes it, and parked tabs whose database vanished lose
 /// their collection (the current tab loses its selection with the sidebar's own rule).
 #[inline(never)]

@@ -78,10 +78,14 @@ pub(super) fn carried_aggregate(
     draft: &AggregateState,
     view: &AggregateView,
 ) -> (Box<AggregateState>, Box<AggregateView>) {
-    (
-        Box::new(draft.clone().on_connection_reset()),
-        Box::new(view.carried()),
-    )
+    let draft = draft.clone().on_connection_reset();
+    // The preview that ran against the connection that is gone is not asked for again on its own:
+    // a tab waits for an edit or Refresh (a dormant tab sends nothing until the person says so).
+    let view = AggregateView {
+        auto_sent: Some(draft.request),
+        ..view.carried()
+    };
+    (Box::new(draft), Box::new(view))
 }
 
 /// The first four hex characters of a connection id.

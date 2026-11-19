@@ -305,6 +305,7 @@ fn a_tab_awaits_exactly_the_number_it_holds_for_each_read() {
             }
             Read::Run => {
                 view.aggregate.run.run = n;
+                view.aggregate.run.status = crate::viewmodel::aggregate_run::RunStatus::Running;
                 true
             }
             // Their numbers come out of a sequence of the draft's own (see tab_routing tests).

@@ -37,6 +37,14 @@ fn opened(state: AppState, id: Uuid) -> AppState {
     .0
 }
 
+/// `tab` (parked) shows `app.orders`.
+fn with_orders(mut s: AppState, tab: TabId) -> AppState {
+    if let Some(view) = s.parked_tabs.get_mut(&tab) {
+        view.ns = Some(Namespace::new("app", "orders"));
+    }
+    s
+}
+
 fn users() -> Namespace {
     Namespace::new("app", "users")
 }
@@ -223,15 +231,19 @@ fn with_tab_on_a_parked_session_s_parked_tab_restores_both() {
     let (s, ids) = app(&["a", "b"]);
     let (a, b) = (ids[0], ids[1]);
     let s = opened(s, a);
+    // Both of a's tabs show a collection: an empty tab nobody sees is swept after any step.
+    let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(users())));
     let (s, second) = s.tab_opened(a);
     let second = second.expect("a second tab of a");
+    // It shows a collection: an empty tab nobody sees is swept after any step.
+    let s = with_orders(s, second);
     let s = opened(s, b);
     // b is active, a is parked with two tabs (the second parked inside `parked_tabs`).
     assert_eq!(s.active, Some(b));
     let first = s.current_tab_of(a).expect("a's current tab");
     let (s, commands) = s.with_tab(second, |s| {
         assert_eq!(s.active, Some(a), "the tab's session is active inside");
-        assert_eq!(s.selected_ns(), None);
+        assert_eq!(s.selected_ns(), Some(&Namespace::new("app", "orders")));
         let s = AppState {
             find: FindBarState {
                 text: curlybrace_core::query::QueryText {
@@ -369,9 +381,14 @@ fn opening_a_collection_goes_to_the_current_tab() {
     let s = opened(s, a);
     let (s, second) = s.tab_opened(a);
     let second = second.expect("a tab");
+    let s = with_orders(s, second);
     let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(users())));
     assert_eq!(s.selected_ns(), Some(&users()), "the current tab opened it");
-    assert_eq!(s.parked_tabs[&second].ns, None);
+    assert_eq!(
+        s.parked_tabs[&second].ns,
+        Some(Namespace::new("app", "orders")),
+        "the parked tab was left alone"
+    );
     let _ = Pending {
         ns: users(),
         editor: None,

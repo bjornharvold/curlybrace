@@ -16,6 +16,8 @@ pub struct TabGlance {
     /// An editor or a modal of the index writes is open: closing the tab or losing the server
     /// would discard what was typed.
     pub unsaved: bool,
+    /// An Aggregate draft with a stage: the person's work, which a blank tab still holds.
+    pub has_draft: bool,
 }
 
 impl TabGlance {
@@ -25,7 +27,13 @@ impl TabGlance {
             sub: view.tab,
             view_mode: view.view_mode,
             unsaved: view.editor.is_some() || view.indexes.has_prompt(),
+            has_draft: !view.aggregate.stages.is_empty(),
         }
+    }
+
+    /// No collection and no work: nothing to show and nothing to lose.
+    pub fn is_idle_empty(&self) -> bool {
+        self.ns.is_none() && !self.unsaved && !self.has_draft
     }
 }
 
@@ -34,6 +42,49 @@ impl AppState {
     pub fn active_tab(&self) -> Option<TabId> {
         self.active
             .and_then(|session| self.tabs.current.get(&session).copied())
+    }
+
+    /// Whether any dialog of the state is open: the one list the tab shortcuts and the strip
+    /// read, so a dialog cannot be forgotten in two places. (A dialog that lives outside the
+    /// state, the SSH host-key question, is caught by egui's modal layer instead.)
+    pub fn any_dialog_open(&self) -> bool {
+        self.editor.is_some()
+            || self.indexes.has_prompt()
+            || self.write_warning.is_some()
+            || self.admin.is_some()
+            || self.bulk.is_some()
+            || self.copy.is_some()
+            || self.copies.is_some()
+            || self.forget_confirm.is_some()
+            || self.tools.dialog().is_some()
+            || self.code_export.dialog.is_some()
+            || self.aggregate.run.dialog.is_some()
+            || self.aggregate.saved.dialog.is_some()
+            || self.tree.confirm != crate::viewmodel::doc_actions::DeleteConfirm::None
+    }
+
+    /// The foreground tab sent (or is about to send) a find: it is no longer waiting for Run after
+    /// a lost connection.
+    pub(super) fn awake_current(self) -> AppState {
+        match self.active.and_then(|s| self.tabs.current.get(&s).copied()) {
+            // Its read is on its way: whatever made it dormant or stale is answered by it.
+            Some(tab) if self.tabs.dormant.contains(&tab) || self.tabs.stale.contains(&tab) => {
+                let tabs = self.tabs.clone().awakened(tab).with_stale(tab, false);
+                AppState { tabs, ..self }
+            }
+            _ => self,
+        }
+    }
+
+    /// The foreground tab is known to show less than the server holds.
+    pub(super) fn current_marked_stale(self) -> AppState {
+        match self.active.and_then(|s| self.tabs.current.get(&s).copied()) {
+            Some(tab) => {
+                let tabs = self.tabs.clone().with_stale(tab, true);
+                AppState { tabs, ..self }
+            }
+            None => self,
+        }
     }
 
     /// The tab being looked at lost its connection and has not run since.
@@ -48,12 +99,13 @@ impl AppState {
         if self.tabs.current.get(&session) != Some(&tab) {
             return self.parked_tabs.get(&tab).map(|v| TabGlance::of_parked(v));
         }
-        let (ns, sub, view_mode, unsaved) = match self.active == Some(session) {
+        let (ns, sub, view_mode, unsaved, has_draft) = match self.active == Some(session) {
             true => (
                 self.sidebar.selected.clone(),
                 self.tab,
                 self.view_mode,
                 self.editor.is_some() || self.indexes.has_prompt(),
+                !self.aggregate.stages.is_empty(),
             ),
             false => {
                 let v = self.parked.get(&session)?;
@@ -62,6 +114,7 @@ impl AppState {
                     v.tab,
                     v.view_mode,
                     v.editor.is_some() || v.indexes.has_prompt(),
+                    !v.aggregate.stages.is_empty(),
                 )
             }
         };
@@ -70,6 +123,7 @@ impl AppState {
             sub,
             view_mode,
             unsaved,
+            has_draft,
         })
     }
 
@@ -78,15 +132,16 @@ impl AppState {
         self.glance(tab).and_then(|g| g.ns)
     }
 
-    /// The tabs the strip shows, in strip order: those with a collection, and the active tab even
-    /// when it is empty (only the active empty tab is shown).
+    /// The tabs the strip shows, in strip order: those with a collection or with work in them (an
+    /// editor, a dialog, an Aggregate draft), and the active tab even when it is empty. An empty
+    /// tab that is not shown is swept (`tab_eviction::sweep_empty`), except a session's only one.
     pub fn visible_tabs(&self) -> Vec<TabId> {
         let active = self.active_tab();
         self.tabs
             .order
             .iter()
             .copied()
-            .filter(|t| Some(*t) == active || self.tab_ns(*t).is_some())
+            .filter(|t| Some(*t) == active || self.glance(*t).is_some_and(|g| !g.is_idle_empty()))
             .collect()
     }
 

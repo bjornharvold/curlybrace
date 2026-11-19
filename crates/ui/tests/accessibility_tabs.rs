@@ -57,6 +57,89 @@ fn strip_is_a_tab_list_with_named_tabs() {
 }
 
 #[test]
+fn the_tabs_are_children_of_the_tab_list_in_the_tree() {
+    let page = page_with_tabs(&["invoices", "notes"]);
+    let tabs: Vec<_> = page.harness.query_all_by_role(Role::Tab).collect();
+    assert_eq!(tabs.len(), 3);
+    for tab in &tabs {
+        let parent = tab.accesskit_node().parent().map(|p| p.role());
+        assert_eq!(parent, Some(Role::TabList), "the tree, not the rects");
+    }
+}
+
+#[test]
+fn all_tabs_menu_entries_of_duplicates_are_told_apart() {
+    let mut page = page_with_tabs(&["invoices"]);
+    // A second tab on the same collection.
+    let first = state(&page).active_tab().expect("tab");
+    page.harness
+        .state_mut()
+        .dispatch(curlybrace_ui::app::reducer::Input::Tabs(
+            curlybrace_ui::app::tab_actions::TabAction::Duplicate(first),
+        ));
+    page.harness.run_steps(3);
+    page.harness
+        .get_by_role_and_label(Role::Button, t("tabs.all_tabs"))
+        .click();
+    page.harness.run_steps(3);
+    let names: Vec<String> = page
+        .harness
+        .query_all_by_label_contains("customers, tab")
+        .map(|n| n.accesskit_node().label().unwrap_or_default())
+        .collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert_ne!(names[0], names[1]);
+}
+
+#[test]
+fn a_dormant_tab_says_it_needs_run_and_is_drawn_dimmer() {
+    let page = browse_page(SIZE_1000, |state| {
+        let tabs = browsing_with_tabs(state, &["invoices"]);
+        make_dormant(state, tabs[0]);
+    });
+    let names: Vec<String> = page
+        .harness
+        .query_all_by_role(Role::Tab)
+        .map(|n| n.accesskit_node().label().unwrap_or_default())
+        .collect();
+    let needs = t("tabs.state.needs_run");
+    assert!(names.iter().any(|n| n.contains(needs)), "{names:?}");
+    assert!(
+        names.iter().any(|n| !n.contains(needs)),
+        "only the dormant one says it: {names:?}"
+    );
+}
+
+#[test]
+fn a_tab_with_both_badges_keeps_room_for_its_title() {
+    let page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &[]);
+        support::tabs_shots::background_session(state, "Billing", "transactions", (true, true));
+    });
+    let tabs: Vec<_> = page.harness.query_all_by_role(Role::Tab).collect();
+    let both = tabs
+        .iter()
+        .find(|n| {
+            n.accesskit_node()
+                .label()
+                .unwrap_or_default()
+                .contains("transactions")
+        })
+        .expect("the transactions tab");
+    assert!(both.rect().width() >= 70.0, "96 less the close button");
+    // The marks are compact: the title keeps at least 60 pt.
+    let title = page
+        .harness
+        .query_all_by_role_and_label(Role::Label, "transactions")
+        .next()
+        .expect("the title");
+    assert!(title.rect().width() >= 60.0, "{:?}", title.rect());
+    let name = both.accesskit_node().label().unwrap_or_default();
+    assert!(name.contains(t("tabs.state.production")), "{name}");
+    assert!(name.contains(t("tabs.state.read_only")), "{name}");
+}
+
+#[test]
 fn a_single_tab_shows_no_strip() {
     let page = page_with_tabs(&[]);
     assert!(

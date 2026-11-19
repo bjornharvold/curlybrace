@@ -1892,28 +1892,35 @@
     "topology_sharded": "Sharded"
   },
   "tabs": {
-    "accessible_name": "{title}, {namespace} on {connection}{badges}, tab {position} of {count}",
+    "accessible_name": "{title}, {namespace} on {connection}, tab {position} of {count}",
+    "accessible_name_with_state": "{title}, {namespace} on {connection}, {state}, tab {position} of {count}",
     "all_tabs": "All tabs",
-    "badge_production": ", production connection",
-    "badge_read_only": ", read-only connection",
     "close": "Close tab",
     "close_named": "Close {title}",
     "close_others": "Close other tabs",
     "close_right": "Close tabs to the right",
     "dormant_run": "Run the query to load documents",
+    "dormant_waiting": "The connection was lost. This tab keeps its query until you run it.",
     "duplicate": "Duplicate tab",
     "empty_title": "Select a collection",
     "limit_reached": "{max} tabs are open. Close one to open another.",
+    "menu_entry": "{title}, tab {position} of {count}",
     "move_left": "Move left",
     "move_right": "Move right",
     "new_tab": "New tab",
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
+    "state": {
+      "needs_run": "needs Run",
+      "production": "production connection",
+      "read_only": "read-only connection",
+      "unsaved": "unsaved changes"
+    },
     "strip": "Collection tabs",
     "title_with_connection": "{collection} · {connection}",
     "title_with_db": "{db}.{collection}",
     "tooltip": "{connection} / {namespace}: {sub}",
-    "unsaved": ", unsaved changes"
+    "tooltip_with_state": "{connection} / {namespace}: {sub} ({state})"
   },
   "tools": {
     "check_again": "Check again",

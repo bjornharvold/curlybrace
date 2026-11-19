@@ -44,7 +44,7 @@ fn drafted(t: Two) -> Two {
 }
 
 #[test]
-fn lost_connection_resets_every_tab_of_the_session_and_no_other() {
+fn lost_connection_empties_every_tab_of_the_session_of_its_results_and_no_other() {
     let t = drafted(two_tabs());
     let s = t.s;
     let (s, b, b_tab) = with_second_session(s);
@@ -267,10 +267,12 @@ fn a_dropped_collection_blanks_every_tab_that_showed_it() {
             db: "app".into(),
         },
     );
+    // Blanked, and nobody can see a blank tab: they are swept.
     for tab in [t.second, third] {
-        let view = parked(&s, tab);
-        assert_eq!(view.ns, None, "{tab:?} showed the dropped collection");
-        assert!(view.page.is_none() && view.editor.is_none());
+        assert!(
+            !s.tabs.owner.contains_key(&tab),
+            "{tab:?} showed the dropped collection"
+        );
     }
     assert_eq!(
         s.selected_ns(),
@@ -299,7 +301,7 @@ fn a_vanished_database_blanks_its_tabs() {
         "a listed database keeps its tabs"
     );
     let s = ev(s, listed(&["other"]));
-    assert_eq!(parked(&s, t.second).ns, None);
+    assert!(!s.tabs.owner.contains_key(&t.second), "blanked and swept");
     assert_eq!(s.selected_ns(), None);
 }
 

@@ -72,7 +72,12 @@ pub(super) fn show_collection(
     }
     let (has_prev, has_next) = state.paging();
     let hints = &state.aggregate.options_ui.hint;
-    let actions = show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n);
+    let salt = ("findbar", state.active_tab());
+    let actions = ui
+        .push_id(salt, |ui| {
+            show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n)
+        })
+        .inner;
     out.extend(
         actions
             .into_iter()
@@ -96,7 +101,7 @@ pub(super) fn show_collection(
         let empty = if state.loading_page {
             "browser.loading"
         } else if dormant {
-            "tabs.dormant_run"
+            "tabs.dormant_waiting"
         } else {
             "browser.load_failed"
         };

@@ -57,6 +57,36 @@ pub(super) fn evict_within(state: &mut AppState, parked: usize, bytes: usize) {
     }
 }
 
+/// Closes every tab that shows nothing, holds no work and is not the one being looked at, unless
+/// it is its session's only tab: nobody can see such a tab, so nothing else would ever close it
+/// (a Cmd+T tab left behind by a click in another connection's tree, a tab blanked by a vanished
+/// database or a dropped collection). Called after every reducer step; with one tab per session
+/// (the usual case) it returns at once.
+pub(super) fn sweep_empty(state: &mut AppState) {
+    if state.tabs.order.len() <= state.open.len() {
+        return;
+    }
+    let active = state.active_tab();
+    let doomed: Vec<TabId> = state
+        .tabs
+        .order
+        .iter()
+        .copied()
+        .filter(|t| Some(*t) != active)
+        .filter(|t| state.glance(*t).is_some_and(|g| g.is_idle_empty()))
+        .collect();
+    for tab in doomed {
+        let lone = state
+            .tabs
+            .owner
+            .get(&tab)
+            .is_none_or(|session| state.tabs.of_session(*session).len() < 2);
+        if !lone {
+            *state = std::mem::take(state).tab_closed(tab);
+        }
+    }
+}
+
 fn evict_tab(state: &mut AppState, tab: TabId) {
     if let Some(view) = state.parked_tabs.remove(&tab) {
         state.parked_tabs.insert(tab, Box::new(evicted(*view)));
@@ -65,10 +95,19 @@ fn evict_tab(state: &mut AppState, tab: TabId) {
 
 /// `view` without what the server can supply again.
 fn evicted(view: TabView) -> TabView {
-    // A preview in flight is awaited by number; leave a draft that waits for an answer alone.
-    let aggregate = match view.aggregate.in_flight.is_some() {
+    // A draft that waits for an answer (a preview, an explain, a count, a run) is left alone: the
+    // answer is routed to it by number. Otherwise its preview goes back to Idle and its explain
+    // and counts are reset, but a finished run keeps its outcome (what the person last did).
+    let waiting = view.aggregate.in_flight.is_some()
+        || view.aggregate.explain.is_loading()
+        || view.aggregate.counts.is_running()
+        || view.aggregate.run.is_running();
+    let aggregate = match waiting {
         true => view.aggregate,
-        false => Box::new(view.aggregate.on_collection_changed()),
+        false => {
+            let run = view.aggregate.run.clone().dialog_closed();
+            Box::new(view.aggregate.on_collection_changed().with_run(run))
+        }
     };
     TabView {
         page: None,

@@ -99,7 +99,9 @@ fn refused(state: AppState) -> Out {
 }
 
 fn at_limit(state: &AppState) -> bool {
-    state.tabs.order.len() >= MAX_TABS
+    // The tabs a person can see, plus none that are hidden: a session's only tab, when it is
+    // empty and not shown, is not one they opened.
+    state.visible_tabs().len() >= MAX_TABS
 }
 
 /// The view the person leaves behind when another tab is shown: its run confirmation belongs to
@@ -155,6 +157,10 @@ fn new_tab(state: AppState) -> Out {
     let Some(session) = state.active else {
         return (state, Vec::new());
     };
+    // A new tab reads its collection: not while the connection is down or being made.
+    if state.status != ConnStatus::Connected {
+        return (state, Vec::new());
+    }
     if at_limit(&state) {
         return refused(state);
     }
@@ -346,6 +352,15 @@ fn run(state: AppState, tab: TabId) -> Out {
 #[cfg(test)]
 #[path = "tab_activation_tests.rs"]
 mod activation_tests;
+#[cfg(test)]
+#[path = "tab_dormant_tests.rs"]
+mod dormant_tests;
+#[cfg(test)]
+#[path = "tab_hidden_tests.rs"]
+mod hidden_tests;
+#[cfg(test)]
+#[path = "tab_review_fix_tests.rs"]
+mod review_fix_tests;
 #[cfg(test)]
 #[path = "tab_actions_tests.rs"]
 mod tests;

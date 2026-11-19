@@ -73,6 +73,10 @@ pub fn all_tabs_menu(ui: &mut Ui, view: &StripView<'_>, i18n: &I18n) -> Option<T
                 let entry = ui.add(
                     egui::Button::selectable(current, &label.title).min_size(egui::vec2(0.0, 24.0)),
                 );
+                // Named by its place too: two tabs on one collection are told apart.
+                entry.widget_info(|| {
+                    WidgetInfo::selected(WidgetType::Button, true, current, &label.menu_name)
+                });
                 if entry.on_hover_text(&label.tooltip).clicked() {
                     chosen = Some(TabAction::Activate(*tab));
                     ui.close();

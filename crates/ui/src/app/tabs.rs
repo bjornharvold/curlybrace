@@ -315,18 +315,6 @@ impl AppState {
         })
     }
 
-    /// The foreground tab sent (or is about to send) a find: it is no longer waiting for Run after
-    /// a lost connection.
-    pub(super) fn awake_current(self) -> AppState {
-        match self.active.and_then(|s| self.tabs.current.get(&s).copied()) {
-            Some(tab) if self.tabs.dormant.contains(&tab) => {
-                let tabs = self.tabs.clone().awakened(tab);
-                AppState { tabs, ..self }
-            }
-            _ => self,
-        }
-    }
-
     /// The foreground tab emptied: no collection, no text, no results. What belongs to the
     /// session (the sampler's and the profiler's status) stays.
     #[inline(never)]

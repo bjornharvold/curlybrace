@@ -97,6 +97,36 @@ fn active_and_other_sessions_current_pages_are_never_evicted() {
 }
 
 #[test]
+fn an_evicted_tab_keeps_a_finished_runs_outcome() {
+    use crate::viewmodel::aggregate_run::RunStatus;
+    let (mut s, _, tabs) = with_pages(4);
+    let failed = RunStatus::Failed(curlybrace_core::error::CoreError::Unreachable);
+    if let Some(view) = s.parked_tabs.get_mut(&tabs[1]) {
+        view.aggregate.run.status = failed.clone();
+    }
+    evict_within(&mut s, 0, 0);
+    assert!(!has_page(&s, tabs[1]), "its page went");
+    assert_eq!(
+        parked(&s, tabs[1]).aggregate.run.status,
+        failed,
+        "what the person last did stays"
+    );
+}
+
+#[test]
+fn a_draft_waiting_for_a_run_answer_is_left_alone_by_eviction() {
+    use crate::viewmodel::aggregate_run::RunStatus;
+    let (mut s, _, tabs) = with_pages(4);
+    if let Some(view) = s.parked_tabs.get_mut(&tabs[1]) {
+        view.aggregate.run.status = RunStatus::Running;
+        view.aggregate.run.run = 4242;
+    }
+    evict_within(&mut s, 0, 0);
+    assert_eq!(parked(&s, tabs[1]).aggregate.run.run, 4242);
+    assert_eq!(parked(&s, tabs[1]).aggregate.run.status, RunStatus::Running);
+}
+
+#[test]
 fn an_evicted_tab_is_stale_and_refetches_when_shown() {
     let (s, _, tabs) = with_pages(RETAINED_PARKED + 2);
     let evicted = tabs[1];

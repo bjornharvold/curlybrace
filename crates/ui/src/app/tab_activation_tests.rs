@@ -229,7 +229,7 @@ fn the_active_tab_shortcuts_act_on_the_tab_being_looked_at() {
 #[test]
 fn close_others_and_close_right() {
     let t = two_tabs();
-    let (s, third) = opened(t.s, t.a, Namespace::new("app", "events"));
+    let (s, _third) = opened(t.s, t.a, Namespace::new("app", "events"));
     let first = s.tabs.order[0];
     let (right, _) = tabs(s, TabAction::CloseRight(first));
     assert_eq!(
@@ -238,8 +238,10 @@ fn close_others_and_close_right() {
         "everything after the first closed"
     );
     assert_eq!(right.active_tab(), Some(first));
+    // The newest closed one (the last of the strip) comes back as a new tab.
     let (s, _) = tabs(right, TabAction::ReopenClosed);
-    let _ = (s, third);
+    assert_eq!(s.tabs_of(t.a).len(), 2);
+    assert_eq!(s.selected_ns(), Some(&orders()));
     let t = two_tabs();
     let (s, _) = opened(t.s, t.a, Namespace::new("app", "events"));
     let keep = s.tabs.order[1];

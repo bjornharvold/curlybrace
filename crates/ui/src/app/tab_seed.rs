@@ -6,6 +6,7 @@ use super::session::carried_aggregate;
 use super::state::{AppState, ConnStatus};
 use super::tab_strip::ClosedTab;
 use super::tabs::TabId;
+use crate::viewmodel::aggregate_run::RunUi;
 use crate::viewmodel::{AggregateState, CollectionTab, EditorState, FindBarState, ViewMode};
 use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
@@ -25,6 +26,10 @@ impl Seed {
     /// The foreground tab's text and choices: never its results, nothing in flight.
     fn of_foreground(state: &AppState, dormant: bool) -> Self {
         let (aggregate, _) = carried_aggregate(&state.aggregate, &state.aggregate_view);
+        // A copy ran nothing: it takes none of the source's run (its number would route the
+        // source's answer to the copy, and "outcome unknown" would be a lie, the connection never
+        // dropped). `carried_aggregate` already cleared the previews, explain, counts and hint list.
+        let aggregate = Box::new(aggregate.with_run(RunUi::default()));
         Self {
             ns: state.selected_ns().cloned(),
             find: state.find.clone(),
