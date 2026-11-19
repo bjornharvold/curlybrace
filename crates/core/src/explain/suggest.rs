@@ -17,12 +17,34 @@ fn operators(value: &Bson) -> Option<Vec<&str>> {
     }
 }
 
+/// How a query shape marks a regex in an `$in` list (its pattern is never kept).
+pub(crate) const SHAPE_REGEX_ITEM: &str = "$regex";
+
+/// A BSON regex literal, or an `$in` list holding one (or the shape's marker for one). A regex
+/// matches a range of values, not one, so it is no exact match.
+fn is_pattern(value: &Bson) -> bool {
+    let item = |v: &Bson| match v {
+        Bson::RegularExpression(_) => true,
+        Bson::String(s) => s == SHAPE_REGEX_ITEM,
+        _ => false,
+    };
+    match value {
+        Bson::RegularExpression(_) => true,
+        Bson::Document(d) => {
+            matches!(d.get("$in"), Some(Bson::Array(items)) if items.iter().any(item))
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn is_equality(value: &Bson) -> bool {
-    operators(value).is_none_or(|ops| ops.iter().all(|o| EQUALITY_OPS.contains(o)))
+    !is_pattern(value)
+        && operators(value).is_none_or(|ops| ops.iter().all(|o| EQUALITY_OPS.contains(o)))
 }
 
 pub(crate) fn is_range(value: &Bson) -> bool {
-    operators(value).is_some_and(|ops| ops.iter().any(|o| RANGE_OPS.contains(o)))
+    is_pattern(value)
+        || operators(value).is_some_and(|ops| ops.iter().any(|o| RANGE_OPS.contains(o)))
 }
 
 pub(crate) fn direction(value: &Bson) -> i32 {

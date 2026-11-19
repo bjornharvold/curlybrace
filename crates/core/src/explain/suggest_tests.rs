@@ -21,6 +21,29 @@ fn suggests_equality_then_sort_then_range() {
 }
 
 #[test]
+fn a_regex_literal_is_suggested_as_a_range_after_the_exact_matches() {
+    let regex = |p: &str| {
+        bson::Bson::RegularExpression(bson::Regex {
+            pattern: p.into(),
+            options: String::new(),
+        })
+    };
+    for name in [
+        regex("foo"),
+        bson::Bson::Document(doc! { "$in": [regex("^a")] }),
+    ] {
+        let q = Query {
+            filter: doc! { "ts": { "$gt": 1 }, "name": name, "status": "a" },
+            ..Query::default()
+        };
+        assert_eq!(
+            suggest(&q).unwrap().keys,
+            keys(&[("status", 1), ("ts", 1), ("name", 1)])
+        );
+    }
+}
+
+#[test]
 fn deduplicates_fields() {
     let q = Query {
         filter: doc! { "status": "open", "age": { "$gte": 1 } },

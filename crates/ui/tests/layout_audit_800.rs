@@ -16,7 +16,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use support::aggregate_shots::aggregate_tab;
 use support::compare_states::{Through, compare_state};
-use support::indexes_shots::{indexes_tab, queries_view};
+use support::indexes_shots::{indexes_tab, queries_view, queries_view_field_order};
 use support::shell_shots::empty as shell_empty;
 use support::shots::{browsing, build_app};
 
@@ -325,6 +325,14 @@ fn indexes() {
 #[test]
 fn queries() {
     audit("queries", &page(vec![], queries_view));
+}
+
+#[test]
+fn queries_with_a_field_order_row() {
+    audit(
+        "queries_field_order",
+        &page(vec![], queries_view_field_order),
+    );
 }
 
 #[test]

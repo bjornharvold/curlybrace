@@ -2,6 +2,7 @@
 
 use bson::{Bson, Document};
 
+use super::field_order::{FieldOrderFinding, check as check_field_order};
 use super::suggest::suggest;
 use super::verdict::{Reason, Verdict, VerdictKind};
 use crate::error::{CoreError, Result};
@@ -28,23 +29,36 @@ pub(crate) fn is_eq_lookup(stage: &str) -> bool {
     matches!(stage, "EQ_LOOKUP" | "EQ_LOOKUP_UNWIND")
 }
 
-/// Every stage in the plan tree (pre-order), with the first index name found.
-pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
+/// Where a plan walk records the first index it finds.
+#[derive(Default)]
+pub(crate) struct FirstIndex<'a> {
+    /// The index name.
+    pub(crate) name: Option<String>,
+    /// The key pattern of the index scan that found it (none for an `_id` lookup).
+    pub(crate) key_pattern: Option<&'a Document>,
+}
+
+/// The stages that scan an index (and carry its `keyPattern`).
+const INDEX_SCAN_STAGES: [&str; 3] = ["IXSCAN", "EXPRESS_IXSCAN", "EXPRESS_CLUSTERED_IXSCAN"];
+
+/// Every stage in the plan tree (pre-order), with the first index found.
+pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, first: &mut FirstIndex<'a>) {
     if let Ok(stage) = node.get_str("stage") {
         stages.push(stage);
-        if index.is_none() {
-            *index = match stage {
-                "IXSCAN" | "EXPRESS_IXSCAN" | "EXPRESS_CLUSTERED_IXSCAN" => {
-                    node.get_str("indexName").ok().map(str::to_owned)
+        if first.name.is_none() {
+            match stage {
+                s if INDEX_SCAN_STAGES.contains(&s) => {
+                    first.name = node.get_str("indexName").ok().map(str::to_owned);
+                    first.key_pattern = node.get_document("keyPattern").ok();
                 }
-                "IDHACK" | "EXPRESS_IDHACK" => Some("_id_".to_owned()),
-                _ => None,
-            };
+                "IDHACK" | "EXPRESS_IDHACK" => first.name = Some("_id_".to_owned()),
+                _ => {}
+            }
         }
     }
     for key in ["inputStage", "queryPlan"] {
         if let Ok(child) = node.get_document(key) {
-            walk(child, stages, index);
+            walk(child, stages, first);
         }
     }
     if let Ok(children) = node.get_array("inputStages") {
@@ -58,7 +72,7 @@ pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mu
             .iter()
             .filter_map(Bson::as_document)
             .take(wanted)
-            .for_each(|c| walk(c, stages, index));
+            .for_each(|c| walk(c, stages, first));
     }
     // mongos: the merge stage on top, each shard's own plan under `shards[].winningPlan`.
     if let Ok(shards) = node.get_array("shards") {
@@ -66,7 +80,7 @@ pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mu
             .iter()
             .filter_map(Bson::as_document)
             .filter_map(|s| s.get_document("winningPlan").ok())
-            .for_each(|plan| walk(plan, stages, index));
+            .for_each(|plan| walk(plan, stages, first));
     }
 }
 
@@ -109,9 +123,18 @@ struct Plan<'a> {
     inefficient: bool,
     /// Statistics are present and a collection scan read no document: the collection is empty.
     scanned_nothing: bool,
+    /// The order problem of the one index the plan scans, when it can be judged.
+    field_order: Option<FieldOrderFinding>,
 }
 
 impl Plan<'_> {
+    fn range_before_equality(&self) -> bool {
+        matches!(
+            self.field_order,
+            Some(FieldOrderFinding::RangeBeforeEquality { .. })
+        )
+    }
+
     fn has(&self, stage: &str) -> bool {
         self.stages.contains(&stage)
     }
@@ -129,6 +152,8 @@ impl Plan<'_> {
             VerdictKind::SortNotCovered
         } else if self.has("COLLSCAN") {
             VerdictKind::CollectionScan
+        } else if self.range_before_equality() {
+            VerdictKind::FieldOrder
         } else if self.has("IXSCAN") && !self.plan_only && self.inefficient {
             VerdictKind::InefficientIndex
         } else if self.has("PROJECTION_COVERED") || (self.has("IXSCAN") && !self.has("FETCH")) {
@@ -139,19 +164,64 @@ impl Plan<'_> {
     }
 }
 
-fn reasons(plan: &Plan, kind: VerdictKind, keys: u64, docs: u64, returned: u64) -> Vec<Reason> {
+/// How a reason names the index: its name, or for a scan that reports none its keys as
+/// `{ a: 1, b: -1 }`, so the sentence never has a blank in it.
+fn index_label(name: Option<&str>, key_pattern: Option<&Document>) -> String {
+    match (name, key_pattern) {
+        (Some(name), _) if !name.is_empty() => name.to_owned(),
+        (_, Some(keys)) => {
+            let list: Vec<String> = keys.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+            format!("{{ {} }}", list.join(", "))
+        }
+        _ => String::new(),
+    }
+}
+
+/// The plain-words reason for an order problem. Params are field and index names only.
+fn field_order_reason(finding: &FieldOrderFinding, index: &str) -> Reason {
+    let (key, range, field) = match finding {
+        FieldOrderFinding::RangeBeforeEquality { range, field } => ("field_order", range, field),
+        FieldOrderFinding::RangeBeforeSort { range, field } => ("field_order_sort", range, field),
+    };
+    Reason::new(key)
+        .with_param("index", index)
+        .with_param("range", range)
+        .with_param("field", field)
+}
+
+fn inefficient_reason(keys: u64, docs: u64, returned: u64) -> Reason {
+    Reason::new("inefficient")
+        .with_param("examined", keys.max(docs))
+        .with_param("returned", returned)
+}
+
+fn reasons(
+    plan: &Plan,
+    kind: VerdictKind,
+    (keys, docs, returned): (u64, u64, u64),
+    index: &str,
+) -> Vec<Reason> {
+    let order = plan
+        .field_order
+        .iter()
+        .map(|finding| field_order_reason(finding, index));
     match kind {
         VerdictKind::CollectionScan => vec![Reason::new("collscan")],
         // A blocking sort over a full scan: the scan is the more severe news, so both show.
         VerdictKind::SortNotCovered if plan.has("COLLSCAN") => {
             vec![Reason::new("sort_blocking"), Reason::new("collscan")]
         }
-        VerdictKind::SortNotCovered => vec![Reason::new("sort_blocking")],
-        VerdictKind::InefficientIndex => vec![
-            Reason::new("inefficient")
-                .with_param("examined", keys.max(docs))
-                .with_param("returned", returned),
-        ],
+        VerdictKind::SortNotCovered => [Reason::new("sort_blocking")]
+            .into_iter()
+            .chain(order)
+            .collect(),
+        VerdictKind::FieldOrder => order
+            .chain(
+                (!plan.plan_only && plan.inefficient)
+                    .then(|| inefficient_reason(keys, docs, returned)),
+            )
+            .collect(),
+        VerdictKind::InefficientIndex => vec![inefficient_reason(keys, docs, returned)],
         VerdictKind::NoFilter => vec![Reason::new("no_filter")],
         VerdictKind::EmptyCollection => vec![Reason::new("empty_collection")],
         VerdictKind::IndexUsed | VerdictKind::CoveredByIndex => Vec::new(),
@@ -161,8 +231,27 @@ fn reasons(plan: &Plan, kind: VerdictKind, keys: u64, docs: u64, returned: u64) 
 fn wants_suggestion(kind: VerdictKind) -> bool {
     matches!(
         kind,
-        VerdictKind::CollectionScan | VerdictKind::SortNotCovered | VerdictKind::InefficientIndex
+        VerdictKind::CollectionScan
+            | VerdictKind::SortNotCovered
+            | VerdictKind::InefficientIndex
+            | VerdictKind::FieldOrder
     )
+}
+
+/// The order problem of the index the plan scans: judged only for a plan with exactly one index
+/// scan whose key pattern is known (several scans, as in an `$or`, are not judged).
+fn judge_field_order(
+    stages: &[&str],
+    key_pattern: Option<&Document>,
+    query: &Query,
+) -> Option<FieldOrderFinding> {
+    let scans = stages
+        .iter()
+        .filter(|s| INDEX_SCAN_STAGES.contains(s))
+        .count();
+    key_pattern
+        .filter(|_| scans == 1)
+        .and_then(|keys| check_field_order(keys, &query.filter, query.sort.as_ref()))
 }
 
 /// Classifies an explain document produced for `query`. Errors with
@@ -177,8 +266,8 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
     let winning = planner
         .and_then(|p| p.get_document("winningPlan"))
         .map_err(|_| CoreError::Database("explain output has no winning plan".into()))?;
-    let (mut stages, mut index_name) = (Vec::new(), None);
-    walk(winning, &mut stages, &mut index_name);
+    let (mut stages, mut first) = (Vec::new(), FirstIndex::default());
+    walk(winning, &mut stages, &mut first);
     if !has_access_stage(&stages) {
         return Err(CoreError::Database(
             "explain winning plan has no access stage".into(),
@@ -191,6 +280,7 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         count(stats, "nReturned"),
     );
     let scanned_nothing = stats.is_some() && stages.contains(&"COLLSCAN") && docs == 0;
+    let field_order = judge_field_order(&stages, first.key_pattern, query);
     let plan = Plan {
         stages,
         has_sort_key: query.sort.as_ref().is_some_and(|s| !s.is_empty()),
@@ -198,16 +288,19 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         plan_only: stats.is_none(),
         inefficient: is_inefficient(keys, docs, returned),
         scanned_nothing,
+        field_order,
     };
     let kind = plan.kind();
+    let index_label = index_label(first.name.as_deref(), first.key_pattern);
+    let index_name = first.name;
     Ok(Verdict {
         kind,
+        reasons: reasons(&plan, kind, (keys, docs, returned), &index_label),
         index_name,
         keys_examined: keys,
         docs_examined: docs,
         returned,
         plan_only: plan.plan_only,
-        reasons: reasons(&plan, kind, keys, docs, returned),
         suggestion: wants_suggestion(kind).then(|| suggest(query)).flatten(),
         namespace,
     })

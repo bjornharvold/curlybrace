@@ -5,7 +5,7 @@ use bson::{Bson, Document};
 use serde_json::{Map, Value, json};
 
 use super::{EXCLUDE_KEY, FILTER_KEY, INCLUDE_KEY, PLACEHOLDER, PROJECTION_KEY, SORT_KEY, Shape};
-use crate::explain::suggest::direction;
+use crate::explain::suggest::{SHAPE_REGEX_ITEM, direction};
 use crate::store::Query;
 
 const LOGICAL_OPS: [&str; 3] = ["$and", "$or", "$nor"];
@@ -65,7 +65,22 @@ fn query_value(doc: &Document) -> Value {
 fn field_value(value: &Bson) -> Value {
     match value {
         Bson::Document(doc) if is_operator_doc(doc) => Value::Object(operator_doc(doc)),
+        // A regex is a range of values, not one: keep that fact, never the pattern.
+        Bson::RegularExpression(_) => json!({ "$regex": PLACEHOLDER }),
         _ => placeholder(),
+    }
+}
+
+/// A list operand: `["?"]`, plus the regex marker when any item is a regex (or already the marker).
+fn list_value(items: &[Bson]) -> Value {
+    let has_regex = items.iter().any(|item| {
+        matches!(item, Bson::RegularExpression(_))
+            || matches!(item, Bson::String(s) if s == SHAPE_REGEX_ITEM)
+    });
+    if has_regex {
+        json!([PLACEHOLDER, SHAPE_REGEX_ITEM])
+    } else {
+        json!([PLACEHOLDER])
     }
 }
 
@@ -80,7 +95,7 @@ fn operator_doc(doc: &Document) -> Map<String, Value> {
 /// operator) document and `$not` an operator document.
 fn operand_value(op: &str, operand: &Bson) -> Value {
     match (op, operand) {
-        (op, Bson::Array(_)) if LIST_OPS.contains(&op) => json!([PLACEHOLDER]),
+        (op, Bson::Array(items)) if LIST_OPS.contains(&op) => list_value(items),
         ("$elemMatch", Bson::Document(doc)) if has_logical_op(doc) || !is_operator_doc(doc) => {
             query_value(doc)
         }

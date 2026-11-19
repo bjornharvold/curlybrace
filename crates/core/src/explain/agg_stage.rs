@@ -8,7 +8,7 @@ use super::agg_input::{
     collscans_unfiltered, has_nested_loop_lookup, input_returned, input_side_sort,
 };
 use super::agg_model::{AggHint, AggStage, InputPlan};
-use super::classify::{ACCESS_STAGES, is_eq_lookup, is_inefficient, walk};
+use super::classify::{ACCESS_STAGES, FirstIndex, is_eq_lookup, is_inefficient, walk};
 
 /// Most field names a stage detail lists.
 const DETAIL_KEYS: usize = 8;
@@ -167,8 +167,9 @@ pub(super) fn examined_hint(input: &InputPlan) -> Option<AggHint> {
 /// `winningPlan`) with the counters of `stats`. `None` when there is no recognisable plan.
 pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Option<ParsedInput> {
     let winning = planner.get_document("winningPlan").ok()?;
-    let (mut nodes, mut index) = (Vec::new(), None);
-    walk(winning, &mut nodes, &mut index);
+    let (mut nodes, mut first) = (Vec::new(), FirstIndex::default());
+    walk(winning, &mut nodes, &mut first);
+    let index = first.name;
     let stage_kind = nodes
         .iter()
         .copied()

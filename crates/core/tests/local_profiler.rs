@@ -21,9 +21,9 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::VerdictKind;
 use curlybrace_core::mongo_store::MongoStore;
-use curlybrace_core::profile::{ProfileEntry, classify_entry, entry_has_filter, is_own_traffic};
+use curlybrace_core::profile::{ProfileEntry, classify_entry, is_own_traffic};
 use curlybrace_core::read_only_store::ReadOnlyStore;
-use curlybrace_core::shape::from_profile_command;
+use curlybrace_core::shape::{Shape, from_profile_command};
 use curlybrace_core::store::{DocumentStore, Namespace, Query};
 use mongodb::{Client, Collection};
 use support::local_enabled;
@@ -183,7 +183,10 @@ async fn real_read_profile_returns_entries_with_the_expected_fields() {
 
 /// Verdict of an entry the way the poller computes it.
 fn verdict(e: &ProfileEntry) -> VerdictKind {
-    classify_entry(e, entry_has_filter(e))
+    // An entry without a shape (a getMore) is never folded; here it is judged as unfiltered.
+    let shape = from_profile_command(&e.op, &e.command)
+        .unwrap_or_else(|| Shape::from_json(r#"{"filter":{}}"#).expect("an empty shape"));
+    classify_entry(e, &shape)
 }
 
 #[tokio::test]
@@ -255,7 +258,8 @@ async fn real_entries_classify_as_expected() {
         (
             "wide",
             filter_is(range),
-            VerdictKind::InefficientIndex,
+            // { b: 1, a: 1 } puts the range on `b` before the exact match on `a`.
+            VerdictKind::FieldOrder,
             "find_inefficient",
         ),
     ];
@@ -266,7 +270,7 @@ async fn real_entries_classify_as_expected() {
         capture(name, raw_of(&raw, &ns(coll), "find", &pred));
     }
     let e = entry_of(&read, &ns("scan"), "find", no_filter);
-    assert!(!entry_has_filter(e));
+    assert!(!from_profile_command(&e.op, &e.command).is_some_and(|shape| shape.has_filter()));
     assert_eq!(verdict(e), VerdictKind::NoFilter, "{e:?}");
     capture(
         "find_no_filter",
@@ -283,6 +287,55 @@ async fn real_entries_classify_as_expected() {
             indexed.returned
         ),
         (1, 1, 1)
+    );
+}
+
+/// The plan summary of a real range-first index names its keys, so the entry is judged by them
+/// even on ten documents; the same query through an equality-first index is a plain index use.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn profiler_entry_judged_field_order() {
+    if !local_enabled("profiler_entry_judged_field_order") {
+        return;
+    }
+    let _serial = serial().await;
+    let env = Env::new().await;
+    let ten: Vec<Document> = (0..10)
+        .map(|i| doc! { "status": if i % 2 == 0 { "a" } else { "b" }, "createdAt": i })
+        .collect();
+    for name in ["range_first", "equality_first"] {
+        env.coll(name).insert_many(ten.clone()).await.unwrap();
+    }
+    env.index("range_first", doc! { "createdAt": 1, "status": 1 })
+        .await;
+    env.index("equality_first", doc! { "status": 1, "createdAt": 1 })
+        .await;
+    let start = start_mark().await;
+    env.level(2).await;
+    let filter = doc! { "status": "a", "createdAt": { "$gt": 2 } };
+    for name in ["range_first", "equality_first"] {
+        collect(env.coll(name).find(filter.clone()).await.unwrap()).await;
+    }
+    env.level(0).await;
+    let read = env.read(start).await;
+    let ns = |c: &str| format!("{}.{c}", env.db());
+    let wrong = entry_of(&read, &ns("range_first"), "find", filter_is(filter.clone()));
+    assert_eq!(wrong.plan_summary, "IXSCAN { createdAt: 1, status: 1 }");
+    assert_eq!(verdict(wrong), VerdictKind::FieldOrder, "{wrong:?}");
+    let good = entry_of(&read, &ns("equality_first"), "find", filter_is(filter));
+    assert_eq!(good.plan_summary, "IXSCAN { status: 1, createdAt: 1 }");
+    assert_eq!(verdict(good), VerdictKind::IndexUsed, "{good:?}");
+    let raw = raw_profile(&env.app, env.db(), start).await;
+    capture(
+        "find_field_order",
+        raw_of(
+            &raw,
+            &ns("range_first"),
+            "find",
+            filter_is(doc! {
+                "status": "a", "createdAt": { "$gt": 2 }
+            }),
+        ),
     );
 }
 

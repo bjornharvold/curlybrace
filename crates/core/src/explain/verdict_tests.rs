@@ -1,6 +1,20 @@
 use super::{VerdictKind, worst};
 
-const ALL: [VerdictKind; 7] = VerdictKind::ALL;
+const ALL: [VerdictKind; 8] = VerdictKind::ALL;
+
+#[test]
+fn field_order_code_round_trips() {
+    assert_eq!(VerdictKind::FieldOrder.code(), "field_order");
+    assert_eq!(
+        VerdictKind::from_code(VerdictKind::FieldOrder.code()),
+        Some(VerdictKind::FieldOrder)
+    );
+    assert_eq!(VerdictKind::FieldOrder.severity(), 2);
+    assert_eq!(
+        VerdictKind::FieldOrder.severity(),
+        VerdictKind::InefficientIndex.severity()
+    );
+}
 
 #[test]
 fn code_round_trips_for_every_variant() {
@@ -23,6 +37,7 @@ fn codes_are_pinned_because_history_persists_them() {
         (VerdictKind::InefficientIndex, "inefficient_index"),
         (VerdictKind::NoFilter, "no_filter"),
         (VerdictKind::EmptyCollection, "empty_collection"),
+        (VerdictKind::FieldOrder, "field_order"),
     ];
     for (kind, code) in pinned {
         assert_eq!(kind.code(), code);

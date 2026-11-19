@@ -97,6 +97,7 @@ fn presentation(kind: VerdictKind) -> (Tone, &'static str, &'static str) {
         VerdictKind::CollectionScan => (Tone::Bad, ICON_WARN, "query.verdict.title_collscan"),
         VerdictKind::SortNotCovered => (Tone::Warn, ICON_WARN, "query.verdict.title_sort"),
         VerdictKind::InefficientIndex => (Tone::Warn, ICON_WARN, "query.verdict.title_inefficient"),
+        VerdictKind::FieldOrder => (Tone::Warn, ICON_WARN, "query.verdict.title_field_order"),
         VerdictKind::NoFilter => (Tone::Neutral, ICON_INFO, "query.verdict.title_no_filter"),
         VerdictKind::EmptyCollection => (Tone::Neutral, ICON_INFO, "query.verdict.title_empty"),
     }
@@ -151,6 +152,8 @@ pub fn reason_text_key(suffix: &str) -> Option<&'static str> {
         "collscan" => "query.verdict.reason_collscan",
         "sort_blocking" => "query.verdict.reason_sort_blocking",
         "inefficient" => "query.verdict.reason_inefficient",
+        "field_order" => "query.verdict.reason_field_order",
+        "field_order_sort" => "query.verdict.reason_field_order_sort",
         "no_filter" => "query.verdict.reason_no_filter",
         "empty_collection" => "query.verdict.reason_empty_collection",
         "unauthorized" => "query.verdict.reason_unauthorized",

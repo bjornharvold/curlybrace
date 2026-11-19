@@ -362,6 +362,7 @@ fn is_miss_table() {
         (CoveredByIndex, false),
         (NoFilter, false),
         (EmptyCollection, false),
+        (FieldOrder, true),
     ] {
         assert_eq!(is_miss(kind), miss, "{kind:?}");
     }
@@ -370,6 +371,34 @@ fn is_miss_table() {
             .iter()
             .all(|k| is_miss(*k) == (k.severity() >= 2))
     );
+}
+
+#[test]
+fn field_order_is_a_miss() {
+    assert!(is_miss(VerdictKind::FieldOrder));
+}
+
+#[test]
+fn field_order_is_stored_and_read_back_and_outranks_a_good_verdict() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let at = NOW - 3_600;
+    db.record_shapes(&[
+        obs(app("h1"), at, 1, 0, (1, 1), VerdictKind::IndexUsed),
+        obs(app("h1"), at + 1, 1, 1, (1, 1), VerdictKind::FieldOrder),
+        obs(app("h1"), at + 2, 1, 0, (1, 1), VerdictKind::IndexUsed),
+    ])
+    .unwrap();
+    let got = read(&db, ChartRange::Day);
+    assert_eq!(got[0].worst, VerdictKind::FieldOrder);
+    assert_eq!(got[0].misses, 1);
+}
+
+#[test]
+fn severity_sql_ranks_field_order_as_two() {
+    let sql = super::shape_schema::severity_sql("worst");
+    assert!(sql.contains(" WHEN 'field_order' THEN 2"), "{sql}");
+    // A code an older build does not know ranks 0 (`ELSE 0`): the safe downgrade.
+    assert!(sql.ends_with("ELSE 0 END)"), "{sql}");
 }
 
 #[test]

@@ -117,6 +117,16 @@ pub fn index_drop_confirm(state: &mut AppState) {
 /// One recorded query shape on `field` with `verdict`: a day of 10 minute buckets in which the
 /// misses follow `miss_every` (none for a shape that never misses).
 fn shape_summary(field: &str, verdict: VerdictKind, miss_every: Option<i64>) -> ShapeSummary {
+    shape_summary_for(field, bson::doc! { field: 1 }, verdict, miss_every)
+}
+
+/// Like [`shape_summary`] for a shape of `filter`, told apart by `hash`.
+fn shape_summary_for(
+    hash: &str,
+    filter: bson::Document,
+    verdict: VerdictKind,
+    miss_every: Option<i64>,
+) -> ShapeSummary {
     let end = anchored_now(ChartRange::Day, SHOT_NOW);
     let buckets: Vec<ShapeBucket> = (0..BUCKETS)
         .map(|i| {
@@ -134,9 +144,9 @@ fn shape_summary(field: &str, verdict: VerdictKind, miss_every: Option<i64>) -> 
         })
         .collect();
     ShapeSummary {
-        hash: format!("hash-{field}"),
+        hash: format!("hash-{hash}"),
         shape_json: from_query(&Query {
-            filter: bson::doc! { field: 1 },
+            filter,
             ..Query::default()
         })
         .json(),
@@ -164,6 +174,33 @@ pub fn queries_view(state: &mut AppState) {
         .with_shapes(vec![
             shape_summary("email", VerdictKind::CollectionScan, Some(3)),
             shape_summary("createdAt", VerdictKind::SortNotCovered, Some(9)),
+            shape_summary("customerId", VerdictKind::IndexUsed, None),
+        ]);
+    state.indexes = state
+        .indexes
+        .clone()
+        .with_view(IndexesView::Queries)
+        .with_queries(queries);
+}
+
+/// The Queries view with a shape served by an index whose keys are in the wrong order next to a
+/// good one: the "Index fields in the wrong order" chip, its misses and the suggested index.
+pub fn queries_view_field_order(state: &mut AppState) {
+    indexes_tab(state);
+    let queries = QueriesState::default()
+        .with_profiling(ProfilingView::Known(ProfilingState {
+            level: 2,
+            slow_ms: 100,
+        }))
+        .with_status(ProfilerStatus::Reading { databases: 1 })
+        .with_shapes(vec![
+            // An exact match and a range, served by an index with the range first.
+            shape_summary_for(
+                "status-createdAt",
+                bson::doc! { "status": "a", "createdAt": { "$gt": 1 } },
+                VerdictKind::FieldOrder,
+                Some(4),
+            ),
             shape_summary("customerId", VerdictKind::IndexUsed, None),
         ]);
     state.indexes = state

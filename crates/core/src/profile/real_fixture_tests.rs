@@ -4,10 +4,17 @@
 
 use bson::{Bson, Document};
 
-use super::{ProfileEntry, classify_entry, entry_has_filter, is_own_traffic, parse_entry};
+use super::classify_tests::classify_entry;
+use super::{ProfileEntry, is_own_traffic, parse_entry};
 use crate::ejson::editor_json_to_doc;
 use crate::explain::VerdictKind;
 use crate::shape::from_profile_command;
+
+/// The verdict the poller gives `e`: judged with the shape of its own command.
+fn classify_with_its_shape(e: &ProfileEntry) -> VerdictKind {
+    let shape = from_profile_command(&e.op, &e.command).expect("the entry has a shape");
+    super::classify_entry(e, &shape)
+}
 
 fn raw(name: &str) -> Document {
     let text = match name {
@@ -19,6 +26,7 @@ fn raw(name: &str) -> Document {
         "explain" => include_str!("fixtures/real_explain.json"),
         "find_and_modify" => include_str!("fixtures/real_find_and_modify.json"),
         "find_collscan" => include_str!("fixtures/real_find_collscan.json"),
+        "find_field_order" => include_str!("fixtures/real_find_field_order.json"),
         "find_inefficient" => include_str!("fixtures/real_find_inefficient.json"),
         "find_ixscan" => include_str!("fixtures/real_find_ixscan.json"),
         "find_no_filter" => include_str!("fixtures/real_find_no_filter.json"),
@@ -36,7 +44,7 @@ fn raw(name: &str) -> Document {
     editor_json_to_doc(text).expect("real fixture parses")
 }
 
-const ALL: [&str; 20] = [
+const ALL: [&str; 21] = [
     "aggregate",
     "app_find",
     "count",
@@ -45,6 +53,7 @@ const ALL: [&str; 20] = [
     "explain",
     "find_and_modify",
     "find_collscan",
+    "find_field_order",
     "find_inefficient",
     "find_ixscan",
     "find_no_filter",
@@ -64,8 +73,7 @@ fn entry(name: &str) -> ProfileEntry {
 }
 
 fn verdict(name: &str) -> VerdictKind {
-    let e = entry(name);
-    classify_entry(&e, entry_has_filter(&e))
+    classify_with_its_shape(&entry(name))
 }
 
 #[test]
@@ -111,7 +119,17 @@ fn real_find_entries_classify_as_the_explain_classifier_would() {
     assert_eq!(verdict("find_collscan"), VerdictKind::CollectionScan);
     assert_eq!(verdict("find_ixscan"), VerdictKind::IndexUsed);
     assert_eq!(verdict("find_sort"), VerdictKind::SortNotCovered);
-    assert_eq!(verdict("find_inefficient"), VerdictKind::InefficientIndex);
+    // The captured plan scans { b: 1, a: 1 } for an equality on `a` and a range on `b`: a range
+    // before an exact match, which now outranks the examined/returned ratio.
+    assert_eq!(verdict("find_inefficient"), VerdictKind::FieldOrder);
+    // The same counts through an index in equality, range order are inefficient only.
+    let mut esr = entry("find_inefficient");
+    esr.plan_summary = "IXSCAN { a: 1, b: 1 }".into();
+    assert_eq!(classify_with_its_shape(&esr), VerdictKind::InefficientIndex);
+    // Ten documents: far too few for the ratio, so only the plan summary's keys can say it.
+    let small = entry("find_field_order");
+    assert_eq!(small.plan_summary, "IXSCAN { createdAt: 1, status: 1 }");
+    assert_eq!(verdict("find_field_order"), VerdictKind::FieldOrder);
     assert_eq!(verdict("find_no_filter"), VerdictKind::NoFilter);
     let sort = entry("find_sort");
     assert!(sort.has_sort_stage && sort.plan_summary == "IXSCAN { a: 1 }");
@@ -217,10 +235,7 @@ fn a_ratio_that_would_be_inefficient_is_not_for_distinct_count_or_aggregate() {
 fn an_aggregate_that_scans_the_collection_is_still_a_collection_scan() {
     let text = include_str!("fixtures/aggregate_match.json");
     let e = parse_entry(&editor_json_to_doc(text).unwrap()).unwrap();
-    assert_eq!(
-        classify_entry(&e, entry_has_filter(&e)),
-        VerdictKind::CollectionScan
-    );
+    assert_eq!(classify_with_its_shape(&e), VerdictKind::CollectionScan);
 }
 
 /// A real write entry with its counters replaced: `keys` examined through the index and
