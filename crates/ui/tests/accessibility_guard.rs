@@ -170,7 +170,7 @@ fn guard_notice_has_no_create_index() {
         harness.get_by_role_and_label(Role::Button, &t("query.verdict.copy"));
         assert!(
             harness
-                .query_by_label(&t("query.verdict.create_index"))
+                .query_by_label(&t("indexes.create_suggested"))
                 .is_none()
         );
     }

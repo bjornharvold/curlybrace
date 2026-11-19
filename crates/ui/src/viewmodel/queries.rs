@@ -1,6 +1,7 @@
 //! View-model of the Queries view of the Indexes tab: the recorded query shapes of the collection,
 //! the profiler of its database and the consent step before the profiler is switched.
 //! Pure and egui-free; the updaters return new values.
+use super::index_detail::Age;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{SuggestedIndex, VerdictKind, js_string};
 use curlybrace_core::history::{ChartRange, ShapeSource, ShapeSummary, is_miss};
@@ -82,9 +83,11 @@ pub enum QueriesAction {
     /// Ask to turn the profiler off (opens the consent step; sends nothing).
     AskDisable,
     ConfirmDisable,
-    /// Open the index builder with the suggestion of the row whose shape has this hash.
+    /// Open the index builder with the suggestion of the row of this shape (a hash can be
+    /// recorded from the app and from typed queries, so the source tells the rows apart).
     CreateIndex {
         hash: String,
+        source: ShapeSource,
     },
 }
 
@@ -257,7 +260,7 @@ pub struct QueryRow {
     pub suggestion: Option<String>,
     /// The same index as data, for the index builder; `Some` exactly when `suggestion` is.
     pub suggested: Option<SuggestedIndex>,
-    /// Start (Unix seconds) of the newest bucket of the range that ran the shape.
+    /// End (Unix seconds) of the newest bucket of the range that ran the shape.
     pub last_run_secs: Option<i64>,
 }
 
@@ -293,14 +296,24 @@ fn row_of(summary: &ShapeSummary, ns: &Namespace) -> QueryRow {
     }
 }
 
-/// The start of the newest bucket that ran the shape; `None` when no bucket did.
+/// The end (Unix seconds) of the newest bucket that ran the shape; `None` when no bucket did. The
+/// run happened somewhere inside the bucket, and its end is the nearest bound to now, so the age
+/// errs toward recent. The precision is the bucket width (10 min, 1 h or 1 d by range), so the
+/// same shape can read a little differently on the 24 h, 7 d and 30 d ranges: that is the
+/// resolution the history keeps, not a mistake.
 pub fn last_run_secs(summary: &ShapeSummary) -> Option<i64> {
     summary
         .buckets
         .iter()
         .filter(|b| b.executions > 0)
-        .map(|b| b.start_secs)
+        .map(|b| b.start_secs + b.width_secs)
         .max()
+}
+
+/// How long ago the last run was: from the bucket's end, but never from after `now_secs` (the
+/// bucket still open ends in the future).
+pub fn last_run_age(last_run_secs: i64, now_secs: i64) -> Age {
+    Age::of((now_secs - last_run_secs).max(0))
 }
 
 /// The advice for a shape that misses an index now; a neutral or good one (an index created since

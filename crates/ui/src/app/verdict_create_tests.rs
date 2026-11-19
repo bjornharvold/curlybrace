@@ -84,12 +84,20 @@ fn create_from_verdict_carries_keys_and_the_query_s_collation() {
         [("status", KeyKind::Asc), ("createdAt", KeyKind::Desc)]
     );
     assert!(builder.collation_text.contains("\"en\""), "{builder:?}");
+    // Browse never listed the indexes, so the list is asked for with the document count.
     assert_eq!(
         shown(&commands),
-        shown(&[Command::EstimatedCount {
-            session: id,
-            ns: ns()
-        }])
+        shown(&[
+            Command::EstimatedCount {
+                session: id,
+                ns: ns()
+            },
+            Command::ListIndexes {
+                session: id,
+                ns: ns(),
+                request: s.indexes.request
+            },
+        ])
     );
 }
 

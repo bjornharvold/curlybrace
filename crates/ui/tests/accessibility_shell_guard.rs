@@ -131,6 +131,14 @@ fn both_buttons_and_the_copy_buttons_are_named() {
 }
 
 #[test]
+fn the_shell_notice_has_no_create_index() {
+    // The notice is about to run a script, not about the collection's indexes: Copy only.
+    let h = notice(0);
+    assert_eq!(h.get_all_by_label(&t("query.verdict.copy")).count(), 2);
+    assert!(h.query_by_label(&t("indexes.create_suggested")).is_none());
+}
+
+#[test]
 fn cancel_has_the_first_focus_and_enter_cancels() {
     let mut h = notice(0);
     let name = t("shell.guard.cancel_run");

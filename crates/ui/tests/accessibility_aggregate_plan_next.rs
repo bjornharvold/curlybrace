@@ -74,7 +74,7 @@ fn controls() -> [(Role, String); 4] {
             Role::Button,
             t("aggregate.options.explain.copy_create_index"),
         ),
-        (Role::Button, t("aggregate.options.explain.create_index")),
+        (Role::Button, t("indexes.create_suggested")),
     ]
 }
 
@@ -116,12 +116,12 @@ fn tab_walks_try_clear_copy_create_in_order() {
 #[test]
 fn the_disabled_create_index_reads_its_reason() {
     let harness = open((1000.0, 1400.0), run(true));
-    let label = t("aggregate.options.explain.create_index");
+    let label = t("indexes.create_suggested");
     let create = harness.get_by_role_and_label(Role::Button, &label);
     assert!(create.accesskit_node().is_disabled());
     assert_eq!(
         create.accesskit_node().description(),
-        Some(t("aggregate.options.explain.create_index_read_only"))
+        Some(t("indexes.create_suggested_read_only"))
     );
     // Copy command stays on: the command can be created elsewhere.
     let copy_label = t("aggregate.options.explain.copy_create_index");

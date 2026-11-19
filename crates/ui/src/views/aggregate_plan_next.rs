@@ -159,9 +159,9 @@ fn show_suggestion(
         }
         let allowed = !context.read_only;
         let create = gate(ui, allowed, |ui| {
-            tonal_button(ui, i18n.t("aggregate.options.explain.create_index"))
+            tonal_button(ui, i18n.t("indexes.create_suggested"))
         });
-        let reason = i18n.t("aggregate.options.explain.create_index_read_only");
+        let reason = i18n.t("indexes.create_suggested_read_only");
         let create = explained(ui, create, (!allowed).then_some(reason.as_str()));
         if create.clicked() && allowed {
             actions.push(AggregateAction::Explain(ExplainAction::CreateIndex));

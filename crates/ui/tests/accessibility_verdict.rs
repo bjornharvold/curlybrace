@@ -7,7 +7,8 @@ use curlybrace_core::store::{Namespace, Query};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::VerdictState;
 use curlybrace_ui::viewmodel::verdict::{BadgeModel, badge};
-use curlybrace_ui::views::verdict_badge::{CreateIndex, VerdictAction, show_verdict_row};
+use curlybrace_ui::views::create_index::CreateIndex;
+use curlybrace_ui::views::verdict_badge::{VerdictAction, show_verdict_row};
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -164,11 +165,10 @@ fn why_popup_offers_create_index_beside_copy() {
 fn create_index_is_off_with_its_reason_when_read_only_or_busy() {
     let i18n = I18n::english();
     for (create, key) in [
-        (
-            CreateIndex::ReadOnly,
-            "query.verdict.create_index_read_only",
-        ),
-        (CreateIndex::Busy, "indexes.write_busy"),
+        (CreateIndex::ReadOnly, "indexes.create_suggested_read_only"),
+        (CreateIndex::IndexWrite, "indexes.write_busy"),
+        (CreateIndex::Prompt, "indexes.create_prompt_open"),
+        (CreateIndex::WriteWarning, "indexes.create_warning_open"),
     ] {
         let mut harness = open_with(&ready(scan()), create);
         expand(&mut harness);

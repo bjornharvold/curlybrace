@@ -59,6 +59,7 @@ mod explain_settings;
 mod guard_actions;
 pub use guard_actions::GuardState;
 mod browse_panel;
+mod create_index_state;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
@@ -916,6 +917,9 @@ mod index_write_tests;
 
 #[cfg(test)]
 mod queries_failure_tests;
+
+#[cfg(test)]
+mod create_index_state_tests;
 
 #[cfg(test)]
 mod queries_create_tests;

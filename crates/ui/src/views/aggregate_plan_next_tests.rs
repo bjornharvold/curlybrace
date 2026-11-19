@@ -130,7 +130,7 @@ fn a_collection_scan_plan_shows_try_an_index_and_the_suggestion() {
         Role::Button,
         &t("aggregate.options.explain.copy_create_index"),
     );
-    h.get_by_role_and_label(Role::Button, &t("aggregate.options.explain.create_index"));
+    h.get_by_role_and_label(Role::Button, &t("indexes.create_suggested"));
     h.get_by_label_contains("createIndex({ \"status\": 1, \"total\": -1 })");
     assert!(
         h.query_by_label(&t("aggregate.options.explain.clear_hint"))
@@ -320,12 +320,12 @@ fn copy_puts_the_command_on_the_clipboard() {
 #[test]
 fn create_index_is_off_with_the_reason_on_a_read_only_connection() {
     let mut h = harness(scan(), context(true));
-    let label = t("aggregate.options.explain.create_index");
+    let label = t("indexes.create_suggested");
     let create = h.get_by_role_and_label(Role::Button, &label);
     assert!(create.accesskit_node().is_disabled());
     assert_eq!(
         create.accesskit_node().description(),
-        Some(t("aggregate.options.explain.create_index_read_only"))
+        Some(t("indexes.create_suggested_read_only"))
     );
     create.click();
     h.run_steps(2);
@@ -335,7 +335,7 @@ fn create_index_is_off_with_the_reason_on_a_read_only_connection() {
 #[test]
 fn create_index_emits_create_index() {
     let mut h = harness(scan(), context(false));
-    h.get_by_role_and_label(Role::Button, &t("aggregate.options.explain.create_index"))
+    h.get_by_role_and_label(Role::Button, &t("indexes.create_suggested"))
         .click();
     h.run_steps(3);
     assert_eq!(

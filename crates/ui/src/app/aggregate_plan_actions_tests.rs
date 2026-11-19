@@ -255,10 +255,18 @@ fn create_index_opens_the_builder_pre_filled() {
     assert_eq!(builder.name, "status_1_total_-1");
     assert_eq!(
         shown(&commands),
-        shown(&[Command::EstimatedCount {
-            session: id,
-            ns: people()
-        }])
+        shown(&[
+            Command::EstimatedCount {
+                session: id,
+                ns: people()
+            },
+            // The collection's indexes were never listed, so the builder gets the list too.
+            Command::ListIndexes {
+                session: id,
+                ns: people(),
+                request: s.indexes.request
+            },
+        ])
     );
     // Nothing is built without the dialog.
     assert!(s.pending.is_none());

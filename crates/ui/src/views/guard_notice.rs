@@ -2,8 +2,9 @@
 //! line without buttons; when the query would scan a collection (or sort in memory), the problem,
 //! its reasons, the suggested index with its copy button, and Run anyway / Cancel. Cancel takes
 //! the first focus, so a stray Enter never runs the query the notice just warned about.
+use super::create_index::CreateIndex;
 use super::index_dialogs::focus_once;
-use super::verdict_badge::{CreateIndex, VerdictAction, reason_line, show_suggestion};
+use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
 use crate::I18n;
 use crate::app::GuardState;
 use crate::theme::{Tone, current_ui, filled_button, shape, tonal_button};

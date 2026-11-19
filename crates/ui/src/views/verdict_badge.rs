@@ -1,10 +1,10 @@
-//! The index verdict as one fixed-height row above the documents: icon and title as one text in a tonal chip,
-//! plus a "Why" button that opens the reasons, the suggested index (with a copy button) and the
-//! estimate note in a popup under the row. The row is reserved even when there is no verdict
-//! and the popup floats, so the documents never move.
-use super::findbar::described;
+//! The index verdict as one fixed-height row above the documents: icon and title as one text in a
+//! tonal chip, plus a "Why" button that opens the reasons, the suggested index (with Copy and
+//! Create index... buttons) and the estimate note in a popup under the row. The row is reserved
+//! even when there is no verdict and the popup floats, so the documents never move.
+use super::create_index::{CreateIndex, create_button};
 use crate::I18n;
-use crate::theme::{self, chip, compact_text_button, gate, tonal_button};
+use crate::theme::{self, chip, compact_text_button};
 use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
 use eframe::egui;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -26,29 +26,6 @@ impl VerdictAction {
         match self {
             Self::CopySuggestion(command) => Some(command),
             Self::CreateIndex => None,
-        }
-    }
-}
-
-/// Whether the suggestion offers Create index... and in which state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CreateIndex {
-    /// No button (the guard notices: their context is "about to run", not the collection).
-    Hidden,
-    On,
-    /// Shown off: the connection is read-only.
-    ReadOnly,
-    /// Shown off: an index write or prompt is open.
-    Busy,
-}
-
-impl CreateIndex {
-    /// Why the button is off (its `en.json` key); `None` while it works or is hidden.
-    fn off_reason(self) -> Option<&'static str> {
-        match self {
-            Self::Hidden | Self::On => None,
-            Self::ReadOnly => Some("query.verdict.create_index_read_only"),
-            Self::Busy => Some("indexes.write_busy"),
         }
     }
 }
@@ -194,7 +171,7 @@ pub(super) fn show_suggestion(
     ui.label(egui::RichText::new(command).monospace());
     ui.horizontal_wrapped(|ui| {
         let copy = compact_text_button(ui, i18n.t("query.verdict.copy")).clicked();
-        let create_clicked = create != CreateIndex::Hidden && create_button(ui, create, i18n);
+        let create_clicked = create != CreateIndex::Hidden && create_button(ui, create, None, i18n);
         match (copy, create_clicked) {
             (true, _) => Some(VerdictAction::CopySuggestion(command.to_string())),
             (false, true) => Some(VerdictAction::CreateIndex),
@@ -202,21 +179,6 @@ pub(super) fn show_suggestion(
         }
     })
     .inner
-}
-
-/// Create index..., off with its reason as hover text and accessible description.
-fn create_button(ui: &mut egui::Ui, create: CreateIndex, i18n: &I18n) -> bool {
-    let off = create.off_reason();
-    let response = gate(ui, off.is_none(), |ui| {
-        tonal_button(ui, i18n.t("query.verdict.create_index"))
-    });
-    match off {
-        Some(key) => {
-            described(ui, response, i18n.t(key));
-            false
-        }
-        None => response.clicked(),
-    }
 }
 
 #[cfg(test)]

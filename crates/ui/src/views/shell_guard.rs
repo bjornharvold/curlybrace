@@ -3,9 +3,10 @@
 //! a collection or sort in memory, with Run anyway and Cancel. The buttons share the title's row
 //! and the findings scroll in a short area, so a long list never takes the output pane's room.
 //! Cancel takes the first focus, so a stray Enter never runs the script the notice warned about.
+use super::create_index::CreateIndex;
 use super::guard_notice::{Announce, GuardNoticeAction, announced, on_container};
 use super::index_dialogs::focus_once;
-use super::verdict_badge::{CreateIndex, VerdictAction, reason_line, show_suggestion};
+use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
 use crate::I18n;
 use crate::theme::{ROW_GAP, Tone, filled_button, tonal_button};
 use crate::viewmodel::shell_guard_notice::{

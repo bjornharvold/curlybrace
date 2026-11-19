@@ -42,9 +42,25 @@ pub(super) fn open_with(
             true => s.indexes,
             false => s.indexes.for_collection(ns.clone()),
         };
+        // Opened from Browse or the Queries view, the Indexes tab may never have listed this
+        // collection; the builder warns about an existing index only against a loaded list. A
+        // real collection always has `_id_`, so an empty list is one not loaded.
+        let list_wanted = base.indexes.is_empty() && !base.loading;
+        let base = match list_wanted {
+            true => base.requested(),
+            false => base,
+        };
+        let list = list_wanted.then(|| Command::ListIndexes {
+            session,
+            ns: ns.clone(),
+            request: base.request,
+        });
         let indexes = base.with_builder(Some(builder));
-        let request = Command::EstimatedCount { session, ns };
-        (AppState { indexes, ..s }, vec![request])
+        let count = Command::EstimatedCount { session, ns };
+        (
+            AppState { indexes, ..s },
+            [Some(count), list].into_iter().flatten().collect(),
+        )
     })
 }
 

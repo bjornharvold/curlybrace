@@ -86,12 +86,20 @@ fn opening_the_builder_creates_it_for_the_selected_collection_and_asks_for_the_c
     let builder = s.indexes.builder.as_ref().expect("the builder is open");
     assert_eq!(builder.ns, ns());
     assert!(builder.is_untouched());
+    // The test state holds no index list, so the list is asked for with the count.
     assert_eq!(
         shown(&commands),
-        shown(&[Command::EstimatedCount {
-            session: id,
-            ns: ns()
-        }])
+        shown(&[
+            Command::EstimatedCount {
+                session: id,
+                ns: ns()
+            },
+            Command::ListIndexes {
+                session: id,
+                ns: ns(),
+                request: s.indexes.request
+            },
+        ])
     );
     // Opening it again changes nothing and asks nothing.
     let (again, commands) = act(s, IndexesAction::OpenBuilder);

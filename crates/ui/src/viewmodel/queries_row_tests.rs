@@ -1,5 +1,6 @@
 //! The suggested index as data and the last run on a row.
 use super::*;
+use crate::viewmodel::index_detail::Age;
 use curlybrace_core::explain::VerdictKind;
 use curlybrace_core::history::{ShapeBucket, ShapeSource, ShapeSummary};
 use curlybrace_core::shape::{from_query, suggest_for_shape};
@@ -72,11 +73,35 @@ fn last_run_is_the_newest_bucket_that_ran() {
         VerdictKind::CollectionScan,
         vec![bucket(1_000, 2), bucket(3_000, 1), bucket(2_000, 4)],
     );
-    assert_eq!(last_run_secs(&s), Some(3_000));
+    // The end of the newest bucket (start 3_000, width 600): the run happened at or before it.
+    assert_eq!(last_run_secs(&s), Some(3_600));
     assert_eq!(
         rows(&state_of(vec![s]), &ns())[0].last_run_secs,
-        Some(3_000)
+        Some(3_600)
     );
+}
+
+#[test]
+fn a_last_run_never_reads_as_after_now() {
+    // The bucket still open ends after now: the run is "just now", never in the future.
+    assert_eq!(last_run_age(3_600, 3_000), Age::Now);
+    // A finished bucket ages from its end, which errs toward recent.
+    assert_eq!(last_run_age(3_600, 3_600 + 1_200), Age::Minutes(20));
+}
+
+#[test]
+fn a_wide_bucket_reads_from_its_end_not_its_start() {
+    // A day bucket that started 30 hours ago ended 6 hours ago: "6 h", not "1 d".
+    let day = ShapeBucket {
+        start_secs: 0,
+        width_secs: 86_400,
+        executions: 1,
+        misses: 0,
+        gap_secs: 0,
+    };
+    let s = summary("email", VerdictKind::IndexUsed, vec![day]);
+    let end = last_run_secs(&s).unwrap();
+    assert_eq!(last_run_age(end, 30 * 3_600), Age::Hours(6));
 }
 
 #[test]
@@ -86,7 +111,7 @@ fn last_run_ignores_empty_buckets() {
         VerdictKind::CollectionScan,
         vec![bucket(1_000, 2), bucket(5_000, 0)],
     );
-    assert_eq!(last_run_secs(&s), Some(1_000));
+    assert_eq!(last_run_secs(&s), Some(1_600));
 }
 
 #[test]

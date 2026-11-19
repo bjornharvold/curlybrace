@@ -2,6 +2,7 @@
 //! Documents | Indexes | Aggregate tabs; the find bar; one wrapping row with the two global switches and
 //! the index verdict; the guard's notice (only while it has something to say); then the
 //! documents with their one-row toolbar. Kept dense so the data starts high on the window.
+use super::create_index_state::create_index_state;
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
@@ -21,9 +22,9 @@ use crate::views::findbar::{
 };
 use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
-use crate::views::indexes::show_indexes;
+use crate::views::indexes::show_indexes_warned;
 use crate::views::verdict_badge::{
-    CreateIndex, VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
+    VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
 };
 use eframe::egui;
 
@@ -211,21 +212,6 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<Find
     }
 }
 
-/// Whether Create index... works: not on a read-only connection, and not while an index write,
-/// an index prompt or a parked write warning is open.
-fn create_index_state(state: &AppState) -> CreateIndex {
-    if state.active_is_read_only() {
-        CreateIndex::ReadOnly
-    } else if state.indexes.writing.is_some()
-        || state.indexes.has_prompt()
-        || state.write_warning.is_some()
-    {
-        CreateIndex::Busy
-    } else {
-        CreateIndex::On
-    }
-}
-
 /// The Aggregate tab of the active session: its draft, drawn with the tab's own view state (per
 /// connection, like the Indexes tab's egui memory). When the tab is being left (`leaving`), the
 /// typing that still waits is sent too.
@@ -275,10 +261,10 @@ fn show_indexes_tab(
     // is not shared with the same collection on another connection.
     let shown = ui
         .push_id(("indexes_tab", state.active), |ui| {
-            show_indexes(
+            show_indexes_warned(
                 ui,
                 &state.indexes,
-                read_only,
+                (read_only, state.write_warning.is_some()),
                 i18n,
                 now_secs,
                 &state.sampling,

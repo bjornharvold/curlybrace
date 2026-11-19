@@ -3,6 +3,7 @@
 //! shapes. It draws state and reports what the person did; the reducer decides what happens.
 //! The status row has a fixed height, so nothing below it moves when the profiler or the poller
 //! changes state.
+use super::create_index::CreateIndex;
 use super::queries_chart::show_miss_chart;
 use super::queries_rows::show_rows;
 use super::tone_notice::tone_notice;
@@ -29,17 +30,18 @@ pub fn show_queries(
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<QueriesAction> {
-    show_queries_led(ui, state, ns, (read_only, false), i18n, now_secs, |_| ()).0
+    let create = CreateIndex::of(read_only, false, false, false);
+    show_queries_led(ui, state, ns, (read_only, create), i18n, now_secs, |_| ()).0
 }
 
 /// [`show_queries`] with `leading` drawn at the start of the range and refresh row (the Indexes
-/// tab puts its Indexes | Queries toggle there); returns what `leading` returned too. `busy` is
-/// whether an index write or prompt is open, which turns Create index... off.
+/// tab puts its Indexes | Queries toggle there); returns what `leading` returned too. `create` is
+/// the state of the rows' Create index... buttons (off when read-only or something else is open).
 pub fn show_queries_led<R>(
     ui: &mut egui::Ui,
     state: &QueriesState,
     ns: &Namespace,
-    (read_only, busy): (bool, bool),
+    (read_only, create): (bool, CreateIndex),
     i18n: &I18n,
     now_secs: i64,
     leading: impl FnOnce(&mut egui::Ui) -> R,
@@ -69,11 +71,10 @@ pub fn show_queries_led<R>(
     let list = rows(state, ns);
     match body(state, list.len()) {
         Body::Rows => {
-            let off = create_off(read_only, busy);
             let chosen = egui::ScrollArea::vertical()
                 .id_salt("queries_rows")
                 .auto_shrink([false; 2])
-                .show(ui, |ui| show_rows(ui, &list, off, now_secs, i18n))
+                .show(ui, |ui| show_rows(ui, &list, create, now_secs, i18n))
                 .inner;
             action = action.or(chosen);
         }
@@ -84,15 +85,6 @@ pub fn show_queries_led<R>(
         }
     }
     (action, led)
-}
-
-/// Why Create index... is off: the connection is read-only, or an index write or prompt is open.
-fn create_off(read_only: bool, busy: bool) -> Option<&'static str> {
-    match (read_only, busy) {
-        (true, _) => Some("indexes.queries.create_index_read_only"),
-        (false, true) => Some("indexes.write_busy"),
-        (false, false) => None,
-    }
 }
 
 fn empty_key(body: Body) -> &'static str {

@@ -1,6 +1,7 @@
 //! The Indexes tab of a collection (layout B): the indexes on the left with their usage in the
 //! selected range, the selected index on the right. Draws state and reports what the person
 //! did; the reducer decides what happens.
+use super::create_index::CreateIndex;
 use super::index_detail::{DetailInput, show_detail};
 use super::index_sampling::{sampling_toggle, show_sampling_body};
 use super::queries::show_queries_led;
@@ -33,8 +34,27 @@ pub fn show_indexes(
     now_secs: i64,
     sampling: &SamplingSettings,
 ) -> Option<IndexesAction> {
+    show_indexes_warned(ui, state, (read_only, false), i18n, now_secs, sampling)
+}
+
+/// [`show_indexes`] that also knows whether a document write waits for the production warning
+/// (`(read_only, write_warning)`), which turns the Queries view's Create index... off.
+pub fn show_indexes_warned(
+    ui: &mut egui::Ui,
+    state: &IndexesState,
+    (read_only, write_warning): (bool, bool),
+    i18n: &I18n,
+    now_secs: i64,
+    sampling: &SamplingSettings,
+) -> Option<IndexesAction> {
     if state.view == IndexesView::Queries {
-        return queries_view(ui, state, read_only, i18n, now_secs);
+        let create = CreateIndex::of(
+            read_only,
+            state.writing.is_some(),
+            state.has_prompt(),
+            write_warning,
+        );
+        return queries_view(ui, state, (read_only, create), i18n, now_secs);
     }
     let sampling_scope = ui.id().with(("indexes_sampling", &state.ns));
     // The toggle, the toolbar and the Sampling disclosure share one wrapping row.
@@ -130,7 +150,7 @@ fn view_toggle(ui: &mut egui::Ui, view: IndexesView, i18n: &I18n) -> Option<Inde
 fn queries_view(
     ui: &mut egui::Ui,
     state: &IndexesState,
-    read_only: bool,
+    create: (bool, CreateIndex),
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<IndexesAction> {
@@ -138,16 +158,8 @@ fn queries_view(
     let Some(ns) = state.ns.as_ref() else {
         return ui.horizontal_wrapped(toggle).inner;
     };
-    let busy = state.writing.is_some() || state.has_prompt();
-    let (queries, toggled) = show_queries_led(
-        ui,
-        &state.queries,
-        ns,
-        (read_only, busy),
-        i18n,
-        now_secs,
-        toggle,
-    );
+    let (queries, toggled) =
+        show_queries_led(ui, &state.queries, ns, create, i18n, now_secs, toggle);
     queries.map(IndexesAction::Queries).or(toggled)
 }
 

@@ -149,7 +149,7 @@ fn create_index_from_the_suggestion_builds_it_and_lists_it() {
     let mut f = fixture!();
     explained(&mut f);
     assert!(f.db.index_names(ORDERS).iter().all(|n| n == "_id_"));
-    click_key(&mut f, "aggregate.options.explain.create_index");
+    click_key(&mut f, "indexes.create_suggested");
     let create = f.labels.t("indexes.builder.create");
     wait_until(&mut f.harness, "the index builder", SHORT, |h| {
         h.query_all_by_role_and_label(Role::Button, &create)

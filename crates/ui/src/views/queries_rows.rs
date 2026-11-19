@@ -2,23 +2,23 @@
 //! alone), where it was seen, how often it ran and missed, when it last ran, how slow it was, the
 //! shape text and, for a miss, the suggested index. The shape and the suggestion each have a copy
 //! button, and the suggestion a Create index... button that only opens the index builder.
-use super::findbar::described;
+use super::create_index::{CreateIndex, create_button};
 use super::verdict_badge::chip_tone;
 use crate::I18n;
-use crate::theme::{card, chip, compact_text_button, gate, tonal_button};
-use crate::viewmodel::index_detail::Age;
+use crate::theme::{card, chip, compact_text_button};
+use crate::viewmodel::queries::last_run_age;
 use crate::viewmodel::queries_status::{misses_key, row_title, runs_key};
 use crate::viewmodel::verdict::kind_tone;
 use crate::viewmodel::{QueriesAction, QueryRow};
 use curlybrace_core::history::ShapeSource;
 use eframe::egui;
 
-/// Draws `rows` in order (the caller sorted them, misses first). `create_off` is why Create
-/// index... is off (its `en.json` key), or `None` while it works. `now_secs` is the frame's time.
+/// Draws `rows` in order (the caller sorted them, misses first). `create` is the state of
+/// each miss row's Create index... button. `now_secs` is the frame's time.
 pub fn show_rows(
     ui: &mut egui::Ui,
     rows: &[QueryRow],
-    create_off: Option<&'static str>,
+    create: CreateIndex,
     now_secs: i64,
     i18n: &I18n,
 ) -> Option<QueriesAction> {
@@ -28,7 +28,7 @@ pub fn show_rows(
         card(ui, |ui| {
             ui.set_width(ui.available_width());
             let place = (index + 1, total);
-            let shown = show_row(ui, row, place, (create_off, now_secs), i18n);
+            let shown = show_row(ui, row, place, (create, now_secs), i18n);
             action = shown.or(action.take());
         });
     }
@@ -41,22 +41,25 @@ fn show_row(
     ui: &mut egui::Ui,
     row: &QueryRow,
     place: (usize, usize),
-    (create_off, now_secs): (Option<&'static str>, i64),
+    (create, now_secs): (CreateIndex, i64),
     i18n: &I18n,
 ) -> Option<QueriesAction> {
     ui.horizontal_wrapped(|ui| {
         let (icon, title_key) = row_title(row.latest);
         let verdict = format!("{icon} {}", i18n.t(title_key));
         chip(ui, chip_tone(kind_tone(row.latest)), &verdict);
-        ui.weak(i18n.t(source_key(row.source)));
-        ui.label(count(runs_key(row.executions), row.executions, i18n));
-        ui.label(count(misses_key(row.misses), row.misses, i18n));
+        whole(
+            ui,
+            egui::RichText::new(i18n.t(source_key(row.source))).weak(),
+        );
+        whole(ui, count(runs_key(row.executions), row.executions, i18n));
+        whole(ui, count(misses_key(row.misses), row.misses, i18n));
         // Typed observations carry no durations: "slowest 0 ms" would be a false statement.
         if row.source == ShapeSource::App {
-            ui.label(count("indexes.queries.slowest", row.max_millis, i18n));
+            whole(ui, count("indexes.queries.slowest", row.max_millis, i18n));
         }
-        if let Some(start) = row.last_run_secs {
-            ui.label(last_run(start, now_secs, i18n));
+        if let Some(end) = row.last_run_secs {
+            whole(ui, last_run(end, now_secs, i18n));
         }
     });
     if row.worst != row.latest {
@@ -81,41 +84,24 @@ fn show_row(
             ui.ctx().copy_text(command.clone());
         }
         let create_label = i18n.t_with("indexes.queries.create_index_n", &params);
-        if create_button(ui, create_off, &create_label, i18n) {
+        if create_button(ui, create, Some(&create_label), i18n) {
             action = Some(QueriesAction::CreateIndex {
                 hash: row.hash.clone(),
+                source: row.source,
             });
         }
     });
     action
 }
 
-/// The Create index... button: the drawn text is short, the accessible name says which query it is
-/// for. Off, it keeps its place and says why as hover text and accessible description.
-fn create_button(
-    ui: &mut egui::Ui,
-    off: Option<&'static str>,
-    accessible_name: &str,
-    i18n: &I18n,
-) -> bool {
-    let response = gate(ui, off.is_none(), |ui| {
-        tonal_button(ui, i18n.t("indexes.queries.create_index"))
-    });
-    let name = accessible_name.to_string();
-    ui.ctx()
-        .accesskit_node_builder(response.id, |node| node.set_label(name));
-    match off {
-        Some(key) => {
-            described(ui, response, i18n.t(key));
-            false
-        }
-        None => response.clicked(),
-    }
+/// A label that moves to the next line whole instead of splitting in the middle.
+fn whole(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) {
+    ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
 }
 
-/// "Last run 20 min ago", from the start of the newest bucket that ran the shape.
-fn last_run(start_secs: i64, now_secs: i64, i18n: &I18n) -> String {
-    let age = Age::of(now_secs - start_secs);
+/// "Last run 20 min ago", from the end of the newest bucket that ran the shape.
+fn last_run(end_secs: i64, now_secs: i64, i18n: &I18n) -> String {
+    let age = last_run_age(end_secs, now_secs);
     let when = i18n.t_with(age.key(), &[("n", &age.count().to_string())]);
     i18n.t_with("indexes.queries.last_run", &[("when", &when)])
 }
