@@ -63,6 +63,8 @@ pub enum Input {
     Shell(ShellAction),
     /// The Aggregate tab of the active session.
     Aggregate(AggregateAction),
+    /// Open, close, switch or move collection tabs.
+    Tabs(super::tab_actions::TabAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,

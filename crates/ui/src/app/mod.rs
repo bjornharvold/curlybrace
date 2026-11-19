@@ -84,8 +84,12 @@ mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
 pub mod state;
+pub mod tab_actions;
+mod tab_eviction;
 mod tab_fanout;
+mod tab_queries;
 mod tab_routing;
+mod tab_seed;
 pub mod tab_strip;
 pub mod tabs;
 mod tool_picker;
@@ -890,6 +894,10 @@ mod tools_state_tests;
 mod tools_wiring_tests;
 
 #[cfg(test)]
+mod admin_dialog_tests;
+#[cfg(test)]
+mod admin_tests;
+#[cfg(test)]
 mod explain_settings_tests;
 #[cfg(test)]
 mod explain_tests;
@@ -897,21 +905,12 @@ mod explain_tests;
 mod guard_drop_tests;
 #[cfg(test)]
 mod guard_tests;
-
-#[cfg(test)]
-mod admin_dialog_tests;
-#[cfg(test)]
-mod admin_tests;
-
-#[cfg(test)]
-mod index_tests;
-
 #[cfg(test)]
 mod index_edit_tests;
-
+#[cfg(test)]
+mod index_tests;
 #[cfg(test)]
 mod index_write_tests;
-
 #[cfg(test)]
 mod queries_failure_tests;
 

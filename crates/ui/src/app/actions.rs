@@ -29,6 +29,13 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         }
         SidebarAction::LoadCollections(db) => gated(state, |s| load_collections(s, db)),
         SidebarAction::Open(ns) => gated(state, |s| open(s, ns)),
+        SidebarAction::OpenInNewTab(ns) => {
+            let session = state.session_id();
+            super::tab_actions::on_action(
+                state,
+                super::tab_actions::TabAction::OpenInNew { session, ns },
+            )
+        }
         SidebarAction::Refresh => gated(state, refresh),
         SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
         SidebarAction::CompareDatabaseTo(db) => {
@@ -132,7 +139,8 @@ fn open(state: AppState, ns: Namespace) -> Out {
         aggregate: Box::new(state.aggregate.on_collection_changed()),
         editor: None,
         ..state
-    };
+    }
+    .awake_current();
     // The Indexes tab belongs to one collection: it starts over for the new one (and asks for its
     // data when that tab is the one shown).
     let (next, requests) = super::index_actions::collection_opened(next);
@@ -244,7 +252,8 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
         issued_request: request,
         loading_page: true,
         ..state
-    };
+    }
+    .awake_current();
     (next, vec![command])
 }
 

@@ -49,6 +49,8 @@ pub enum SidebarAction {
     LoadCollections(String),
     Toggle(String),
     Open(Namespace),
+    /// Open the collection in a new tab of the session instead of replacing the current tab's.
+    OpenInNewTab(Namespace),
     Refresh,
     CompareTo(Namespace),
     CompareDatabaseTo(String),

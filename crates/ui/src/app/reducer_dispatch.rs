@@ -44,6 +44,7 @@ fn dispatch(state: AppState, input: Input) -> Out {
         Input::Copies(a) => saved_copies::on_action(state, a),
         Input::Shell(a) => shell_actions::on_action(state, a),
         Input::Aggregate(a) => aggregate_actions::on_action(state, a),
+        Input::Tabs(a) => super::tab_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
