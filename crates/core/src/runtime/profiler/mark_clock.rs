@@ -55,19 +55,18 @@ pub(super) fn without_future(read: ProfileRead) -> ProfileRead {
     else {
         return read;
     };
-    let before = read.entries.len();
     let entries: Vec<_> = read
         .entries
         .into_iter()
         .filter(|entry| entry.ts_millis <= cap)
         .collect();
-    // When something was dropped the position stops at the newest entry kept (none: it does not
-    // move), so a real entry stamped a moment later is never skipped. Unparseable documents carry
-    // no timestamp here and stay counted in `skipped`.
-    let newest_ts_millis = if entries.len() < before {
-        entries.iter().map(|entry| entry.ts_millis).max()
-    } else {
-        read.newest_ts_millis
+    // The raw newest stamp covers documents that could not be parsed too (counted in `skipped`).
+    // When it is past the cap the position stops at the newest entry kept (none: it does not
+    // move), so neither a dropped entry nor an unreadable document stamped ahead of the clock
+    // carries the mark past it, and a real entry stamped a moment later is never skipped.
+    let newest_ts_millis = match read.newest_ts_millis {
+        Some(newest) if newest > cap => entries.iter().map(|entry| entry.ts_millis).max(),
+        other => other,
     };
     ProfileRead {
         entries,

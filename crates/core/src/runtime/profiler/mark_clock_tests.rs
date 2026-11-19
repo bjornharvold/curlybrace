@@ -171,6 +171,40 @@ async fn a_server_time_of_zero_or_the_far_past_recounts_nothing_and_ends() {
 }
 
 #[tokio::test]
+async fn an_unparseable_future_document_never_moves_the_mark_ahead_of_the_clock() {
+    let future = SERVER_NOW + HOUR_MS;
+    let first = entry(SERVER_NOW - 5_000);
+    let history = Arc::new(HistoryDb::open_in_memory().unwrap());
+    let page = store(vec![first.clone()]).with_profile_unparseable("shop", vec![future]);
+    poll(&page, &history).await;
+    assert_eq!(executions(&history), 1);
+    // The position is the newest entry that could be read, not the stamp of the document that
+    // could not.
+    let stored = history.profile_mark(CONN, "shop").unwrap();
+    assert_eq!(stored, Some(SERVER_NOW - 5_000));
+    // After a restart (a fresh poller) a later real entry is still read, not skipped.
+    let later = vec![first, entry(SERVER_NOW - 2_000)];
+    let page = store(later).with_profile_unparseable("shop", vec![future]);
+    poll(&page, &history).await;
+    assert_eq!(executions(&history), 2);
+    assert_eq!(
+        history.profile_mark(CONN, "shop").unwrap(),
+        Some(SERVER_NOW - 2_000)
+    );
+}
+
+#[tokio::test]
+async fn an_unparseable_future_document_alone_leaves_the_mark_where_it_was() {
+    let history = history_with_mark(SERVER_NOW - HOUR_MS);
+    let page = store(Vec::new()).with_profile_unparseable("shop", vec![SERVER_NOW + HOUR_MS]);
+    poll(&page, &history).await;
+    assert_eq!(
+        history.profile_mark(CONN, "shop").unwrap(),
+        Some(SERVER_NOW - HOUR_MS)
+    );
+}
+
+#[tokio::test]
 async fn a_mark_in_the_past_is_left_alone() {
     let past = SERVER_NOW - HOUR_MS;
     let history = history_with_mark(past);
