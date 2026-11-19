@@ -87,7 +87,7 @@ pub mod state;
 pub mod tab_actions;
 mod tab_eviction;
 mod tab_fanout;
-mod tab_queries;
+pub mod tab_queries;
 mod tab_routing;
 mod tab_seed;
 pub mod tab_strip;

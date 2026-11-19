@@ -75,6 +75,7 @@ pub mod shell_scan;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod stage_complete;
+pub mod tab_title;
 pub mod table;
 pub mod tool_rows;
 pub mod tree;

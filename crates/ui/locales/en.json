@@ -1891,6 +1891,16 @@
     "topology_replica_set": "Replica set",
     "topology_sharded": "Sharded"
   },
+  "tabs": {
+    "accessible_name": "{title}, {namespace} on {connection}{badges}, tab {position} of {count}",
+    "badge_production": ", production connection",
+    "badge_read_only": ", read-only connection",
+    "empty_title": "Select a collection",
+    "title_with_connection": "{collection} · {connection}",
+    "title_with_db": "{db}.{collection}",
+    "tooltip": "{connection} / {namespace}: {sub}",
+    "unsaved": ", unsaved changes"
+  },
   "tools": {
     "check_again": "Check again",
     "check_again_named": "Check the {tool} file again",
