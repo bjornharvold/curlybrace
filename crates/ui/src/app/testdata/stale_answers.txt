@@ -1,0 +1,207 @@
+## connect
+  send Connect(S1)
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connecting failure=None databases=[] loading={} selected=None
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## connected
+  send ListDatabases { session: S1 }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=[] loading={} selected=None
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## databases
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app[0]", "other[0]"] loading={} selected=None
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## expand app
+  send ListCollections { session: S1, db: "app" }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[0]", "other[0]"] loading={"app"} selected=None
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## collections
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=None
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=None loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## open users
+  send Find { session: S1, ns: Namespace { db: "app", collection: "users" }, query: Query { filter: Document({}), sort: None, projection: None, skip: 0, limit: 50, options: PipelineOptions { collation: false, hint: false, allow_disk_use: false, max_time_ms: false, comment: false, read_preference: false } } }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=true page=none keyed=false
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## first page
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=3docs skip=0 more=true keyed=true
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=None
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## run twice
+  send GuardCheck { session: S1, targets: [GuardTarget { ns: Namespace { db: "app", collection: "users" }, method: "find", query: Query { filter: Document({"n": Int32(1)}), sort: None, projection: None, skip: 0, limit: 50, options: PipelineOptions { collation: false, hint: false, allow_disk_use: false, max_time_ms: false, comment: false, read_preference: false } } }], min_docs: Some(1000) }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=3docs skip=0 more=true keyed=true
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## older results
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Documents view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=false listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## indexes tab
+  send ListIndexes { session: S1, ns: Namespace { db: "app", collection: "users" } }
+  send IndexHistory { session: S1, ns: Namespace { db: "app", collection: "users" }, range: Day }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Indexes view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## refresh the indexes
+  send ListIndexes { session: S1, ns: Namespace { db: "app", collection: "users" } }
+  send IndexHistory { session: S1, ns: Namespace { db: "app", collection: "users" }, range: Day }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Indexes view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## older indexes
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Indexes view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## aggregate tab
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=0 selected=0 preview=Idle in_flight=false queued=false
+  | write_warning=false admin=false bulk=false
+## add a stage
+  send AggregatePreview { session: S1, ns: Namespace { db: "app", collection: "users" }, pipeline: [Document({"$match": Document({})}), Document({"$limit": Int64(20)})], options: PipelineOptions { collation: false, hint: false, allow_disk_use: false, max_time_ms: false, comment: false, read_preference: false } }
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=1 selected=0 preview=Loading in_flight=true queued=false
+  | write_warning=false admin=false bulk=false
+## edit the stage
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=1 selected=0 preview=Loading in_flight=true queued=true
+  | write_warning=false admin=false bulk=false
+## older preview
+  | active=Some(S1) open=[S1] workspace=Browse banner=None banner_session=None
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=1 selected=0 preview=Loading in_flight=true queued=true
+  | write_warning=false admin=false bulk=false
+## a failed find
+  | active=Some(S1) open=[S1] workspace=Browse banner=Some(Failure { context: "find", error: Database("boom") }) banner_session=Some(S1)
+  | S1 (active)
+  |   Connected failure=None databases=["app+[2]", "other[0]"] loading={} selected=Some(Namespace { db: "app", collection: "users" })
+  |   issued="filter=Document({}) sort=None projection=None skip=0 limit=50"
+  |   shown="filter=Document({}) sort=None projection=None skip=0 limit=50" loading_page=false page=7docs skip=0 more=false keyed=true
+  |   tab=Aggregate view=Tree editor=false pending=none verdict=None guard=Checking
+  |   find_text=QueryText { filter: "", sort: "", projection: "", skip: "", limit: "" }
+  |   indexes ns=Some(Namespace { db: "app", collection: "users" }) loading=true listed=0 series=0 selected=None writing=false queries_loading=false
+  |   aggregate stages=1 selected=0 preview=Loading in_flight=true queued=true
+  | write_warning=false admin=false bulk=false
+## disconnect
+  send Disconnect { session: S1 }
+  | active=None open=[] workspace=Browse banner=None banner_session=None
+  | write_warning=false admin=false bulk=false
+## answer after the disconnect
+  | active=None open=[] workspace=Browse banner=None banner_session=None
+  | write_warning=false admin=false bulk=false
+## indexes after the disconnect
+  | active=None open=[] workspace=Browse banner=None banner_session=None
+  | write_warning=false admin=false bulk=false

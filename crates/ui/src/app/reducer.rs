@@ -713,3 +713,10 @@ pub(super) fn forget_finished(state: AppState, result: Result<(), PersistError>)
 #[cfg(test)]
 #[path = "reducer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tab_characterisation_tests.rs"]
+mod tab_characterisation_tests;
+#[cfg(test)]
+#[path = "transcript_support.rs"]
+mod transcript_support;
