@@ -6,7 +6,7 @@ use curlybrace_ui::app::AggregateAction;
 use curlybrace_ui::app::state::{AppState, ConnStatus, HostEndpoint, Workspace};
 use curlybrace_ui::viewmodel::doc_actions::DeleteConfirm;
 use curlybrace_ui::viewmodel::{CollectionTab, FindAction};
-use eframe::egui::{Key, Modifiers, accesskit::Role};
+use eframe::egui::{self, Key, Modifiers, accesskit::Role};
 use egui_kittest::kittest::Queryable;
 use std::collections::BTreeMap;
 use support::browse_page::{BrowsePage, SIZE_1000, browse_page};
@@ -142,6 +142,73 @@ fn a_chord_with_an_extra_modifier_is_not_the_shortcut() {
     assert_ne!(app_state(&mut page).active_tab(), first);
     press(&mut page, Modifiers::COMMAND, Key::W);
     assert_eq!(tab_count(&page), 2);
+}
+
+/// One key press as a keyboard layout reports it: the logical key it types, the physical key it
+/// is, and the modifiers held.
+fn layout_press(page: &mut BrowsePage, logical: Key, physical: Key, mods: Modifiers) {
+    let key = |pressed| egui::Event::Key {
+        key: logical,
+        physical_key: Some(physical),
+        pressed,
+        repeat: false,
+        modifiers: mods,
+    };
+    page.harness.input_mut().modifiers = mods;
+    page.harness.input_mut().events.push(key(true));
+    page.harness.input_mut().events.push(key(false));
+    page.harness.run_steps(3);
+    page.harness.input_mut().modifiers = Modifiers::NONE;
+}
+
+#[test]
+fn a_digit_that_needs_shift_on_the_layout_still_picks_its_tab() {
+    let mut page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &["a", "b", "c", "d"]);
+    });
+    let order = app_state(&mut page).tabs.order.clone();
+    assert_eq!(order.len(), 5);
+    // French AZERTY: the 4 key types `'` (Quote), and Cmd+4 reports the physical 4 key.
+    layout_press(&mut page, Key::Quote, Key::Num4, Modifiers::COMMAND);
+    assert_eq!(app_state(&mut page).active_tab(), Some(order[3]));
+    // The digit typed with Shift is not the shortcut: QWERTY Cmd+Shift+3, and the same chord with
+    // the digit as its logical key too.
+    layout_press(
+        &mut page,
+        Key::Num3,
+        Key::Num3,
+        Modifiers::COMMAND | Modifiers::SHIFT,
+    );
+    layout_press(
+        &mut page,
+        Key::Num2,
+        Key::Num2,
+        Modifiers::COMMAND | Modifiers::SHIFT,
+    );
+    assert_eq!(app_state(&mut page).active_tab(), Some(order[3]));
+    assert_eq!(tab_count(&page), 5);
+}
+
+#[test]
+fn a_bracket_chord_is_found_by_its_physical_key_on_other_layouts() {
+    let mut page = browse_page(SIZE_1000, |state| {
+        browsing_with_tabs(state, &["a", "b"]);
+    });
+    let order = app_state(&mut page).tabs.order.clone();
+    layout_press(&mut page, Key::Num1, Key::Num1, Modifiers::COMMAND);
+    assert_eq!(app_state(&mut page).active_tab(), Some(order[0]));
+    // A layout whose bracket keys type other characters: the physical key decides (Shift held,
+    // no Alt needed), and an extra Alt on it is still refused.
+    let next = Modifiers::COMMAND | Modifiers::SHIFT;
+    layout_press(&mut page, Key::Semicolon, Key::CloseBracket, next);
+    assert_eq!(app_state(&mut page).active_tab(), Some(order[1]));
+    layout_press(
+        &mut page,
+        Key::Semicolon,
+        Key::OpenBracket,
+        next | Modifiers::ALT,
+    );
+    assert_eq!(app_state(&mut page).active_tab(), Some(order[1]));
 }
 
 #[test]

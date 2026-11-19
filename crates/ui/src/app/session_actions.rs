@@ -16,7 +16,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     };
     match state.status_of(id) {
         Some(ConnStatus::Failed) | None => {}
-        Some(_) => return super::tab_actions::shown_now(activate_in_browser(state, id)),
+        Some(_) => return super::tab_shown::shown_now(activate_in_browser(state, id)),
     }
     let state = super::aggregate_run_actions::dialog_closed(state);
     // A reconnect gives the session's current tab back what the person typed and chose (the other
@@ -104,7 +104,7 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         ..next
     };
     // The neighbour that took the focus shows its tab: a stale one reads again.
-    let (next, reads) = super::tab_actions::shown_now(next);
+    let (next, reads) = super::tab_shown::shown_now(next);
     let commands = cancel
         .into_iter()
         .chain([Command::Disconnect { session: id }])
@@ -115,7 +115,7 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
 
 /// Shows the open session `id`; unknown ids change nothing.
 pub(super) fn activate(state: AppState, id: Uuid) -> Out {
-    super::tab_actions::shown_now(activate_in_browser(state, id))
+    super::tab_shown::shown_now(activate_in_browser(state, id))
 }
 
 /// Shows the connection manager; the open sessions and their views stay as they are.

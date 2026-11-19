@@ -4,13 +4,14 @@
 //! so the code that reads `state.page` or `state.find` never learns that tabs exist. A tab opened
 //! here runs one read, the default query of its collection; nothing else is sent unless a stale
 //! tab is shown (it re-reads what it already read) or a dormant tab is told to Run.
-use super::actions::{gated, issue_find};
+use super::actions::gated;
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, Workspace};
 use super::tab_navigation as nav;
 use super::tab_seed::{Seed, seed_of, seeded};
+use super::tab_shown::shown_now;
 use super::tab_strip::TabNotice;
-use super::tabs::{Freshness, TabId};
+use super::tabs::TabId;
 use crate::viewmodel::{CollectionTab, submit_find};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::store::Namespace;
@@ -86,19 +87,6 @@ pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
             None => (state, Vec::new()),
         },
         TabAction::MoveActive(by) => (nav::moved_by(state, by), Vec::new()),
-    }
-}
-
-/// The limit notice stays until the person does something else: any input that is not a tab
-/// action dismisses it (a tab action decides for itself in `on_action`; a runtime answer does not
-/// pass here, so it cannot take the notice away before it was read).
-pub(super) fn notice_dismissed_by(state: AppState, input: &super::reducer::Input) -> AppState {
-    match state.tabs.notice.is_some() && !matches!(input, super::reducer::Input::Tabs(_)) {
-        true => AppState {
-            tabs: state.tabs.clone().with_notice(None),
-            ..state
-        },
-        false => state,
     }
 }
 
@@ -207,47 +195,6 @@ pub(super) fn activate(state: AppState, tab: TabId) -> Out {
         return (state, Vec::new());
     }
     shown_now(shown(state, tab))
-}
-
-/// The one step every path takes when a tab has just become the shown one (a tab switch, a
-/// connection picked in the tree, a closed connection's neighbour, a successor after a close): a
-/// stale tab reads the page it shows again (and its index list on Indexes), a read it already ran;
-/// a dormant tab sends nothing. Stale is cleared only by that read, never by itself: while the
-/// connection is down the mark stays.
-pub(super) fn shown_now(state: AppState) -> Out {
-    let Some(tab) = state.active_tab() else {
-        return (state, Vec::new());
-    };
-    let stale = state.freshness_of(tab) == Freshness::Stale;
-    match stale && state.status == ConnStatus::Connected {
-        true => refetch(refreshed(state, tab)),
-        false => (state, Vec::new()),
-    }
-}
-
-/// `tab` (current) is no longer marked stale.
-fn refreshed(state: AppState, tab: TabId) -> AppState {
-    AppState {
-        tabs: state.tabs.clone().with_stale(tab, false),
-        ..state
-    }
-}
-
-/// The foreground tab reads its page again (and its indexes when they are the ones shown).
-fn refetch(state: AppState) -> Out {
-    let query = match state.page.is_none() && state.loading_page {
-        true => state.issued_query.clone(),
-        false => state.page_query.clone(),
-    };
-    let (state, mut commands) = issue_find(state, query);
-    match state.tab {
-        CollectionTab::Indexes => {
-            let (state, more) = super::index_actions::switch_tab(state, CollectionTab::Indexes);
-            commands.extend(more);
-            (state, commands)
-        }
-        CollectionTab::Documents | CollectionTab::Aggregate => (state, commands),
-    }
 }
 
 fn duplicate(state: AppState, tab: TabId) -> Out {
@@ -404,6 +351,9 @@ mod hidden_tests;
 #[cfg(test)]
 #[path = "tab_review3_tests.rs"]
 mod review3_tests;
+#[cfg(test)]
+#[path = "tab_review4_tests.rs"]
+mod review4_tests;
 #[cfg(test)]
 #[path = "tab_review_fix_tests.rs"]
 mod review_fix_tests;

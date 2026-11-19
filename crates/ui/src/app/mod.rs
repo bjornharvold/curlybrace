@@ -91,6 +91,7 @@ pub mod tab_navigation;
 pub mod tab_queries;
 mod tab_routing;
 mod tab_seed;
+mod tab_shown;
 pub mod tab_strip;
 mod tab_strip_panel;
 pub mod tabs;
@@ -931,10 +932,9 @@ mod verdict_create_tests;
 mod queries_tests;
 
 #[cfg(test)]
-mod shell_tests;
-
-#[cfg(test)]
 mod shell_history_tests;
+#[cfg(test)]
+mod shell_tests;
 
 #[cfg(test)]
 mod shell_view_tests;

@@ -71,22 +71,34 @@ pub fn tab_shortcuts(ctx: &Context, enabled: bool) -> Vec<TabAction> {
     ctx.input_mut(|input| {
         table
             .into_iter()
-            .filter(|(mods, key, _)| consume_exact(input, *mods, *key))
+            .filter(|(mods, key, _)| consume_exact(input, *mods, *key, by_position(*key)))
             .map(|(_, _, action)| action)
             .collect()
     })
 }
 
-/// Consumes `key` pressed with exactly `mods`. egui's own `consume_key` matches logically: a
-/// chord with an extra Shift or Alt still counts, so Cmd+Shift+W would close a tab and
-/// Cmd+Shift+3 would pick one. A tab shortcut is the chord and nothing more.
-fn consume_exact(input: &mut InputState, mods: Modifiers, key: Key) -> bool {
+/// The digits and the brackets are also found by the physical key. egui-winit reports the key a
+/// press types (its logical key) first, and on a layout where a digit is typed with Shift (French
+/// AZERTY types `'` on the 4 key) or a bracket needs another key combination (German), the logical
+/// key is not the one the chord names; the physical key is. The modifiers must still be exactly
+/// the chord's, so Cmd+Shift+3 on a layout that types 3 plain is not Cmd+3. Letters stay logical:
+/// W and T are where a layout puts them.
+fn by_position(key: Key) -> bool {
+    DIGITS.contains(&key) || matches!(key, Key::OpenBracket | Key::CloseBracket)
+}
+
+/// Consumes `key` pressed with exactly `mods` (and, with `by_position`, the physical `key` with
+/// exactly `mods` too). egui's own `consume_key` matches logically: a chord with an extra Shift
+/// or Alt still counts, so Cmd+Shift+W would close a tab and Cmd+Shift+3 would pick one. A tab
+/// shortcut is the chord and nothing more.
+fn consume_exact(input: &mut InputState, mods: Modifiers, key: Key, by_position: bool) -> bool {
     let mut hit = false;
     input.events.retain(|event| {
         let is_it = matches!(
             event,
-            Event::Key { key: pressed, pressed: true, modifiers, .. }
-                if *pressed == key && modifiers.matches_exact(mods)
+            Event::Key { key: logical, physical_key, pressed: true, modifiers, .. }
+                if modifiers.matches_exact(mods)
+                    && (*logical == key || (by_position && *physical_key == Some(key)))
         );
         hit |= is_it;
         !is_it
