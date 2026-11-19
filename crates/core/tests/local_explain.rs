@@ -220,8 +220,49 @@ async fn real_compound_index_wrong_order_is_inefficient() {
         "keys {}",
         v.keys_examined
     );
-    assert_eq!(v.kind, VerdictKind::InefficientIndex, "{v:?}");
-    assert_eq!(v.reasons[0].key, "inefficient");
+    // { b: 1, a: 1 } puts the range on `b` before the exact match on `a`: a field-order problem
+    // that also trips the ratio, so both reasons show.
+    assert_eq!(v.kind, VerdictKind::FieldOrder, "{v:?}");
+    let reasons: Vec<&str> = v.reasons.iter().map(|r| r.key).collect();
+    assert_eq!(reasons, ["field_order", "inefficient"]);
+}
+
+/// The issue's headline case, on a tiny collection where the examined/returned ratio never
+/// trips: an index with the range field before the equality field is judged by its keys alone.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn field_order_on_a_range_first_index() {
+    if !local_enabled("field_order_on_a_range_first_index") {
+        return;
+    }
+    let _serial = serial().await;
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("orders");
+    let ten: Vec<Document> = (0..10)
+        .map(|i| doc! { "status": if i % 2 == 0 { "a" } else { "b" }, "createdAt": i })
+        .collect();
+    insert_labelled(&client, &ns, &ten).await;
+    create_index(&client, &ns, doc! { "createdAt": 1, "status": 1 }).await;
+    let q = query(doc! { "status": "a", "createdAt": { "$gt": 2 } });
+    let (explain, v) = verdict_of("field_order", &store, &ns, &q).await;
+    assert!(!explain.plan_only && !v.plan_only);
+    assert_eq!(v.kind, VerdictKind::FieldOrder, "{v:?}");
+    assert_eq!(v.index_name.as_deref(), Some("createdAt_1_status_1"));
+    assert_eq!(v.reasons[0].key, "field_order");
+    assert!(
+        v.suggestion.is_some_and(|s| s.keys[0].0 == "status"),
+        "the suggestion puts the exact match first"
+    );
+    // The same collection with an index in equality, range order is a plain index use.
+    create_index(&client, &ns, doc! { "status": 1, "createdAt": 1 }).await;
+    client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .drop_index("createdAt_1_status_1")
+        .await
+        .unwrap();
+    let (_, good) = verdict_of("field_order_esr", &store, &ns, &q).await;
+    assert_eq!(good.kind, VerdictKind::IndexUsed, "{good:?}");
 }
 
 #[tokio::test]
