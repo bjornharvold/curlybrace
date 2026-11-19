@@ -320,7 +320,7 @@
         </div>
         <div>
           <dt>Indexes, and how much they are used</dt>
-          <dd>An Indexes tab on each collection shows its indexes with size and use over the last 24 hours, 7 days or 30 days, from a local history. Create an index with a builder that shows the command first, edit a copy, hide or drop one, and change a TTL. Index changes follow the same production and read-only rules as document writes. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/68">#68</a>.</dd>
+          <dd>An Indexes tab on each collection shows its indexes with size and use over the last 24 hours, 7 days or 30 days, from a local history. Create an index with a builder that shows the command first, edit a copy, hide or drop one, and change a TTL. Index changes follow the same production and read-only rules as document writes. Queries that miss an index are kept in the same local history, from the profiler and from the explains you run (field names and operators only, never a value), with a suggested index you can open in the builder. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/68">#68</a> and <a href="https://github.com/bjornharvold/curlybrace/issues/116">#116</a>.</dd>
         </div>
         <div>
           <dt>Warned before a query scans the collection</dt>
@@ -377,7 +377,6 @@
           <h3>Next</h3>
           <ul>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/17">Signing and notarization</a><span>So the app opens without a Gatekeeper warning.</span></li>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/116">Index misses from your apps</a><span>The query bar and Shell now check before they run. Finding misses in what your own apps send, and keeping them over time, is still open.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/12">Inline editing</a><span>Edit a value in the table and tree views instead of the JSON editor.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/159">Tabs and split view</a><span>Several tabs per connection, two collections side by side, and the open tabs restored at launch.</span></li>
           </ul>

@@ -395,8 +395,11 @@ contribute.
   and fixes are welcome. See the [guide](docs/compare.md).
 
 - **Indexes tab and usage history** ([#68](https://github.com/bjornharvold/curlybrace/issues/68)): create, edit, hide, drop and change
-  the TTL of indexes, and see their use over time from a local history. Finding queries that miss
-  an index is a follow-up that builds on the profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)) and explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)).
+  the TTL of indexes, and see their use over time from a local history.
+- **Index misses from your apps** ([#116](https://github.com/bjornharvold/curlybrace/issues/116)): queries that miss an
+  index are kept in the same local history, from the profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)) and from the explains
+  you run ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), as field names and operators only, never a value. A suggested index opens in the
+  index builder.
 
 - **Shell tab** ([#50](https://github.com/bjornharvold/curlybrace/issues/50)): run your own `mongosh` from an editor with
   completion, a syntax check, history, and a table or tree view of the result. See **Shell** above.
@@ -421,9 +424,6 @@ contribute.
 
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
-- **Index misses from your apps** ([#116](https://github.com/bjornharvold/curlybrace/issues/116)): the query bar and
-  the Shell tab already warn before a scan; finding misses in the queries your own apps send, and
-  keeping them over time, is open.
 - **Inline editing** in the table and tree views ([#12](https://github.com/bjornharvold/curlybrace/issues/12)).
 - **Tabs and split view** ([#159](https://github.com/bjornharvold/curlybrace/issues/159)): several tabs per connection, two collections side by side, and the open tabs restored at launch.
 
