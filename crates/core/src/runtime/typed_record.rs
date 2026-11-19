@@ -11,7 +11,7 @@ use super::SessionId;
 use crate::error_name::variant_of;
 use crate::explain::VerdictKind;
 use crate::history::{HistoryDb, ShapeKey, ShapeObservation, ShapeSource, TYPED_HOST, is_miss};
-use crate::shape::from_query;
+use crate::shape::{Shape, from_query};
 use crate::store::{Namespace, Query};
 
 /// Builds the one observation a typed explain stands for: a single execution with its verdict.
@@ -19,11 +19,10 @@ use crate::store::{Namespace, Query};
 pub(super) fn typed_observation(
     connection: SessionId,
     ns: &Namespace,
-    query: &Query,
+    shape: &Shape,
     kind: VerdictKind,
     at_secs: i64,
 ) -> ShapeObservation {
-    let shape = from_query(query);
     ShapeObservation {
         key: ShapeKey {
             connection,
@@ -59,7 +58,20 @@ pub(super) fn record_typed(
     if query.options.hint.is_some() || query.options.collation.is_some() {
         return;
     }
-    let row = typed_observation(connection, ns, query, kind, now());
+    record_typed_shape(history, connection, ns, &from_query(query), kind, now);
+}
+
+/// Records an already built shape (a find's, or an explained pipeline's) the same way: detached,
+/// literal-free, a failure logged by its variant name.
+pub(super) fn record_typed_shape(
+    history: &Arc<HistoryDb>,
+    connection: SessionId,
+    ns: &Namespace,
+    shape: &Shape,
+    kind: VerdictKind,
+    now: &dyn Fn() -> i64,
+) {
+    let row = typed_observation(connection, ns, shape, kind, now());
     let history = Arc::clone(history);
     // Detached on purpose: nothing waits for the recording.
     drop(tokio::task::spawn_blocking(move || {

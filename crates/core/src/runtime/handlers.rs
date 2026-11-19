@@ -431,16 +431,8 @@ async fn data_command(
             options,
             ..
         } => aggregate_preview::run(session, &*store, request, ns, pipeline, &options).await?,
-        Command::AggregateExplain {
-            request,
-            ns,
-            stages,
-            verbosity,
-            options,
-            ..
-        } => {
-            aggregate_explain::run(session, &*store, request, ns, stages, verbosity, &options)
-                .await?
+        command @ Command::AggregateExplain { .. } => {
+            aggregate_explain::run(session, &*store, history.as_ref(), command).await?
         }
         Command::AggregateCount {
             request,

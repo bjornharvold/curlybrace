@@ -170,6 +170,7 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
     let (mut nodes, mut first) = (Vec::new(), FirstIndex::default());
     walk(winning, &mut nodes, &mut first);
     let index = first.name;
+    let key_pattern = first.key_pattern.cloned();
     let stage_kind = nodes
         .iter()
         .copied()
@@ -193,6 +194,7 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
         plan: InputPlan {
             stage_kind,
             index,
+            key_pattern,
             plan_stages: nodes.iter().map(|s| (*s).to_owned()).collect(),
             keys_examined: figure("totalKeysExamined"),
             docs_examined: figure("totalDocsExamined"),

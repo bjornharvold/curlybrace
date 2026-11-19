@@ -34,6 +34,8 @@ pub struct InputPlan {
     pub stage_kind: String,
     /// The first index the plan reads, when it reads one.
     pub index: Option<String>,
+    /// The key pattern of that index, when the plan names it (an `_id` lookup does not).
+    pub key_pattern: Option<bson::Document>,
     /// Every stage of the winning plan on this collection's side, root first (`GROUP`,
     /// `EQ_LOOKUP`, `PROJECTION_SIMPLE`, `FETCH`, `IXSCAN`, ...). It shows the pipeline stages the
     /// server pushed down into the plan, which are absent from `AggPlan::stages`.

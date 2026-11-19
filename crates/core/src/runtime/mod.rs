@@ -34,6 +34,9 @@ mod aggregate_explain_tests;
 #[cfg(test)]
 mod aggregate_options_tests;
 mod aggregate_preview;
+mod aggregate_record;
+#[cfg(test)]
+mod aggregate_record_tests;
 mod aggregate_run;
 #[cfg(test)]
 mod aggregate_run_tests;

@@ -39,7 +39,8 @@ pub(crate) struct FirstIndex<'a> {
 }
 
 /// The stages that scan an index (and carry its `keyPattern`).
-const INDEX_SCAN_STAGES: [&str; 3] = ["IXSCAN", "EXPRESS_IXSCAN", "EXPRESS_CLUSTERED_IXSCAN"];
+pub(crate) const INDEX_SCAN_STAGES: [&str; 3] =
+    ["IXSCAN", "EXPRESS_IXSCAN", "EXPRESS_CLUSTERED_IXSCAN"];
 
 /// Every stage in the plan tree (pre-order), with the first index found.
 pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, first: &mut FirstIndex<'a>) {
