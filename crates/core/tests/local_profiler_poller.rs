@@ -11,14 +11,15 @@ use std::time::{Duration, Instant};
 
 use bson::{Document, doc};
 use curlybrace_core::connection::ConnectionConfig;
-use curlybrace_core::explain::VerdictKind;
+use curlybrace_core::explain::{ExplainVerbosity, VerdictKind};
 use curlybrace_core::history::{ChartRange, ShapeSource, ShapeSummary};
+use curlybrace_core::pipeline::PipelineOptions;
 use curlybrace_core::runtime::{
     Command, Event, RuntimeConfig, RuntimeHandle, SamplerConfig, SessionId,
     spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::MemorySecretStore;
-use curlybrace_core::shape::from_query;
+use curlybrace_core::shape::{from_profile_command, from_query};
 use curlybrace_core::store::{Namespace, ProfilingState, Query};
 use mongodb::{Client, Collection};
 use support::profiler::{APP, ProfileReset, app_client, docs, serial};
@@ -409,4 +410,100 @@ async fn poller_records_a_gap_when_the_profile_rolls_off() {
             summarize(&shapes)
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn aggregate_explain_is_recorded_as_typed() {
+    if !local_enabled("aggregate_explain_is_recorded_as_typed") {
+        return;
+    }
+    let _serial = serial().await;
+    let mut env = Env::new().await;
+    env.seed().await;
+    env.connect().await;
+    let stages = vec![
+        doc! { "$match": { "c": 7 } },
+        doc! { "$sort": { "a": 1 } },
+        doc! { "$group": { "_id": "$a", "n": { "$sum": 1 } } },
+    ];
+    let command = Command::AggregateExplain {
+        session: env.session,
+        request: 1,
+        ns: env.ns(),
+        stages: stages.clone(),
+        verbosity: ExplainVerbosity::QueryPlanner,
+        options: PipelineOptions::default(),
+    };
+    match env.answer(command, "aggregate explain").await {
+        Event::AggregateExplained { outcome, .. } => assert!(outcome.is_ok(), "{outcome:?}"),
+        other => panic!("expected AggregateExplained, got {other:?}"),
+    }
+    let shapes = env
+        .wait_for("the explained pipeline", |s| {
+            s.iter().any(|row| row.source == ShapeSource::Typed)
+        })
+        .await;
+    let typed: Vec<&ShapeSummary> = shapes
+        .iter()
+        .filter(|s| s.source == ShapeSource::Typed)
+        .collect();
+    assert_eq!(typed.len(), 1, "{}", summarize(&shapes));
+    let pipeline: Vec<bson::Bson> = stages.into_iter().map(bson::Bson::Document).collect();
+    let command = doc! { "aggregate": "orders", "pipeline": pipeline };
+    let expected = from_profile_command("command", &command).expect("a leading $match is a shape");
+    assert_eq!(typed[0].hash, expected.hash());
+    // No index on `c`, and the sort is in the input plan or after it. (The real explain's index
+    // key pattern is exercised by `aggregate_explain_judges_field_order_from_the_key_pattern`.)
+    assert!(
+        matches!(
+            typed[0].worst,
+            VerdictKind::CollectionScan | VerdictKind::SortNotCovered
+        ),
+        "{:?}",
+        typed[0].worst
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn aggregate_explain_judges_field_order_from_the_key_pattern() {
+    if !local_enabled("aggregate_explain_judges_field_order_from_the_key_pattern") {
+        return;
+    }
+    let _serial = serial().await;
+    let mut env = Env::new().await;
+    env.seed().await;
+    // A range key (`b`) before the exact-match key (`a`): the index the server will pick.
+    let model = mongodb::IndexModel::builder()
+        .keys(doc! { "b": 1, "a": 1 })
+        .build();
+    env.orders().create_index(model).await.unwrap();
+    env.connect().await;
+    let command = Command::AggregateExplain {
+        session: env.session,
+        request: 1,
+        ns: env.ns(),
+        stages: vec![
+            doc! { "$match": { "a": 3, "b": { "$gt": 10 } } },
+            doc! { "$group": { "_id": "$a" } },
+        ],
+        verbosity: ExplainVerbosity::QueryPlanner,
+        options: PipelineOptions::default(),
+    };
+    let event = env.answer(command, "aggregate explain").await;
+    assert!(
+        matches!(event, Event::AggregateExplained { .. }),
+        "{event:?}"
+    );
+    let shapes = env
+        .wait_for("the explained pipeline", |s| {
+            s.iter().any(|row| row.source == ShapeSource::Typed)
+        })
+        .await;
+    let row = shapes
+        .iter()
+        .find(|s| s.source == ShapeSource::Typed)
+        .expect("a typed row");
+    assert_eq!(row.worst, VerdictKind::FieldOrder, "{}", summarize(&shapes));
 }

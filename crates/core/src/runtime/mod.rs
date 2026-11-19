@@ -34,6 +34,9 @@ mod aggregate_explain_tests;
 #[cfg(test)]
 mod aggregate_options_tests;
 mod aggregate_preview;
+mod aggregate_record;
+#[cfg(test)]
+mod aggregate_record_tests;
 mod aggregate_run;
 #[cfg(test)]
 mod aggregate_run_tests;
@@ -105,6 +108,8 @@ mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
+#[cfg(test)]
+mod shape_cleanup_start_tests;
 mod shell_handlers;
 mod shell_history_queue;
 #[cfg(test)]

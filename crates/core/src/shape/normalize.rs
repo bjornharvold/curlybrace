@@ -4,6 +4,7 @@
 use bson::{Bson, Document};
 use serde_json::{Map, Value, json};
 
+use super::operators::{is_query_operator, is_root_operator};
 use super::{EXCLUDE_KEY, FILTER_KEY, INCLUDE_KEY, PLACEHOLDER, PROJECTION_KEY, SORT_KEY, Shape};
 use crate::explain::suggest::{SHAPE_REGEX_ITEM, direction};
 use crate::store::Query;
@@ -22,8 +23,31 @@ fn sorted_by_text(items: Vec<Value>) -> Vec<Value> {
     keyed.into_iter().map(|(_, v)| v).collect()
 }
 
+/// A document whose keys are all known query operators. A `$`-key nobody knows may be data, so
+/// such a document is a literal (and collapses), never an operator document.
 fn is_operator_doc(doc: &Document) -> bool {
-    !doc.is_empty() && doc.keys().all(|k| k.starts_with('$'))
+    !doc.is_empty() && doc.keys().all(|k| is_query_operator(k))
+}
+
+/// Whether `doc` has a `$`-key that is neither a logical operator, a root-level query word
+/// (`$comment`, `$expr`, ...: they stay where they were) nor a known query operator.
+fn has_unknown_operator(doc: &Document) -> bool {
+    doc.keys().any(|k| {
+        k.starts_with('$')
+            && !LOGICAL_OPS.contains(&k.as_str())
+            && !is_root_operator(k)
+            && !is_query_operator(k)
+    })
+}
+
+/// The operand of `$elemMatch` made only of operators (field-level or root-level words), as
+/// before the allowlist: it prints as an operator document. Any other key, a plain field name or
+/// a logical operator, makes it a query document.
+fn is_elem_operator_doc(doc: &Document) -> bool {
+    !doc.is_empty()
+        && doc
+            .keys()
+            .all(|k| is_query_operator(k) || is_root_operator(k))
 }
 
 fn has_logical_op(doc: &Document) -> bool {
@@ -96,12 +120,14 @@ fn operator_doc(doc: &Document) -> Map<String, Value> {
 fn operand_value(op: &str, operand: &Bson) -> Value {
     match (op, operand) {
         (op, Bson::Array(items)) if LIST_OPS.contains(&op) => list_value(items),
-        ("$elemMatch", Bson::Document(doc)) if has_logical_op(doc) || !is_operator_doc(doc) => {
+        ("$elemMatch", Bson::Document(doc)) if has_unknown_operator(doc) => placeholder(),
+        ("$elemMatch", Bson::Document(doc))
+            if has_logical_op(doc) || !is_elem_operator_doc(doc) =>
+        {
             query_value(doc)
         }
-        ("$elemMatch" | "$not", Bson::Document(doc)) if is_operator_doc(doc) => {
-            Value::Object(operator_doc(doc))
-        }
+        ("$elemMatch", Bson::Document(doc)) => Value::Object(operator_doc(doc)),
+        ("$not", Bson::Document(doc)) if is_operator_doc(doc) => Value::Object(operator_doc(doc)),
         _ => placeholder(),
     }
 }

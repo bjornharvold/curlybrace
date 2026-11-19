@@ -35,7 +35,7 @@ fn a_version_2_file_migrates_to_3_keeping_series_and_shapes() {
                  VALUES (1, 'c', 'h', 'shop', 'orders', 'by_sku', 'x');
              INSERT INTO samples (series_id, at_secs, ops, since_ms) VALUES (1, 100, 5, 1000);
              INSERT INTO shape (id, connection, host, db, collection, hash, source, shape_json)
-                 VALUES (1, 'c', 'h', 'shop', 'orders', 'abc', 'app', '{}');
+                 VALUES (1, 'c', 'h', 'shop', 'orders', 'abc', 'app', '{\"filter\":{}}');
              INSERT INTO shape_bucket
                  (shape_id, tier, start_secs, executions, misses, total_millis, max_millis,
                   worst, gap_secs)

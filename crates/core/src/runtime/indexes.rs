@@ -12,6 +12,7 @@ use super::session::Session;
 use super::{Event, Repaint, SessionId, Shared};
 use crate::clock;
 use crate::error::{CoreError, Result};
+use crate::error_name::variant_of;
 use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::store::Namespace;
@@ -35,9 +36,11 @@ pub struct IndexSeries {
 }
 
 /// Opens the history database. Called once, synchronously, when the runtime is spawned: a
-/// SQLite open is a few milliseconds and the spawn functions are not async. A failure, or a
-/// corrupt file that had to be set aside, is logged; on failure history is off for this run
-/// rather than the app failing to start.
+/// SQLite open is a few milliseconds and the spawn functions are not async. The open never runs
+/// the one-time shape cleanup: it is started on the blocking pool right after (see
+/// [`clean_shapes_in_background`]), so startup does not wait for it. A failure, or a corrupt file
+/// that had to be set aside, is logged; on failure history is off for this run rather than the
+/// app failing to start.
 pub(super) fn open_history(path: Option<&Path>) -> Option<Arc<HistoryDb>> {
     let path = path?;
     if let Some(parent) = path.parent() {
@@ -54,13 +57,30 @@ pub(super) fn open_history(path: Option<&Path>) -> Option<Arc<HistoryDb>> {
                     aside.display()
                 );
             }
-            Some(Arc::new(db))
+            let db = Arc::new(db);
+            clean_shapes_in_background(&db);
+            Some(db)
         }
         Err(error) => {
             log::warn!("usage history disabled: {error}");
             None
         }
     }
+}
+
+/// Runs the one-time shape cleanup (once per file; see `HistoryDb::clean_shapes_once`) on the
+/// blocking pool, detached, so the runtime never waits for it. A lock held elsewhere skips it
+/// until the next start. Outside a runtime there is nothing to run it on, and it waits.
+fn clean_shapes_in_background(db: &Arc<HistoryDb>) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let db = Arc::clone(db);
+    drop(handle.spawn_blocking(move || {
+        if let Err(error) = db.clean_shapes_once() {
+            log::warn!("history shape cleanup failed: {}", variant_of(&error));
+        }
+    }));
 }
 
 /// The series stored for the collection's `listed` indexes (every node of each definition),

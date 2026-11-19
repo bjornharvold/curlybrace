@@ -7,6 +7,9 @@
 //! leaves [`fold_entries`]. Like the index sampler it reports on change only, pauses with a
 //! growing wait on errors that mean "stop for now", and ends when its status channel closes.
 
+mod mark_clock;
+#[cfg(test)]
+mod mark_clock_tests;
 mod pass;
 
 use std::sync::Arc;

@@ -268,6 +268,7 @@ impl DocumentStore for RecordingStore {
             newest_ts_millis: Some(43),
             skipped: 3,
             host: "via_read_profile:27017".into(),
+            server_now_millis: Some(1_700_000_000_123),
         })
     }
     async fn set_profiling_level(&self, _db: &str, level: i32) -> Result<ProfilingState> {
@@ -710,6 +711,13 @@ async fn read_only_store_forwards_the_profile_reads() {
     assert_eq!(read.host, "via_read_profile:27017");
     assert_eq!(inner.count("profiling_level"), 1);
     assert_eq!(inner.count("read_profile"), 1);
+}
+
+#[tokio::test]
+async fn read_only_store_forwards_server_now() {
+    let (_inner, _flag, store) = wrapped(true);
+    let read = store.read_profile("db", 0).await.unwrap();
+    assert_eq!(read.server_now_millis, Some(1_700_000_000_123));
 }
 
 #[tokio::test]

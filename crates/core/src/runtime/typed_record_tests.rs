@@ -244,7 +244,13 @@ fn typed_observation_is_value_free_and_counts_misses_by_verdict() {
         (VerdictKind::NoFilter, 0),
         (VerdictKind::EmptyCollection, 0),
     ] {
-        let o = typed_observation(SessionId::from_u128(5), &ns, &typed_query(), kind, at);
+        let o = typed_observation(
+            SessionId::from_u128(5),
+            &ns,
+            &from_query(&typed_query()),
+            kind,
+            at,
+        );
         assert_eq!(o.misses, misses, "{kind:?}");
         assert_eq!((o.executions, o.total_millis, o.max_millis), (1, 0, 0));
         assert_eq!((o.at_secs, o.gap_secs, o.worst), (at, 0, kind));

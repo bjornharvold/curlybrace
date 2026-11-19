@@ -5,7 +5,7 @@ use bson::Document;
 use super::config::AGGREGATE_RUN_COUNT_TIMEOUT;
 use super::config::run_write_limit;
 use super::handlers::{COMMAND_TIMEOUT_MESSAGE, bounded, is_connection_error};
-use super::{Event, SessionId};
+use super::{Command, Event, SessionId};
 use crate::error::{CoreError, Result};
 use crate::pipeline::{Operation, PipelineOptions, run_target};
 use crate::store::{DocumentStore, Namespace};
@@ -24,6 +24,17 @@ impl RunLimits {
             write: run_write_limit(config),
             count: AGGREGATE_RUN_COUNT_TIMEOUT,
         }
+    }
+}
+
+/// For a write run: its number, its source and its target, kept to answer a run that outruns the
+/// client bound. `None` for any other command.
+pub(super) fn run_namespaces(command: &Command) -> Option<(u64, Namespace, Namespace)> {
+    match command {
+        Command::AggregateRun {
+            ns, pipeline, run, ..
+        } => Some((*run, ns.clone(), target_namespace(ns, pipeline))),
+        _ => None,
     }
 }
 

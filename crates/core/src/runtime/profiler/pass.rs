@@ -32,6 +32,7 @@ use super::super::sampler::{
     pass_deadline, pause_reason, resume_point, rotated,
 };
 use super::fold_entries;
+use super::mark_clock::{move_back_if_ahead, without_future};
 use crate::error::CoreError;
 use crate::error_name::variant_of;
 use crate::history::retention::RAW_RETENTION_SECS;
@@ -114,6 +115,18 @@ impl Marks {
         }
         mark.anchored = true;
         moved
+    }
+
+    /// Moves the mark back to `ts_millis`, unanchored: the span it skips is no loss.
+    pub(super) fn move_back(&mut self, db: &str, ts_millis: i64) {
+        if let Some(mark) = self.dbs.get_mut(db) {
+            *mark = Mark {
+                ts_millis,
+                anchored: false,
+                gap_done: None,
+                ..mark.clone()
+            };
+        }
     }
 
     fn set_gap_done(&mut self, db: &str, span: (i64, i64)) {
@@ -328,11 +341,14 @@ async fn poll_db(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<DbOutcome
         )
         .await
         {
-            Ok(read) => read,
+            Ok(read) => without_future(read),
             Err(error) => return skipped_or_fatal(error),
         };
         marks.observe_host(db, &read.host);
         let mark = marks.get_or_floor(db, ctx.floor);
+        if move_back_if_ahead(ctx.floor, db, mark.ts_millis, &read, marks) {
+            continue;
+        }
         missed |= record_gap_if_lost(ctx, db, &mark, &read, marks).await?;
         record_page(ctx, db, &read).await?;
         let moved = marks.advance(db, read.newest_ts_millis);

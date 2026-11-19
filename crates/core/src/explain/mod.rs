@@ -30,7 +30,7 @@ pub use agg_model::{
 pub use agg_plan::parse_aggregate_explain;
 pub use agg_suggest::{create_index_command, suggest_for_pipeline};
 pub use classify::classify;
-pub(crate) use classify::{count, is_inefficient};
+pub(crate) use classify::{INDEX_SCAN_STAGES, count, is_inefficient};
 pub(crate) use field_order::{FieldOrderFinding, check as check_field_order, summary_keys};
 pub use suggest::suggest;
 pub use verdict::{Reason, SuggestedIndex, Verdict, VerdictKind, js_string, worst};
