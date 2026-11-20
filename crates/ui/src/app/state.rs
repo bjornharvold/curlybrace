@@ -444,7 +444,11 @@ impl AppState {
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
     pub fn session_cleared(self) -> Self {
         // The saved tabs of the sessions that end here wait for the next connect.
-        self.all_tabs_waiting().sessions_ended()
+        let mut ended = self.all_tabs_waiting().sessions_ended();
+        // Nothing is connected now, so nothing waits for room; a notice about the saved tabs
+        // goes to the queue, because the failure that ended the sessions takes the banner.
+        ended.waiting_notice_checked();
+        ended.recovery_banner_queued()
     }
 
     fn sessions_ended(self) -> Self {

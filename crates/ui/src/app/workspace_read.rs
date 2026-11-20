@@ -326,25 +326,63 @@ fn filtered(
     }
 }
 
-/// Entries cut from the tail of the longest connection's group until at most `MAX_SAVED_TABS`
-/// remain; how many were cut.
-fn trim_longest(usable: &mut Vec<(usize, SavedTab)>) -> usize {
-    let mut cut = 0;
-    while usable.len() > MAX_SAVED_TABS {
-        let mut sizes: BTreeMap<Uuid, usize> = BTreeMap::new();
-        for (_, tab) in usable.iter() {
-            *sizes.entry(tab.connection).or_default() += 1;
+/// How many entries to cut from each group so that `cut` entries go in all, by the rule "take
+/// the last entry of the longest group, the larger id first among equals", worked out in one go:
+/// every group is levelled down to one common length, and what is left to cut comes one each
+/// from the groups at that length, the larger ids first.
+pub(super) fn cut_counts(sizes: &BTreeMap<Uuid, usize>, cut: usize) -> BTreeMap<Uuid, usize> {
+    let cut = cut.min(sizes.values().sum());
+    let over = |level: usize| -> usize { sizes.values().map(|n| n.saturating_sub(level)).sum() };
+    // The smallest length every group can be cut to without cutting more than `cut` entries.
+    let (mut low, mut high) = (0, sizes.values().copied().max().unwrap_or(0));
+    while low < high {
+        let mid = (low + high) / 2;
+        match over(mid) <= cut {
+            true => high = mid,
+            false => low = mid + 1,
         }
-        let Some((longest, _)) = sizes.into_iter().max_by_key(|(id, n)| (*n, *id)) else {
+    }
+    let level = low;
+    let mut left = cut - over(level);
+    let mut cuts: BTreeMap<Uuid, usize> = sizes
+        .iter()
+        .map(|(id, n)| (*id, n.saturating_sub(level)))
+        .filter(|(_, n)| *n > 0)
+        .collect();
+    for (id, n) in sizes.iter().rev().filter(|(_, n)| **n >= level) {
+        if left == 0 || level == 0 {
             break;
-        };
-        if let Some(at) = usable
-            .iter()
-            .rposition(|(_, tab)| tab.connection == longest)
-        {
-            usable.remove(at);
+        }
+        let _ = n;
+        *cuts.entry(*id).or_default() += 1;
+        left -= 1;
+    }
+    cuts
+}
+
+/// Entries cut from the tail of the longest connection's group until at most `MAX_SAVED_TABS`
+/// remain; how many were cut. One pass to count, one to cut: a file of tens of thousands of
+/// entries is no slower to read than a small one.
+fn trim_longest(usable: &mut Vec<(usize, SavedTab)>) -> usize {
+    let excess = usable.len().saturating_sub(MAX_SAVED_TABS);
+    if excess == 0 {
+        return 0;
+    }
+    let mut sizes: BTreeMap<Uuid, usize> = BTreeMap::new();
+    for (_, tab) in usable.iter() {
+        *sizes.entry(tab.connection).or_default() += 1;
+    }
+    let mut remaining = cut_counts(&sizes, excess);
+    let mut keep = vec![true; usable.len()];
+    let mut cut = 0;
+    for (at, (_, tab)) in usable.iter().enumerate().rev() {
+        if let Some(n) = remaining.get_mut(&tab.connection).filter(|n| **n > 0) {
+            *n -= 1;
+            keep[at] = false;
             cut += 1;
         }
     }
+    let mut flags = keep.into_iter();
+    usable.retain(|_| flags.next().unwrap_or(true));
     cut
 }

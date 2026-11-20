@@ -706,3 +706,70 @@ fn aggregate_options_and_mode_survive_a_relaunch_through_the_real_file() {
     );
     std::mem::forget(events);
 }
+
+#[test]
+fn a_runtime_that_stops_keeps_the_trimmed_notice_beside_the_failure() {
+    use crate::app::persistence::Recovery;
+    let dir = tempfile::tempdir().unwrap();
+    let (c1, c2) = (
+        ConnectionConfig::new("a", "mongodb://a"),
+        ConnectionConfig::new("b", "mongodb://b"),
+    );
+    let (id1, id2) = (c1.id, c2.id);
+    let (app, events, _commands) = app_in(&dir, vec![c1, c2]);
+    std::mem::forget(_commands);
+    let mut app = app.with_workspace_path(Ok(dir.path().join("workspace.json")));
+    for id in [id1, id2] {
+        app.dispatch(Input::Connect(id));
+        let epoch = app.state().epoch_counter;
+        events
+            .send(Event::Connected {
+                session: id,
+                epoch,
+                topology: None,
+            })
+            .unwrap();
+        app.pump();
+        for n in 0..5 {
+            let ns = Namespace::new("app", format!("t{n}"));
+            app.dispatch(Input::Tabs(crate::app::tab_actions::TabAction::OpenInNew {
+                session: id,
+                ns,
+            }));
+        }
+    }
+    let x = Uuid::new_v4();
+    let waiting: Vec<_> = (0..195)
+        .map(|n| crate::app::workspace_file::SavedTab {
+            connection: x,
+            db: "app".into(),
+            collection: format!("x{n}"),
+            sub_tab: crate::app::workspace_file::SavedSubTab::Documents,
+            view_mode: crate::app::workspace_file::SavedViewMode::Table,
+            find: None,
+            draft: None,
+            text_dropped: false,
+            options_dropped: false,
+        })
+        .collect();
+    app.state_mut().restore.dormant.insert(x, waiting);
+    app.runtime_stopped();
+    let state = app.state();
+    assert!(matches!(
+        &state.banner,
+        Some(Banner::Failure {
+            context: "runtime",
+            ..
+        })
+    ));
+    let counts: Vec<usize> = state
+        .pending_recovery
+        .iter()
+        .filter_map(|r| match r {
+            Recovery::WorkspaceTrimmed { count } => Some(*count),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(counts, [5], "the cut is not lost under the failure");
+    std::mem::forget(events);
+}

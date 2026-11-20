@@ -468,6 +468,17 @@ impl AppState {
         }
     }
 
+    /// A startup-style notice in the banner moved to the head of the queue, so a failure can
+    /// take the banner without the notice being lost.
+    pub(super) fn recovery_banner_queued(mut self) -> AppState {
+        if let Some(Banner::Recovery(notice)) =
+            self.banner.take_if(|b| matches!(b, Banner::Recovery(_)))
+        {
+            self.pending_recovery.insert(0, notice);
+        }
+        self
+    }
+
     /// The notice that saved tabs are waiting for room, with how many wait now; a new one
     /// replaces any shown or queued.
     pub(super) fn waiting_notice_raised(self) -> AppState {
