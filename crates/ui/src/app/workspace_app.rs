@@ -235,10 +235,7 @@ impl AppState {
     /// file could not take (the fit dropped it) shows its note while the app runs, and a tab
     /// that was the saved front tab no longer needs remembering once a saved tab is in front.
     fn workspace_marked(&mut self, parts: &Parts) {
-        if !self.restore.restore {
-            self.workspace_marks_cleared();
-            return;
-        }
+        // With restore off `parts.live` is empty and the switch already cleared the marks.
         for (at, tab) in parts.live.iter().enumerate() {
             let dropped = parts.file.tabs.get(at).is_some_and(|t| t.text_dropped);
             match dropped {

@@ -80,8 +80,9 @@ pub(super) fn snapshot_parts(state: &AppState) -> Parts {
 
 /// The text of the largest tabs dropped (and flagged) until the file, written the way `save`
 /// writes it, fits the bound: 200 tabs of 256 KiB, or of 200 stages each, would be refused as too
-/// big and nothing would ever be written. Almost always a cheap upper bound shows it fits and
-/// nothing is serialised; only near the bound is the file measured exactly.
+/// big and nothing would ever be written. A cheap upper bound shows, for almost every file, that
+/// it is under half the bound and nothing is serialised; past half the bound the file is measured
+/// exactly, as `save` writes it.
 fn size_fitted(file: &mut WorkspaceFile) {
     // The estimate only ever excludes what it is sure of: past half the bound the file is
     // measured exactly, so slop in the estimate can never reach `save`.
@@ -233,7 +234,6 @@ pub(super) fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {
         SavedFind::of(read.find),
         SavedDraftText::of(read.aggregate, read.aggregate_view.pending.as_ref()),
     );
-    // A restored tab whose text was dropped stays flagged until something is typed in it.
     // A restored tab whose text was dropped stays flagged until it runs. A running tab the fit
     // dropped is flagged by the writer, so it clears itself when the text is gone or fits.
     let still_dropped = state.tabs.restored.contains(&tab)

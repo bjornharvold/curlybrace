@@ -671,3 +671,126 @@ fn marks_go_while_saving_is_off() {
     s.workspace_step(std::time::Instant::now());
     assert!(!s.active_tab_text_dropped());
 }
+
+/// A restored tab whose text was too long to save, empty and untouched, with a path to write to.
+fn restored_and_flagged() -> (AppState, tempfile::TempDir) {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let (s, dir) = stepping(vec![cfg]);
+    let file = WorkspaceFile {
+        tabs: vec![SavedTab {
+            find: None,
+            text_dropped: true,
+            ..tab(id, "users")
+        }],
+        active: Some(0),
+        ..WorkspaceFile::default()
+    };
+    let mut s = s;
+    s.restore = Box::new(RestoreState::of_file(
+        &file,
+        std::mem::take(&mut s.restore.sync),
+    ));
+    let (mut s, _) = connected(s, id);
+    s.workspace_step(std::time::Instant::now());
+    (s, dir)
+}
+
+fn on_disk_flag(dir: &tempfile::TempDir) -> bool {
+    let bytes = std::fs::read(dir.path().join("workspace.json")).unwrap();
+    serde_json::from_slice::<WorkspaceFile>(&bytes)
+        .unwrap()
+        .tabs[0]
+        .text_dropped
+}
+
+fn still_flagged(s: &AppState) {
+    assert!(s.active_tab_text_dropped(), "the tab keeps its note");
+    assert!(
+        snapshot(s).tabs[0].text_dropped,
+        "and the next write its flag"
+    );
+}
+
+#[test]
+fn a_restored_untouched_tab_keeps_its_note_and_flag_across_steps_and_in_the_file() {
+    let (mut s, dir) = restored_and_flagged();
+    for _ in 0..3 {
+        s.workspace_step(std::time::Instant::now());
+        still_flagged(&s);
+    }
+    assert!(on_disk_flag(&dir), "the written file says so");
+}
+
+#[test]
+fn a_restored_untouched_tab_keeps_its_note_and_flag_while_saving_is_off() {
+    let (mut s, _dir) = restored_and_flagged();
+    s.restore.sync.guard = PersistGuard::blocked();
+    s.workspace_step(std::time::Instant::now());
+    still_flagged(&s);
+}
+
+#[test]
+fn a_restored_untouched_tab_keeps_its_note_and_flag_when_restore_goes_off_and_on() {
+    use crate::app::tools_state::ToolsAction;
+    let (s, dir) = restored_and_flagged();
+    let (s, _) = update(s, Input::Tools(ToolsAction::SetRestore(false)));
+    assert!(
+        s.active_tab_text_dropped(),
+        "off: the note stays, nothing is saved"
+    );
+    let (mut s, _) = update(s, Input::Tools(ToolsAction::SetRestore(true)));
+    s.workspace_step(std::time::Instant::now());
+    s.workspace_step(std::time::Instant::now());
+    still_flagged(&s);
+    assert!(on_disk_flag(&dir));
+}
+
+#[test]
+fn the_options_multiplier_sends_a_big_hint_to_the_exact_measure() {
+    // A hint of about 0.9 MiB compact: at five times it is over half the bound (so the file is
+    // measured), at four times or less it is under it and would never be. Real, indented, it
+    // fits: only the estimate decides whether it is measured.
+    use crate::app::workspace_snapshot::MEASURED;
+    let id = Uuid::new_v4();
+    let mut keys = 40_000;
+    let tab_with = |keys: usize| SavedTab {
+        find: None,
+        draft: Some(SavedDraftText {
+            options: big_hint_keys(keys),
+            ..SavedDraftText::default()
+        }),
+        ..tab(id, "hint")
+    };
+    while tab_with(keys).options_len() < 900_000 {
+        keys += 2_000;
+    }
+    const BOUND: usize = crate::app::workspace_file::MAX_FILE_BYTES;
+    let one = tab_with(keys);
+    let compact = one.options_len();
+    assert!(
+        compact * 5 > BOUND / 2 && compact * 4 < BOUND / 2,
+        "{compact}"
+    );
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, vec![one]);
+    let before = MEASURED.with(|c| c.get());
+    let file = snapshot(&s);
+    assert!(
+        MEASURED.with(|c| c.get()) > before,
+        "an estimate past half the bound is measured"
+    );
+    assert!(!file.tabs[0].text_dropped, "and it fits as it is");
+}
+
+fn big_hint_keys(keys: usize) -> curlybrace_core::pipeline_options::PipelineOptions {
+    use curlybrace_core::pipeline_options::{HintOption, PipelineOptions};
+    let mut doc = bson::Document::new();
+    for i in 0..keys {
+        doc.insert(format!("f{i}"), 1_i32);
+    }
+    PipelineOptions {
+        hint: Some(HintOption::Keys(doc)),
+        ..PipelineOptions::default()
+    }
+}
