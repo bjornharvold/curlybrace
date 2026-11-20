@@ -1,5 +1,4 @@
 //! Reading `workspace.json` and reading a tab's saved parts out of the state (#159).
-#![allow(dead_code)] // wired in by the next commits
 use super::persistence::{BackupFn, PersistGuard, Recovery};
 use super::settings_file::json_object;
 use super::state::AppState;

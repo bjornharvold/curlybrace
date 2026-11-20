@@ -1,5 +1,6 @@
 //! Tests of the app shell: runtime timeouts and the connection-action wiring.
 use super::*;
+use curlybrace_core::runtime::COMMAND_TIMEOUT;
 
 #[test]
 fn data_commands_keep_the_short_timeout_and_connect_outlasts_the_host_key_prompt() {

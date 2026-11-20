@@ -5,7 +5,6 @@
 //! secret. Loading follows the rules of the other settings files (a bad file is backed up, a
 //! failed backup blocks saving, a newer version is left alone); saving goes through
 //! `persistence::atomic_write`, which writes a 0600 file.
-#![allow(dead_code)] // wired in by the next commits
 use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };

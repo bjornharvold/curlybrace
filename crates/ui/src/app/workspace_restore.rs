@@ -4,7 +4,6 @@
 //! sent and nothing shows in the strip. When a connection connects, its saved tabs become
 //! `Dormant` tabs holding their namespace, text, sub-tab and view mode. A dormant tab sends
 //! nothing when shown; its Run is the only way its query goes out.
-#![allow(dead_code)] // wired in by the next commits
 use super::session::carried_aggregate;
 use super::state::{AppState, Workspace};
 use super::tab_actions::{MAX_TABS, activate};
