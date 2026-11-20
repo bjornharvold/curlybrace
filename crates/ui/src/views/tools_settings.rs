@@ -9,11 +9,23 @@ use eframe::egui;
 
 const DIALOG_WIDTH: f32 = 560.0;
 
+/// The "Reopen tabs at launch" box. The label is its accessible name; the hint says what is
+/// saved and that turning it off erases it, as the hover text and the accessible description.
+fn show_restore_switch(ui: &mut egui::Ui, restore: bool, i18n: &I18n) -> Option<ToolsAction> {
+    let mut checked = restore;
+    let response = ui.checkbox(&mut checked, i18n.t("tabs.restore.setting"));
+    let response = super::findbar::described(ui, response, i18n.t("tabs.restore.setting_hint"));
+    response
+        .changed()
+        .then_some(ToolsAction::SetRestore(checked))
+}
+
 /// Draws the dialog while it is open and returns what was done, in order. Close and Escape close it; a click outside does not, so a
 /// stray click never loses a half-typed path.
 pub fn show_tools_settings(
     ctx: &egui::Context,
     tools: &ToolsState,
+    restore: bool,
     i18n: &I18n,
 ) -> Vec<ToolsAction> {
     let Some(dialog) = tools.dialog() else {
@@ -38,6 +50,8 @@ pub fn show_tools_settings(
                 };
                 actions.extend(show_tool_row(ui, &row, &context, i18n));
             }
+            ui.separator();
+            actions.extend(show_restore_switch(ui, restore, i18n));
             ui.separator();
             closed = filled_button(ui, i18n.t("common.close")).clicked();
         });

@@ -110,6 +110,7 @@ mod workspace_app;
 mod workspace_file;
 mod workspace_read;
 mod workspace_restore;
+mod workspace_settings_actions;
 pub mod write_guard;
 
 use crate::I18n;

@@ -311,7 +311,7 @@ pub fn show_modals(
     show_write_warning_modal(ctx, state, i18n, out);
     show_copy(ctx, state, i18n, out);
     out.extend(
-        show_tools_settings(ctx, &state.tools, i18n)
+        show_tools_settings(ctx, &state.tools, state.restore.restore, i18n)
             .into_iter()
             .map(|a| UiEvent::Input(Input::Tools(a))),
     );

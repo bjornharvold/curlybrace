@@ -68,6 +68,8 @@ pub enum ToolsAction {
     Browsed {
         path: Option<PathBuf>,
     },
+    /// The "Reopen tabs at launch" switch of the same dialog.
+    SetRestore(bool),
     /// The answer of check number `request`.
     Probed {
         scope: ProbeScope,
