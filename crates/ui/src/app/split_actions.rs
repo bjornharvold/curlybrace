@@ -75,6 +75,7 @@ pub(super) fn reconciled(state: AppState) -> AppState {
     let Some(split) = state.tabs.split.clone() else {
         return state;
     };
+    let before = split.clone();
     let open = |tab: &TabId| state.tabs.owner.contains_key(tab);
     if !open(&split.primary) || !open(&split.secondary) {
         return ended(state);
@@ -96,6 +97,10 @@ pub(super) fn reconciled(state: AppState) -> AppState {
     // "Select a collection" and stays a tab of the strip. A sidebar click fills the ACTIVE pane,
     // so it is filled by making it the active one first (a click in the pane, or F6). The person
     // leaves it through the strip, closes it, or ends the split.
+    // Nothing changed (the usual case, every frame's input): the strip is not copied.
+    if next == before {
+        return state;
+    }
     with_split(state, Some(next))
 }
 

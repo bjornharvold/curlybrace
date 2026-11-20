@@ -70,9 +70,14 @@ pub enum TabAction {
 }
 
 pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
-    let state = AppState {
-        tabs: state.tabs.clone().with_notice(None),
-        ..state
+    // The automatic step of a pane that has just become visible is not the person's action: it
+    // leaves the limit notice alone.
+    let state = match action {
+        TabAction::PaneShown(_) => state,
+        _ => AppState {
+            tabs: state.tabs.clone().with_notice(None),
+            ..state
+        },
     };
     match action {
         TabAction::Activate(tab) => activate(state, tab),

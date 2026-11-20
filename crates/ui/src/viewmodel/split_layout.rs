@@ -8,9 +8,6 @@ use eframe::egui::Vec2;
 
 /// The divider's hit area: the room between the two panes (points).
 pub const DIVIDER: f32 = 8.0;
-/// What the ring around a pane takes of its room (points): nothing. The ring is drawn outside the
-/// pane, in the margin and the divider's gap, so the page gets what the staircase measures.
-pub const PANE_RING: f32 = 0.0;
 /// The narrowest a pane may be at all (points), whatever its height.
 pub const MIN_PANE_WIDTH: f32 = 400.0;
 /// The lowest a pane may be at all (points), whatever its width.
@@ -102,14 +99,14 @@ fn within_room(ratio: f32, room: f32, min: f32) -> f32 {
 fn side(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.x - DIVIDER;
     // What the page gets of a pane is less its ring on every side.
-    let min = min_width_at(central.y - 2.0 * PANE_RING)? + 2.0 * PANE_RING;
+    let min = min_width_at(central.y)?;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
 }
 
 /// The ratio for two panes one above the other in `central`, when both fit.
 fn stacked(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.y - DIVIDER;
-    let min = min_height_at(central.x - 2.0 * PANE_RING)? + 2.0 * PANE_RING;
+    let min = min_height_at(central.x)?;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
 }
 

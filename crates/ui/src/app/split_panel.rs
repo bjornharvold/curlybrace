@@ -18,7 +18,7 @@ use super::tabs::{Freshness, TabId};
 use crate::I18n;
 use crate::theme::ROW_GAP;
 use crate::viewmodel::split_layout::{DIVIDER, Orientation, SplitLayout, layout, ratio_limits};
-use crate::viewmodel::tab_title::labels;
+use crate::viewmodel::tab_title::{TabLabel, labels};
 use crate::views::split_panes::{
     DividerView, PaneView, clear_pane_focus, show_divider, show_pane, show_single_chip,
 };
@@ -32,15 +32,24 @@ pub(super) fn show_browse(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
-    super::tab_strip_panel::show_strip(ui, state, i18n, out);
+    // The labels are built once for the strip and for the panes' names.
+    let shown = match state.tabs.split.is_some() {
+        true => labels(state, i18n),
+        false => Vec::new(),
+    };
+    match state.tabs.split.is_some() {
+        true => super::tab_strip_panel::show_strip_with(ui, state, &shown, i18n, out),
+        false => super::tab_strip_panel::show_strip(ui, state, i18n, out),
+    }
     // The dialog is the app's, drawn once in every mode, before the page or the panes.
     show_code_dialog_once(ui.ctx(), state, i18n, out);
     let Some(split) = state.tabs.split.clone() else {
         clear_pane_focus(ui.ctx());
+        note_single(ui.ctx(), false);
         return show_page(ui, state, i18n, out, now_secs);
     };
     let area = ui.available_rect_before_wrap();
-    let names = Names::of(state, &split, i18n);
+    let names = Names::of(&shown, &split, i18n);
     let chosen = layout(area.size(), split.orientation, split.ratio);
     note_single(ui.ctx(), chosen == SplitLayout::Single);
     match chosen {
@@ -76,8 +85,7 @@ struct Names {
 }
 
 impl Names {
-    fn of(state: &AppState, split: &Split, i18n: &I18n) -> Self {
-        let shown = labels(state, i18n);
+    fn of(shown: &[(TabId, TabLabel)], split: &Split, i18n: &I18n) -> Self {
         let find = |tab: TabId| shown.iter().find(|(t, _)| *t == tab).map(|(_, l)| l);
         let named = |key: &str, tab: TabId| {
             let name = find(tab).map(|l| l.accessible.as_str()).unwrap_or_default();
@@ -210,6 +218,7 @@ fn show_other(
 fn is_stale_and_reachable(state: &AppState, tab: TabId) -> bool {
     let session = state.tabs.owner.get(&tab).copied();
     state.freshness_of(tab) == Freshness::Stale
+        && state.tab_ns(tab).is_some()
         && session.and_then(|s| state.status_of(s)) == Some(ConnStatus::Connected)
 }
 
@@ -271,7 +280,9 @@ fn overlaid(ctx: &egui::Context, pos: egui::Pos2, own: egui::LayerId) -> bool {
     ctx.layer_id_at(pos) != Some(own)
         || ctx.memory(|m| {
             m.layer_ids().any(|layer| {
+                // egui never forgets a layer it has seen: only those drawn now count.
                 layer.order != egui::Order::Background
+                    && m.areas().is_visible(&layer)
                     && m.area_rect(layer.id).is_some_and(|r| r.contains(pos))
             })
         })

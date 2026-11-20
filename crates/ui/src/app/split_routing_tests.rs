@@ -4,6 +4,7 @@ use super::super::tab_actions::TabAction;
 use super::tests::{answered, finds_in, opened, split_of, tabs};
 use crate::app::AggregateAction;
 use crate::app::reducer::{Input, update};
+use crate::app::state::AppState;
 use crate::app::tabs::Freshness;
 use crate::app::tabs::test_support::{ev, orders, parked, users, with_second_session};
 use crate::viewmodel::{CollectionTab, SidebarAction};
@@ -311,4 +312,27 @@ fn a_new_tab_made_the_partner_stays_in_the_strip_and_closes_with_the_others() {
     let (s, _) = tabs(s, TabAction::CloseOthers(second));
     assert!(!s.tabs.owner.contains_key(&fresh), "Close others closed it");
     assert!(s.tabs.split.is_none(), "and the split ended with it");
+}
+
+#[test]
+fn the_automatic_pane_step_keeps_the_limit_notice() {
+    let (s, _, _, second) = answered();
+    let (s, _) = tabs(s, TabAction::ToggleSplit);
+    let s = AppState {
+        tabs: s
+            .tabs
+            .clone()
+            .with_notice(Some(crate::app::tab_strip::TabNotice::LimitReached)),
+        ..s
+    };
+    let (s, _) = tabs(s, TabAction::PaneShown(second));
+    assert!(
+        s.tabs.notice.is_some(),
+        "PaneShown is not the person's action"
+    );
+    let (s, _) = tabs(s, TabAction::FocusOtherPane);
+    assert!(
+        s.tabs.notice.is_none(),
+        "a person's tab action still dismisses it"
+    );
 }

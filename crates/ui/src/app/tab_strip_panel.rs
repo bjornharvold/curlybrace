@@ -26,7 +26,12 @@ pub(super) fn take_shortcuts(ctx: &egui::Context, state: &AppState, out: &mut Ve
     let wanted = tab_shortcuts(ctx, live);
     out.extend(wanted.into_iter().map(tabs_input));
     // F6 is not a text key: only a dialog holds it back.
-    let panes = split_shortcuts(ctx, live, no_dialog(ctx, state));
+    // (Only with a split: without one F6 belongs to whoever else wants it.)
+    let panes = split_shortcuts(
+        ctx,
+        live,
+        state.tabs.split.is_some() && no_dialog(ctx, state),
+    );
     if let (Some(split), true) = (
         &state.tabs.split,
         panes.contains(&TabAction::FocusOtherPane),
@@ -43,8 +48,26 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
         return;
     }
     let shown = labels(state, i18n);
+    show_strip_with(ui, state, &shown, i18n, out);
+}
+
+/// [`show_strip`] with the labels already built (the split view builds them once for the strip
+/// and the panes' names).
+pub(super) fn show_strip_with(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    shown: &[(
+        crate::app::tabs::TabId,
+        crate::viewmodel::tab_title::TabLabel,
+    )],
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    if state.tabs.order.len() < 2 || state.visible_tabs().len() < 2 {
+        return;
+    }
     let view = StripView {
-        labels: &shown,
+        labels: shown,
         active: state.active_tab(),
         limit_reached: state.tabs.notice.is_some(),
         can_reopen: !state.tabs.closed.is_empty(),
@@ -57,7 +80,7 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
                 .as_ref()
                 .map(|s| s.orientation)
                 .unwrap_or_default(),
-            single: one_pane_fits(ui, state),
+            single: showed_one_pane(ui, state),
         },
     };
     let actions = show_tab_strip(ui, &view, i18n);
@@ -69,7 +92,7 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
 /// then changes nothing). The decision is the layout's own, made on the area the panes actually
 /// get (`split_panel`, which records it): one function decides, so the strip and the panes cannot
 /// disagree about the same area (the strip lags by the frame that crossed the threshold).
-fn one_pane_fits(ui: &egui::Ui, state: &AppState) -> bool {
+fn showed_one_pane(ui: &egui::Ui, state: &AppState) -> bool {
     state.tabs.split.is_some() && super::split_panel::showed_one_pane(ui.ctx())
 }
 

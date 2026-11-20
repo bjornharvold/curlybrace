@@ -8,7 +8,7 @@ use curlybrace_ui::app::tabs::Freshness;
 use curlybrace_ui::viewmodel::CollectionTab;
 use curlybrace_ui::viewmodel::split_layout::Orientation;
 use eframe::egui;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use support::browse_page::{BrowsePage, browse_page};
 use support::tabs_shots::split_two;
 
@@ -92,4 +92,166 @@ fn the_orientation_button_is_there_exactly_when_two_panes_are() {
             "height {height}: button {button}, two panes {two}"
         );
     }
+}
+
+/// The real app in a harness whose closure also runs `after(ctx)` after each frame of the app.
+fn page_with(
+    size: (f32, f32),
+    setup: impl FnOnce(&mut AppState),
+    mut after: impl FnMut(&egui::Context) + 'static,
+) -> (
+    egui_kittest::Harness<'static, curlybrace_ui::app::CurlybraceApp>,
+    tokio::runtime::Runtime,
+    tempfile::TempDir,
+) {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .build()
+        .expect("tokio runtime");
+    let enter = rt.enter();
+    let (mut app, dir) = support::shots::build_app(vec![], None);
+    setup(app.state_mut());
+    let mut installed = false;
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(size.0, size.1))
+        .with_pixels_per_point(1.0)
+        .build_state(
+            move |ctx, app: &mut curlybrace_ui::app::CurlybraceApp| {
+                if !installed {
+                    curlybrace_ui::theme::install(ctx);
+                    installed = true;
+                }
+                app.run_frame(ctx);
+                after(ctx);
+            },
+            app,
+        );
+    harness.run_steps(6);
+    drop(enter);
+    (harness, rt, dir)
+}
+
+#[test]
+fn an_overlay_that_has_closed_does_not_stop_a_press_activating_the_other_pane() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let open = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&open);
+    let (mut harness, _rt, _dir) = page_with(
+        (1000.0, 700.0),
+        |s| split_two(s, Orientation::Stacked),
+        move |ctx| {
+            if flag.load(Ordering::SeqCst) {
+                egui::Area::new(egui::Id::new("gone_overlay"))
+                    .order(egui::Order::Foreground)
+                    .interactable(false)
+                    .fixed_pos(egui::pos2(500.0, 520.0))
+                    .show(ctx, |ui| {
+                        ui.label("a tooltip that is about to close, and long enough to cover the middle of the pane");
+                    });
+            }
+        },
+    );
+    // The overlay closes; its layer is still remembered by egui, with its last rectangle.
+    open.store(false, Ordering::SeqCst);
+    harness.run_steps(4);
+    let split = harness.state().state().tabs.split.clone().expect("a split");
+    let other = harness
+        .query_all_by_role(egui::accesskit::Role::Group)
+        .find(|n| {
+            n.accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("Other pane"))
+        })
+        .expect("the other pane");
+    other.click();
+    harness.run_steps(4);
+    assert_eq!(
+        harness.state().state().active_tab(),
+        Some(split.secondary),
+        "a press where an overlay used to be activates the pane"
+    );
+}
+
+#[test]
+fn an_empty_stale_partner_does_not_reset_the_limit_notice() {
+    let page = browse_page((1400.0, 900.0), |s| {
+        split_two(s, Orientation::SideBySide);
+        let partner = s.tabs.split.as_ref().expect("a split").secondary;
+        if let Some(view) = s.parked_tabs.get_mut(&partner) {
+            *view = Default::default();
+            view.freshness = Freshness::Stale;
+        }
+        s.tabs = std::mem::take(&mut s.tabs)
+            .with_notice(Some(curlybrace_ui::app::tab_strip::TabNotice::LimitReached));
+    });
+    // browse_page ran 6 frames already: the notice outlives them.
+    assert!(
+        state(&page).tabs.notice.is_some(),
+        "the automatic pane step must not dismiss the notice"
+    );
+}
+
+#[test]
+fn f6_is_not_consumed_without_a_split() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let left = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&left);
+    let (mut harness, _rt, _dir) = page_with(
+        (1000.0, 700.0),
+        |s| {
+            support::tabs_shots::browsing_with_tabs(s, &["invoices"]);
+        },
+        move |ctx| {
+            let there = ctx.input(|i| {
+                i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::F6,
+                            pressed: true,
+                            ..
+                        }
+                    )
+                })
+            });
+            if there {
+                seen.store(true, Ordering::SeqCst);
+            }
+        },
+    );
+    harness.key_press(egui::Key::F6);
+    harness.run_steps(3);
+    assert!(
+        left.load(Ordering::SeqCst),
+        "without a split F6 is left for others"
+    );
+}
+
+#[test]
+fn a_stale_one_pane_flag_does_not_leak_into_a_new_split() {
+    // One pane at 800x500 (the flag is set), the split ends, the window grows, a new split starts:
+    // its first frame shows the orientation button.
+    let mut page = browse_page((800.0, 500.0), |s| split_two(s, Orientation::SideBySide));
+    page.harness
+        .state_mut()
+        .dispatch(curlybrace_ui::app::reducer::Input::Tabs(
+            curlybrace_ui::app::tab_actions::TabAction::ToggleSplit,
+        ));
+    page.harness.set_size(egui::vec2(1400.0, 900.0));
+    page.harness.run_steps(3);
+    page.harness
+        .state_mut()
+        .dispatch(curlybrace_ui::app::reducer::Input::Tabs(
+            curlybrace_ui::app::tab_actions::TabAction::ToggleSplit,
+        ));
+    page.harness.step();
+    assert!(
+        page.harness
+            .query_all_by_label("Panes stacked")
+            .next()
+            .is_some(),
+        "the first frame of the new split shows the button"
+    );
 }

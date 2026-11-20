@@ -5,9 +5,7 @@ use crate::I18n;
 use crate::app::tab_actions::TabAction;
 use crate::app::tabs::TabId;
 use crate::theme::{CONTROL_HEIGHT, current_ui, text_button};
-use crate::viewmodel::split_layout::{
-    DEFAULT_RATIO, DIVIDER, Orientation, PANE_RING, RATIO_STEP, clamped,
-};
+use crate::viewmodel::split_layout::{DEFAULT_RATIO, DIVIDER, Orientation, RATIO_STEP, clamped};
 use eframe::egui::{
     self, Context, EventFilter, Id, Key, Layout, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKind,
     Ui, UiBuilder, WidgetInfo, WidgetType, accesskit, pos2, vec2,
@@ -63,7 +61,7 @@ pub fn show_pane(
     if take_pane_focus(ui.ctx(), pane.tab) {
         group.request_focus();
     }
-    let inner = pane.rect.shrink(PANE_RING);
+    let inner = pane.rect;
     let builder = UiBuilder::new()
         .id_salt(("pane", pane.tab.0))
         .max_rect(inner)
@@ -288,7 +286,6 @@ pub fn split_buttons(ui: &mut Ui, view: SplitButtons, i18n: &I18n) -> Vec<TabAct
     actions
 }
 
-/// A `CONTROL_HEIGHT` square button showing two panes laid out as `shape`.
 /// What an icon button draws in its frame.
 #[derive(Clone, Copy)]
 enum Glyph {
@@ -300,6 +297,7 @@ enum Glyph {
     Close,
 }
 
+/// A `CONTROL_HEIGHT` square button drawing `shape` in its frame, named `name`.
 fn icon_button(ui: &mut Ui, name: &str, shape: Glyph, pressed: bool) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(vec2(CONTROL_HEIGHT, CONTROL_HEIGHT), Sense::click());

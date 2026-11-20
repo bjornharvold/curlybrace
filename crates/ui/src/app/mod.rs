@@ -990,9 +990,10 @@ mod bulk_reconnect_tests;
 mod bulk_run_tests;
 
 #[cfg(test)]
-mod bulk_test_support;
-#[cfg(test)]
 mod bulk_undo_tests;
+
+#[cfg(test)]
+mod bulk_test_support;
 
 #[cfg(test)]
 mod copy_documents_tests;
@@ -1013,6 +1014,7 @@ mod copy_structure_report_tests;
 mod copy_tests;
 
 #[cfg(test)]
-mod bulk_entry_tests;
-#[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bulk_entry_tests;

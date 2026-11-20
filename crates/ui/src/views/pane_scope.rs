@@ -6,6 +6,12 @@
 //! pane's, while a pane of the split view is being drawn, and the plain one otherwise, so an
 //! unsplit page keeps exactly the ids it always had. Panes are drawn one after the other, so the
 //! scope is one value kept in the context for the length of a pane's draw.
+//!
+//! The rule: any fixed `Id::new(..)` inside a page that is drawn in a pane (a field, an editor, a
+//! draft kept in egui's memory) must go through [`scoped_id`] (or `scoped_modal` for a dialog of
+//! the tab). The audit of every `Id::new` site, with what was changed and what was left, is in the
+//! PR description; a new site that skips this clashes only when both panes show the same thing,
+//! which is what `tests/split_ids.rs` looks for.
 use eframe::egui::{Context, Id};
 use std::hash::Hash;
 
