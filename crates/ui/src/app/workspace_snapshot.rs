@@ -2,7 +2,8 @@
 use super::state::AppState;
 use super::tabs::TabId;
 use super::workspace_file::{
-    MAX_SAVED_TABS, SavedDraftText, SavedFind, SavedSplit, SavedTab, VERSION, WorkspaceFile,
+    MAX_FILE_BYTES, MAX_SAVED_TABS, SavedDraftText, SavedFind, SavedSplit, SavedTab, VERSION,
+    WorkspaceFile,
 };
 use super::workspace_read;
 use std::hash::{Hash, Hasher};
@@ -22,7 +23,7 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
         .collect();
     let live_count = live.len();
     let at = |tab: Option<TabId>| live.iter().position(|(t, _)| Some(*t) == tab);
-    let active_live = at(state.active_tab());
+    let active_live = at(state.active_tab()).or_else(|| at(state.restore.front_live));
     let live_split = state.tabs.split.as_ref().and_then(|s| {
         let secondary = at(Some(s.secondary))?;
         let primary = at(Some(s.primary))?;
@@ -36,6 +37,7 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
     let mut tabs: Vec<SavedTab> = live.iter().map(|(_, tab)| tab.clone()).collect();
     tabs.extend(state.restore.dormant.values().flatten().cloned());
     tabs.truncate(MAX_SAVED_TABS);
+    size_fitted(&mut tabs);
     // The tab in front, or else the saved one that has not been reopened yet.
     let (active, split) = match active_live {
         Some(_) => (active_live, live_split),
@@ -52,6 +54,35 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
         split,
     }
 }
+
+/// The text of the largest tabs dropped (and flagged) until the file fits the bound: 200 tabs of
+/// 256 KiB would be refused as too big and nothing would ever be written.
+fn size_fitted(tabs: &mut [SavedTab]) {
+    // Text grows at most six-fold when escaped: under this it cannot reach the budget.
+    let text: usize = tabs.iter().map(SavedTab::text_bytes).sum();
+    if text <= SIZE_BUDGET / 8 {
+        return;
+    }
+    let mut size = pretty_len(&*tabs);
+    let mut order: Vec<usize> = (0..tabs.len()).collect();
+    order.sort_by_key(|i| std::cmp::Reverse(tabs[*i].text_bytes()));
+    for i in order {
+        if size <= SIZE_BUDGET || tabs[i].text_bytes() == 0 {
+            break;
+        }
+        let before = pretty_len(&tabs[i]);
+        tabs[i] = tabs[i].clone().without_text();
+        size = size.saturating_sub(before.saturating_sub(pretty_len(&tabs[i])));
+    }
+}
+
+/// The bytes `value` takes as pretty JSON, the way the file is written.
+fn pretty_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
+    serde_json::to_vec_pretty(value).map_or(0, |bytes| bytes.len())
+}
+
+/// What the tabs may take of the file's bound, leaving room for the rest of the file.
+const SIZE_BUDGET: usize = MAX_FILE_BYTES - 256 * 1024;
 
 /// Where the saved tab `index` of `connection`'s waiting group sits in the list `snapshot`
 /// builds.
@@ -168,6 +199,7 @@ pub(super) fn fingerprint(state: &AppState) -> u64 {
         }
     }
     state.restore.active_hint.hash(&mut h);
+    state.restore.front_live.hash(&mut h);
     h.finish()
 }
 

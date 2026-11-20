@@ -23,6 +23,7 @@ pub(super) struct Seed {
     /// Reopened from the saved session and not run since, and its text was too long to save.
     restored: bool,
     text_dropped: bool,
+    options_dropped: bool,
 }
 
 impl Seed {
@@ -30,7 +31,7 @@ impl Seed {
     fn of_foreground(
         state: &AppState,
         dormant: bool,
-        (restored, text_dropped): (bool, bool),
+        (restored, text_dropped, options_dropped): (bool, bool, bool),
     ) -> Self {
         let (aggregate, _) = carried_aggregate(&state.aggregate, &state.aggregate_view);
         // A copy ran nothing: it takes none of the source's run (its number would route the
@@ -48,6 +49,7 @@ impl Seed {
             dormant,
             restored,
             text_dropped,
+            options_dropped,
         }
     }
 
@@ -76,6 +78,7 @@ impl Seed {
             dormant: self.dormant,
             restored: self.restored,
             text_dropped: self.text_dropped,
+            options_dropped: self.options_dropped,
             query: self.query,
         }
     }
@@ -92,6 +95,7 @@ impl Seed {
             dormant: closed.dormant,
             restored: closed.restored,
             text_dropped: closed.text_dropped,
+            options_dropped: closed.options_dropped,
         }
     }
 }
@@ -102,6 +106,7 @@ pub(super) fn seed_of(state: AppState, tab: TabId) -> (AppState, Option<Seed>) {
     let origin = (
         state.tabs.restored.contains(&tab),
         state.tabs.text_dropped.contains(&tab),
+        state.tabs.options_dropped.contains(&tab),
     );
     let mut seed = None;
     let (state, _) = state.with_tab(tab, |s| {
@@ -125,6 +130,7 @@ pub(super) fn seeded(state: AppState, seed: Seed, tab: TabId) -> Out {
         dormant,
         restored,
         text_dropped,
+        options_dropped,
     } = seed;
     let Some(ns) = ns else {
         let next = AppState {
@@ -148,7 +154,10 @@ pub(super) fn seeded(state: AppState, seed: Seed, tab: TabId) -> Out {
     if dormant || state.status != ConnStatus::Connected {
         // A copy of a tab that had not run since it was restored is one too, with its note.
         let tabs = match restored {
-            true => state.tabs.clone().made_restored(tab, text_dropped, false),
+            true => state
+                .tabs
+                .clone()
+                .made_restored(tab, text_dropped, options_dropped),
             false => state.tabs.clone().made_dormant([tab]),
         };
         return (AppState { tabs, ..state }, Vec::new());

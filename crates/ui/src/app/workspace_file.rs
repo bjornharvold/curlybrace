@@ -294,9 +294,19 @@ impl SavedTab {
     }
 
     /// The text this tab holds, in bytes.
-    fn text_bytes(&self) -> usize {
+    pub(super) fn text_bytes(&self) -> usize {
         self.find.as_ref().map_or(0, SavedFind::bytes)
             + self.draft.as_ref().map_or(0, SavedDraftText::bytes)
+    }
+
+    /// This tab with its text dropped and flagged.
+    pub(super) fn without_text(self) -> Self {
+        Self {
+            find: None,
+            draft: None,
+            text_dropped: true,
+            ..self
+        }
     }
 
     /// This tab with its text dropped (and flagged) when it is over the bound.

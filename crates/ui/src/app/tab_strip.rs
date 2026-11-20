@@ -25,6 +25,8 @@ pub struct ClosedTab {
     pub restored: bool,
     /// Its query text was too long to be saved.
     pub text_dropped: bool,
+    /// Its saved query options were not valid and were dropped.
+    pub options_dropped: bool,
     /// The query that produced the page it showed.
     pub query: curlybrace_core::store::Query,
 }

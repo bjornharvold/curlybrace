@@ -451,3 +451,52 @@ fn a_runtime_stop_withdraws_the_waiting_notice() {
         "nothing is connected, nothing waits for room"
     );
 }
+
+#[test]
+fn a_copy_and_a_reopened_tab_keep_the_options_dropped_note_and_flag() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let flagged = SavedTab {
+        options_dropped: true,
+        ..tab(id, "users")
+    };
+    let (s, _) = connected(
+        waiting(vec![cfg], vec![flagged, tab(id, "orders")], Some(1)),
+        id,
+    );
+    let users = restored_tab(&s, "users");
+    let (s, _) = update(s, Input::Tabs(TabAction::Duplicate(users)));
+    let copy = s.active_tab().expect("the copy");
+    assert_ne!(copy, users);
+    assert!(
+        s.tabs.options_dropped.contains(&copy),
+        "the copy carries it"
+    );
+    let flag_of = |s: &AppState, tab: TabId| {
+        let file = snapshot(s);
+        let at = s.visible_tabs().iter().position(|t| *t == tab).unwrap();
+        file.tabs[at].options_dropped
+    };
+    assert!(flag_of(&s, copy), "and the next write keeps it");
+    let (s, _) = update(s, Input::Tabs(TabAction::Close(copy)));
+    let (s, _) = update(s, Input::Tabs(TabAction::ReopenClosed));
+    let back = s.active_tab().expect("the reopened tab");
+    assert!(s.tabs.options_dropped.contains(&back), "a reopened tab too");
+    assert!(flag_of(&s, back));
+}
+
+#[test]
+fn closing_the_only_tab_of_the_app_does_not_reopen_a_waiting_one() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let saved: Vec<SavedTab> = (0..30).map(|n| tab(id, &format!("c{n:02}"))).collect();
+    let (s, _) = connected(waiting(vec![cfg], saved, Some(0)), id);
+    let keep = s.active_tab().expect("the front tab");
+    let (s, _) = update(s, Input::Tabs(TabAction::CloseOthers(keep)));
+    let before = s.restore.dormant[&id].len();
+    assert!(before > 0 && s.visible_tabs().len() == 1);
+    // The only tab is emptied and stays: the strip lost nothing, so no slot was freed.
+    let s = close_tab(s, keep);
+    assert_eq!(s.restore.dormant[&id].len(), before, "nothing reopened");
+    assert_eq!(s.visible_tabs().len(), 1);
+}

@@ -34,6 +34,9 @@ pub struct RestoreState {
     /// The saved split when both its panes belong to one connection: that connection, and the
     /// split with its secondary as a position among the connection's saved tabs.
     pub split_hint: Option<(Uuid, SavedSplit)>,
+    /// The saved front tab that was reopened but not shown (the person was somewhere else): it
+    /// stays the front tab of the next write until another saved tab is in front.
+    pub front_live: Option<TabId>,
     /// Where and when the file is written.
     pub sync: WorkspaceSync,
 }
@@ -45,6 +48,7 @@ impl Default for RestoreState {
             dormant: BTreeMap::new(),
             active_hint: None,
             split_hint: None,
+            front_live: None,
             sync: WorkspaceSync::default(),
         }
     }
@@ -74,6 +78,7 @@ impl RestoreState {
             dormant,
             active_hint,
             split_hint,
+            front_live: None,
             sync,
         }
     }
@@ -238,6 +243,10 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool, initial: bool
     // A hint is used up only when it was applied; otherwise it keeps its place.
     if active.is_some() {
         next.restore.active_hint = kept_active.map(|at| (session, at));
+        // Reopened but not shown: the tab that now exists is still the saved front tab.
+        if shown_tab.is_none() {
+            next.restore.front_live = active.and_then(at).or(next.restore.front_live);
+        }
     }
     if split.is_some() {
         next.restore.split_hint = match shown_tab {

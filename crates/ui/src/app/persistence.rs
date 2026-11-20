@@ -467,12 +467,40 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PersistError
     let write_err = |e: std::io::Error| PersistError::Write(e.kind());
     let (dir, name) = split_path(path)?;
     std::fs::create_dir_all(dir).map_err(write_err)?;
+    sweep_orphans(dir, &name.to_string_lossy());
     let (tmp, file) = create_temp(dir, &name.to_string_lossy()).map_err(write_err)?;
     let result = write_temp_then_rename(file, &tmp, path, bytes);
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result.map_err(write_err)
+}
+
+/// How old a temp file of a write must be before it is taken for one a crash left behind.
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Deletes the temp files (`.<name>.tmp-*`) that earlier writes of `name` left behind. Only ones
+/// not touched for a minute: a write in progress, ours or another window's, is never in the way,
+/// and the file being written now does not exist yet.
+fn sweep_orphans(dir: &Path, name: &str) {
+    let prefix = format!(".{name}.tmp-");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= ORPHAN_AGE);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// A temp file that did not exist, created with mode 0600 from the start.

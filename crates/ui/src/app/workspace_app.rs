@@ -229,9 +229,10 @@ impl AppState {
     /// Nothing changed since the last look: typed text that was waiting is written once its
     /// second is up, or at once on a Run.
     fn workspace_waiting_text(&mut self, now: Instant, ran: bool) -> Option<Duration> {
-        let (snap, since) = self.restore.sync.pending.clone()?;
+        let since = self.restore.sync.pending.as_ref()?.1;
         let waited = now.saturating_duration_since(since);
         if ran || waited >= TEXT_DEBOUNCE {
+            let (snap, _) = self.restore.sync.pending.take()?;
             self.workspace_written(snap);
             return None;
         }

@@ -719,3 +719,26 @@ fn a_restored_tab_reopened_or_copied_keeps_its_note_and_its_flag() {
 
 #[path = "workspace_waiting_tests.rs"]
 mod waiting;
+
+#[test]
+fn a_saved_front_tab_reopened_while_in_compare_stays_the_front_of_the_next_write() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let s = waiting(vec![cfg], vec![tab(id, "one"), tab(id, "two")], Some(1));
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    let mut s = s;
+    s.workspace = Workspace::Compare;
+    let (s, _) = update(
+        s,
+        Input::Event(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        }),
+    );
+    assert_eq!(s.workspace, Workspace::Compare, "nothing was shown");
+    let file = snapshot(&s);
+    let front = file.active.expect("the saved front tab is still stored");
+    assert_eq!(file.tabs[front].collection, "two");
+}

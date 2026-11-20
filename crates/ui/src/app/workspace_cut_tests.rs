@@ -162,3 +162,70 @@ fn a_file_of_tens_of_thousands_of_entries_loads_fast_and_is_cut_the_same_way() {
 fn failing_ok(path: &Path, _: &str) -> std::io::Result<PathBuf> {
     Ok(path.to_path_buf())
 }
+
+#[test]
+fn many_big_tabs_never_make_a_file_too_big_to_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let text_of = |n: usize| SavedFind {
+        filter: "x".repeat(n),
+        ..SavedFind::default()
+    };
+    let mut tabs: Vec<SavedTab> = (0..36)
+        .map(|n| SavedTab {
+            find: Some(text_of(250 * 1024 - n)),
+            ..tab(id, &format!("big{n}"))
+        })
+        .collect();
+    tabs.extend((0..4).map(|n| SavedTab {
+        find: Some(text_of(1024)),
+        ..tab(id, &format!("small{n}"))
+    }));
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    let path = dir.path().join("workspace.json");
+    save(&path, &PersistGuard::default(), &file).expect("a write never fails on size");
+    assert!(std::fs::metadata(&path).unwrap().len() <= MAX_FILE_BYTES as u64);
+    let dropped: Vec<&SavedTab> = file.tabs.iter().filter(|t| t.text_dropped).collect();
+    assert!(!dropped.is_empty(), "something had to go");
+    assert!(
+        dropped
+            .iter()
+            .all(|t| t.collection.starts_with("big") && t.find.is_none())
+    );
+    let small: Vec<&SavedTab> = file
+        .tabs
+        .iter()
+        .filter(|t| t.collection.starts_with("small"))
+        .collect();
+    assert!(
+        small.iter().all(|t| t.find.is_some() && !t.text_dropped),
+        "small tabs keep their text"
+    );
+    // The largest went first.
+    let kept_big = file
+        .tabs
+        .iter()
+        .filter(|t| t.collection.starts_with("big") && t.find.is_some());
+    let smallest_dropped_n = dropped
+        .iter()
+        .map(|t| {
+            t.collection
+                .trim_start_matches("big")
+                .parse::<usize>()
+                .unwrap()
+        })
+        .max()
+        .unwrap();
+    assert!(kept_big.count() + dropped.len() == 36 && smallest_dropped_n < 36);
+    assert_eq!(loaded_len(&path), file.tabs.len());
+}
+
+fn loaded_len(path: &Path) -> usize {
+    let bytes = std::fs::read(path).unwrap();
+    serde_json::from_slice::<WorkspaceFile>(&bytes)
+        .unwrap()
+        .tabs
+        .len()
+}

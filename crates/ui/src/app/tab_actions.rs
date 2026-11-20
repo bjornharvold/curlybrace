@@ -299,13 +299,17 @@ fn close(state: AppState, tab: TabId) -> Out {
     let focus = (state.active_tab() == Some(tab))
         .then(|| neighbour_of(&state, tab))
         .flatten();
+    let visible_before = state.visible_tabs().len();
     let state = close_one(state, tab);
     let (mut state, commands) = match focus {
         Some(next) => activate(state, next),
         None => (state, Vec::new()),
     };
     // The slot this tab leaves lets a saved tab that did not fit reopen.
-    super::workspace_restore::refill(&mut state, Some(owner));
+    // Only when the strip really lost a tab: closing a session's only tab empties it instead.
+    if state.visible_tabs().len() < visible_before {
+        super::workspace_restore::refill(&mut state, Some(owner));
+    }
     (state, commands)
 }
 
