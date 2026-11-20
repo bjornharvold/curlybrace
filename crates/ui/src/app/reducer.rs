@@ -218,13 +218,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Connected {
             epoch, topology, ..
         } => at_epoch(state, epoch, |s| {
-            let s = after_connected(AppState {
+            let mut s = after_connected(AppState {
                 status: ConnStatus::Connected,
                 failure: None,
                 topology,
                 ..s
             });
             let session = s.session_id();
+            super::workspace_restore::materialise(&mut s, session, background);
             (s, vec![Command::ListDatabases { session }])
         }),
         // The session was closed by `disconnect` already; only an answer for a root that is

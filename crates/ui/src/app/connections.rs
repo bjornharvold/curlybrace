@@ -202,14 +202,13 @@ pub fn deleted(
     if was_selected {
         conn.reset_tools();
     }
-    (
-        AppState {
-            conn,
-            banner,
-            ..state
-        },
-        written,
-    )
+    let next = AppState {
+        conn,
+        banner,
+        ..state
+    };
+    // Its saved tabs have nothing to reopen on: the next write drops them from the file.
+    (next.dormant_pruned(), written)
 }
 
 #[cfg(test)]
