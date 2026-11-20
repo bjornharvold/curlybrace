@@ -576,3 +576,98 @@ fn the_remembered_front_tab_goes_once_a_saved_tab_is_in_front() {
     let front = file.active.map(|at| file.tabs[at].collection.clone());
     assert_ne!(front.as_deref(), Some("two"), "{front:?}");
 }
+
+/// A running tab with 255 KiB of text in a file that already holds forty large waiting tabs, so
+/// the fit drops this tab's text; and the state, stepped once.
+fn dropped_by_the_fit() -> (AppState, Uuid, tempfile::TempDir) {
+    let (a, b) = ab();
+    let (ida, idb) = (a.id, b.id);
+    let (s, dir) = stepping(vec![a, b]);
+    let (s, _) = connected(s, ida);
+    let mut s = open_on(s, ida, 1);
+    s.find.text.filter = "x".repeat(255 * 1024);
+    s.restore.dormant.insert(idb, big_waiting(idb));
+    s.workspace_step(std::time::Instant::now());
+    assert!(
+        s.active_tab_text_dropped(),
+        "the fit dropped this tab's text"
+    );
+    (s, idb, dir)
+}
+
+fn big_waiting(id: Uuid) -> Vec<SavedTab> {
+    (0..40)
+        .map(|n| SavedTab {
+            find: Some(SavedFind {
+                filter: "y".repeat(250 * 1024 - n),
+                ..SavedFind::default()
+            }),
+            ..tab(id, &format!("w{n}"))
+        })
+        .collect()
+}
+
+#[test]
+fn the_note_goes_when_the_text_comes_to_fit_again() {
+    let (mut s, _, _dir) = dropped_by_the_fit();
+    s.restore.dormant.clear();
+    s.workspace_step(std::time::Instant::now());
+    s.workspace_step(std::time::Instant::now());
+    assert!(!s.active_tab_text_dropped(), "nothing is dropped now");
+    let file = snapshot(&s);
+    assert!(!file.tabs[0].text_dropped && file.tabs[0].find.is_some());
+}
+
+#[test]
+fn a_tab_the_fit_dropped_and_the_person_emptied_loses_the_note_and_the_flag() {
+    let (mut s, idb, _dir) = dropped_by_the_fit();
+    s.find.text.filter = String::new();
+    s.workspace_step(std::time::Instant::now());
+    s.workspace_step(std::time::Instant::now());
+    assert!(
+        !s.active_tab_text_dropped(),
+        "an empty tab has nothing dropped"
+    );
+    assert!(
+        !snapshot(&s).tabs[0].text_dropped,
+        "and the file does not say so"
+    );
+    // The same again later: the flag was not stuck.
+    s.find.text.filter = "x".repeat(255 * 1024);
+    s.restore.dormant.insert(idb, big_waiting(idb));
+    s.workspace_step(std::time::Instant::now());
+    s.workspace_step(std::time::Instant::now());
+    assert!(s.active_tab_text_dropped());
+}
+
+#[test]
+fn a_restored_empty_tab_keeps_its_flag_until_it_runs() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let dropped = SavedTab {
+        find: None,
+        text_dropped: true,
+        ..tab(id, "users")
+    };
+    let (s, _) = connected(waiting(vec![cfg], vec![dropped], Some(0)), id);
+    assert!(
+        snapshot(&s).tabs[0].text_dropped,
+        "restored and empty: still flagged"
+    );
+}
+
+#[test]
+fn turning_restore_off_clears_the_marks_of_running_tabs() {
+    use crate::app::tools_state::ToolsAction;
+    let (s, _, _dir) = dropped_by_the_fit();
+    let (s, _) = update(s, Input::Tools(ToolsAction::SetRestore(false)));
+    assert!(!s.active_tab_text_dropped());
+}
+
+#[test]
+fn marks_go_while_saving_is_off() {
+    let (mut s, _, _dir) = dropped_by_the_fit();
+    s.restore.sync.guard = PersistGuard::blocked();
+    s.workspace_step(std::time::Instant::now());
+    assert!(!s.active_tab_text_dropped());
+}

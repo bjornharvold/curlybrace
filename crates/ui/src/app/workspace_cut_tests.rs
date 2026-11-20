@@ -349,3 +349,61 @@ fn a_snapshot_well_under_the_bound_is_not_measured() {
         "2 MiB of text is known to fit without serialising it"
     );
 }
+
+/// A hint of `keys` key-pattern entries: one line per key once the file is indented.
+fn big_hint(keys: usize) -> curlybrace_core::pipeline_options::PipelineOptions {
+    use curlybrace_core::pipeline_options::{HintOption, PipelineOptions};
+    let mut doc = bson::Document::new();
+    for i in 0..keys {
+        doc.insert(format!("f{i}"), 1_i32);
+    }
+    PipelineOptions {
+        hint: Some(HintOption::Keys(doc)),
+        ..PipelineOptions::default()
+    }
+}
+
+#[test]
+fn the_options_of_a_draft_count_toward_the_size_of_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let tabs: Vec<SavedTab> = (0..14)
+        .map(|n| SavedTab {
+            find: None,
+            draft: Some(SavedDraftText {
+                options: big_hint(23_000),
+                ..SavedDraftText::default()
+            }),
+            ..tab(id, &format!("hint{n}"))
+        })
+        .collect();
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    fits(&file, &dir);
+    assert!(
+        file.tabs.iter().any(|t| t.text_dropped),
+        "something had to go"
+    );
+}
+
+#[test]
+fn the_options_of_a_find_bar_are_counted_at_their_indented_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    // Compact the options take about 3.7 MiB: they are under the bound as they are, indented
+    // they are over it.
+    let tabs: Vec<SavedTab> = (0..15)
+        .map(|n| SavedTab {
+            find: Some(SavedFind {
+                options: big_hint(23_000),
+                ..SavedFind::default()
+            }),
+            ..tab(id, &format!("hint{n}"))
+        })
+        .collect();
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    fits(&file, &dir);
+}

@@ -18,6 +18,7 @@ pub(super) fn restore_set(state: AppState, on: bool) -> AppState {
         state.restore.dormant.clear();
         state.restore.active_hint = None;
         state.restore.split_hint = None;
+        state.workspace_marks_cleared();
         state.waiting_notice_checked();
     }
     state

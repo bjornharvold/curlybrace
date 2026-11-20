@@ -481,7 +481,7 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PersistError
 const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Deletes the temp files (`.<name>.tmp-*`) that earlier writes of `name` left behind. Only ones
-/// not touched for a minute: a write in progress, ours or another window's, is never in the way,
+/// not touched for ten minutes: a write in progress, ours or another window's, is never in the way,
 /// and the file being written now does not exist yet.
 fn sweep_orphans(dir: &Path, name: &str) {
     let prefix = format!(".{name}.tmp-");

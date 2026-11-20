@@ -773,3 +773,6 @@ fn a_runtime_that_stops_keeps_the_trimmed_notice_beside_the_failure() {
     assert_eq!(counts, [5], "the cut is not lost under the failure");
     std::mem::forget(events);
 }
+
+#[path = "workspace_refit_tests.rs"]
+mod refit;

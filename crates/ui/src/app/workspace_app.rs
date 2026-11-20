@@ -185,6 +185,8 @@ impl AppState {
         self.workspace_failure_announced();
         self.workspace_backups_purged();
         if !self.workspace_may_write() {
+            // Nothing is saved while saving is off, so nothing is dropped from it.
+            self.workspace_marks_cleared();
             return None;
         }
         let fp = fingerprint(self);
@@ -233,6 +235,10 @@ impl AppState {
     /// file could not take (the fit dropped it) shows its note while the app runs, and a tab
     /// that was the saved front tab no longer needs remembering once a saved tab is in front.
     fn workspace_marked(&mut self, parts: &Parts) {
+        if !self.restore.restore {
+            self.workspace_marks_cleared();
+            return;
+        }
         for (at, tab) in parts.live.iter().enumerate() {
             let dropped = parts.file.tabs.get(at).is_some_and(|t| t.text_dropped);
             match dropped {
@@ -243,6 +249,16 @@ impl AppState {
         if parts.front_saved {
             self.restore.front_live = None;
         }
+    }
+
+    /// The marks of tabs the fit dropped, cleared (nothing is saved, so nothing is dropped): the
+    /// restored tabs that wait for their Run keep theirs.
+    pub(super) fn workspace_marks_cleared(&mut self) {
+        if self.tabs.text_dropped.is_empty() {
+            return;
+        }
+        let restored = self.tabs.restored.clone();
+        self.tabs.text_dropped.retain(|tab| restored.contains(tab));
     }
 
     /// Nothing changed since the last look: typed text that was waiting is written once its
@@ -290,7 +306,31 @@ impl AppState {
                 sync.streak = None;
                 sync.announced = false;
             }
-            Err(e) => self.workspace_failed(snap, e),
+            Err(e) => self.workspace_refused(path, snap, e),
+        }
+    }
+
+    /// A write that failed. One refused for size should be impossible (the snapshot is fitted),
+    /// but never leaves the snapshot parked: it is fitted again, measured exactly, and written
+    /// once more.
+    fn workspace_refused(&mut self, path: PathBuf, snap: WorkspaceFile, e: PersistError) {
+        let too_big = e == PersistError::Write(std::io::ErrorKind::InvalidData);
+        if !too_big {
+            return self.workspace_failed(snap, e);
+        }
+        log::error!("the saved tabs were over the file bound after the fit; fitting again");
+        let mut refitted = snap;
+        super::workspace_snapshot::refit(&mut refitted);
+        let sync = &mut self.restore.sync;
+        match workspace_file::save(&path, &sync.guard, &refitted) {
+            Ok(()) => {
+                sync.written = Some(refitted);
+                sync.writes += 1;
+                sync.failed = None;
+                sync.streak = None;
+                sync.announced = false;
+            }
+            Err(e) => self.workspace_failed(refitted, e),
         }
     }
 

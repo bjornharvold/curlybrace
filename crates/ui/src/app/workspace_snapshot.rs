@@ -83,9 +83,21 @@ pub(super) fn snapshot_parts(state: &AppState) -> Parts {
 /// big and nothing would ever be written. Almost always a cheap upper bound shows it fits and
 /// nothing is serialised; only near the bound is the file measured exactly.
 fn size_fitted(file: &mut WorkspaceFile) {
-    if upper_bound(&file.tabs) <= MAX_FILE_BYTES {
+    // The estimate only ever excludes what it is sure of: past half the bound the file is
+    // measured exactly, so slop in the estimate can never reach `save`.
+    if upper_bound(&file.tabs) <= MAX_FILE_BYTES / 2 {
         return;
     }
+    fit_exact(file);
+}
+
+/// [`size_fitted`] without the shortcut: the file is measured as `save` writes it, whatever the
+/// estimate says. For a write that was refused as too big anyway.
+pub(super) fn refit(file: &mut WorkspaceFile) {
+    fit_exact(file);
+}
+
+fn fit_exact(file: &mut WorkspaceFile) {
     loop {
         let size = pretty_len(&*file);
         if size <= MAX_FILE_BYTES {
@@ -154,7 +166,6 @@ fn upper_bound(tabs: &[SavedTab]) -> usize {
                 .iter()
                 .map(|t| escaped(t))
                 .sum::<usize>()
-                + 3 * tab.options_len()
         });
         let draft = tab.draft.as_ref().map_or(0, |d| {
             d.stages
@@ -162,7 +173,10 @@ fn upper_bound(tabs: &[SavedTab]) -> usize {
                 .map(|s| 90 + escaped(&s.text))
                 .sum::<usize>()
         });
-        1024 + escaped(&tab.db) + escaped(&tab.collection) + find + draft
+        // Options of the find bar and of the draft alike, one line per key once indented: a
+        // key pattern takes four times its compact length, and more with empty keys.
+        let options = 5 * tab.options_len();
+        1024 + escaped(&tab.db) + escaped(&tab.collection) + find + draft + options
     };
     tabs.iter().map(per_tab).sum::<usize>() + 1024
 }
@@ -220,7 +234,12 @@ pub(super) fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {
         SavedDraftText::of(read.aggregate, read.aggregate_view.pending.as_ref()),
     );
     // A restored tab whose text was dropped stays flagged until something is typed in it.
-    let still_dropped = state.tabs.text_dropped.contains(&tab) && find.is_none() && draft.is_none();
+    // A restored tab whose text was dropped stays flagged until it runs. A running tab the fit
+    // dropped is flagged by the writer, so it clears itself when the text is gone or fits.
+    let still_dropped = state.tabs.restored.contains(&tab)
+        && state.tabs.text_dropped.contains(&tab)
+        && find.is_none()
+        && draft.is_none();
     let options_dropped = state.tabs.options_dropped.contains(&tab)
         && find.as_ref().is_none_or(|f| f.options.is_empty())
         && draft.as_ref().is_none_or(|d| d.options.is_empty());
