@@ -31,6 +31,7 @@ fn tab(connection: Uuid, collection: &str) -> SavedTab {
         }),
         draft: None,
         text_dropped: false,
+        options_dropped: false,
     }
 }
 

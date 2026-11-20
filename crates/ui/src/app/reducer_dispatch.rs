@@ -23,8 +23,6 @@ pub(super) fn update_view(state: AppState, input: Input) -> Out {
     super::code_export_actions::close_if_stale(&mut out.0);
     super::tab_eviction::evict(&mut out.0);
     super::tab_eviction::sweep_empty(&mut out.0);
-    // A tab closed leaves room for a saved one that did not fit.
-    super::workspace_restore::refill(&mut out.0);
     out
 }
 

@@ -148,7 +148,7 @@ pub(super) fn seeded(state: AppState, seed: Seed, tab: TabId) -> Out {
     if dormant || state.status != ConnStatus::Connected {
         // A copy of a tab that had not run since it was restored is one too, with its note.
         let tabs = match restored {
-            true => state.tabs.clone().made_restored(tab, text_dropped),
+            true => state.tabs.clone().made_restored(tab, text_dropped, false),
             false => state.tabs.clone().made_dormant([tab]),
         };
         return (AppState { tabs, ..state }, Vec::new());

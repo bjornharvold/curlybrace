@@ -157,6 +157,9 @@ fn dormant_run(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<U
     if state.active_tab_text_dropped() {
         ui.weak(i18n.t("tabs.restore.text_dropped"));
     }
+    if state.active_tab_options_dropped() {
+        ui.weak(i18n.t("tabs.restore.options_dropped"));
+    }
 }
 
 /// The two global switches and, while explain is on, the verdict in one wrapping row. The

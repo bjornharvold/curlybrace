@@ -98,6 +98,9 @@ pub struct SavedTab {
     pub draft: Option<SavedDraftText>,
     #[serde(default)]
     pub text_dropped: bool,
+    /// Its saved options were not valid and were dropped when the file was read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub options_dropped: bool,
 }
 
 /// The secondary pane of a split, by its position in `tabs`; the active tab is the other pane.
@@ -140,7 +143,7 @@ pub struct WorkspaceStartup {
     pub guard: PersistGuard,
     pub recovery: Option<Recovery>,
     /// A second notice, when the file had more than one thing wrong with it.
-    pub also: Option<Recovery>,
+    pub also: Vec<Recovery>,
     /// The file on disk is not what `file` says (entries were skipped or it was replaced after a
     /// backup): the first write cleans it up.
     pub needs_rewrite: bool,
@@ -321,6 +324,7 @@ impl SavedTab {
             )
             && self.view_mode == other.view_mode
             && self.text_dropped == other.text_dropped
+            && self.options_dropped == other.options_dropped
     }
 }
 
@@ -382,8 +386,11 @@ pub fn save(path: &Path, guard: &PersistGuard, file: &WorkspaceFile) -> Result<(
 pub use super::workspace_snapshot::snapshot;
 
 /// Deletes the backup copies of the file at `path` (`<name>.corrupt-*`, `.unreadable-*`,
-/// `.skipped-*`): they hold the query text a person asked to erase. Every copy is tried; the
-/// first failure is reported.
+/// `.skipped-*`, `.repaired-*`) and the temp files a write left behind (`.<name>.tmp-*`): they
+/// hold the query text a person asked to erase. It matches only this app's workspace names, never
+/// another file of the folder. A second running instance's write in progress has its temp file
+/// deleted too (the write then fails once and is tried again). Every copy is tried; the first
+/// failure is reported.
 pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(PersistError::InvalidPath);
@@ -397,7 +404,7 @@ pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
     let mut failed = None;
     for entry in entries.flatten() {
         let file = entry.file_name().to_string_lossy().into_owned();
-        let is_backup = ["corrupt", "unreadable", "skipped"]
+        let is_backup = ["corrupt", "unreadable", "skipped", "repaired"]
             .iter()
             .any(|tag| file.starts_with(&format!("{name}.{tag}-")))
             // A temp file a crashed write left behind holds the same text.

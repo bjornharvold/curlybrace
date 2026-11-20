@@ -117,8 +117,9 @@ pub(super) fn materialise(state: &mut AppState, session: Uuid, background: bool)
     }
 }
 
-/// Room appeared (a tab was closed): the saved tabs of connected sessions that did not fit reopen,
-/// oldest first, dormant and sending nothing, behind whatever the person is looking at.
+/// A tab was closed: one saved tab of a connected session that did not fit reopens (oldest first,
+/// dormant, sending nothing, behind whatever the person is looking at), while at least one slot
+/// stays free so a tab of the person's own can still be opened.
 pub(super) fn refill(state: &mut AppState) {
     if state.restore.dormant.is_empty() {
         return;
@@ -149,20 +150,24 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool, initial: bool
     let split = state
         .restore
         .split_hint
-        .take_if(|(id, _)| *id == session)
+        .filter(|(id, _)| *id == session)
         .map(|(_, split)| split);
-    // Only the connect itself takes the front; a tab reopened later waits behind it.
+    // Only the connect itself takes the front; a tab reopened later waits behind it, and leaves
+    // one slot free so a tab of the person's own can still be opened.
     let front = initial && in_front(state, session, background);
-    let room = room_for(state, front, active);
+    let reserve = usize::from(!initial);
+    let room = room_for(state, front, active).saturating_sub(reserve);
     // What does not fit keeps waiting, in the file too: nothing saved is dropped for lack of room.
     let rest = saved.split_off(room.min(saved.len()));
     let opened_count = saved.len();
-    if active.is_some() {
-        // The saved active tab keeps its place among the tabs that still wait.
-        state.restore.active_hint = active
-            .filter(|at| *at >= opened_count)
-            .map(|at| (session, at - opened_count));
-    }
+    // The hints follow their tabs among those that still wait.
+    let kept_active = active
+        .filter(|at| *at >= opened_count)
+        .map(|at| at - opened_count);
+    let kept_split = split.and_then(|s| {
+        let secondary = s.secondary.checked_sub(opened_count)?;
+        kept_active.map(|_| SavedSplit { secondary, ..s })
+    });
     let overflow = rest.len();
     if !rest.is_empty() {
         state.restore.dormant.insert(session, rest);
@@ -176,9 +181,20 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool, initial: bool
         opened.push(id);
     }
     let at = |i: usize| opened.get(i).copied().flatten();
-    if let Some(tab) = active.and_then(at).filter(|_| front) {
+    let shown_tab = active.and_then(at).filter(|_| front);
+    if let Some(tab) = shown_tab {
         next = shown(next, tab);
         next = paired(next, tab, split, at);
+    }
+    // A hint is used up only when it was applied; otherwise it keeps its place.
+    if active.is_some() {
+        next.restore.active_hint = kept_active.map(|at| (session, at));
+    }
+    if split.is_some() {
+        next.restore.split_hint = match shown_tab {
+            Some(_) => None,
+            None => kept_split.map(|s| (session, s)),
+        };
     }
     if initial && overflow > 0 {
         let notice = Recovery::WorkspaceWaiting { count: overflow };
@@ -237,7 +253,11 @@ fn tab_opened(
     view.view_mode = saved.view_mode.into();
     view.aggregate = aggregate;
     view.aggregate_view = aggregate_view;
-    state.tabs = std::mem::take(&mut state.tabs).made_restored(tab, saved.text_dropped);
+    state.tabs = std::mem::take(&mut state.tabs).made_restored(
+        tab,
+        saved.text_dropped,
+        saved.options_dropped,
+    );
     (state, Some(tab))
 }
 
@@ -326,27 +346,42 @@ impl AppState {
             let (primary, secondary) = (place(s.primary)?, place(s.secondary)?);
             (Some(primary) == front && primary != secondary).then_some((secondary, s))
         });
-        // The tabs that were already waiting stay first: they have waited longest, and reopening
-        // takes them in order, so tabs left open are never ahead of them.
+        // The tabs that were just open come first (they are the working set, the front tab among
+        // them); the ones already waiting follow, and it is the oldest of those that are cut when
+        // the file is full.
         let waiting = self.restore.dormant.remove(&session).unwrap_or_default();
-        let before = waiting.len();
-        let mut tabs = waiting;
-        tabs.extend(open.into_iter().map(|(_, saved)| saved));
-        tabs.truncate(MAX_SAVED_TABS);
+        let others: usize = self.restore.dormant.values().map(Vec::len).sum();
+        let cap = MAX_SAVED_TABS.saturating_sub(others);
+        let mut tabs: Vec<SavedTab> = open.into_iter().map(|(_, saved)| saved).collect();
+        tabs.extend(waiting);
+        let trimmed = tabs.len().saturating_sub(cap);
+        tabs.truncate(cap);
+        let kept = tabs.len();
         self.restore.dormant.insert(session, tabs);
-        if let Some(at) = front {
-            self.restore.active_hint = Some((session, before + at));
-            self.restore.split_hint = split.map(|(secondary, s)| {
+        // Another connection's unapplied hints are not erased by this one.
+        let own = |hint: Option<Uuid>| hint.is_none_or(|id| id == session);
+        if let Some(at) = front.filter(|at| *at < kept) {
+            if own(self.restore.active_hint.map(|(id, _)| id)) {
+                self.restore.active_hint = Some((session, at));
+            }
+            let hint = split.filter(|(secondary, _)| *secondary < kept);
+            let saved = hint.map(|(secondary, s)| {
                 let saved = SavedSplit {
-                    secondary: before + secondary,
+                    secondary,
                     ratio: s.ratio,
                     orientation: s.orientation.into(),
                     secondary_first: s.secondary_first,
                 };
                 (session, saved)
             });
+            if saved.is_some() || own(self.restore.split_hint.map(|(id, _)| id)) {
+                self.restore.split_hint = saved;
+            }
         }
-        self
+        match trimmed {
+            0 => self,
+            count => self.with_recovery_notice(Recovery::WorkspaceTrimmed { count }),
+        }
     }
 
     /// Every open session's tabs back to waiting (the sessions are all gone).

@@ -50,6 +50,8 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Repaired { count, .. }
         | Recovery::WorkspaceSkipped { count, .. }
         | Recovery::WorkspaceOverflow { count, .. }
+        | Recovery::WorkspaceRepaired { count, .. }
+        | Recovery::WorkspaceTrimmed { count }
         | Recovery::WorkspaceWaiting { count } => i18n.t_with(key, &[("n", &count.to_string())]),
         Recovery::SkippedAndRepaired {
             skipped, repaired, ..
@@ -228,6 +230,37 @@ mod tests {
             Banner::Recovery(Recovery::Pipelines { backed_up: true }),
             Banner::Recovery(Recovery::Pipelines { backed_up: false }),
             Banner::Recovery(Recovery::PipelinesNewer),
+            Banner::WorkspacePersist(PersistError::Write(std::io::ErrorKind::Other)),
+            Banner::WorkspacePersist(PersistError::Blocked),
+            Banner::Recovery(Recovery::Workspace { backed_up: true }),
+            Banner::Recovery(Recovery::Workspace { backed_up: false }),
+            Banner::Recovery(Recovery::WorkspaceNewer),
+            Banner::Recovery(Recovery::WorkspaceSkipped {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceSkipped {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceOverflow {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceOverflow {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceRepaired {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceRepaired {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceTrimmed { count: 2 }),
+            Banner::Recovery(Recovery::WorkspaceWaiting { count: 2 }),
             Banner::NotConnected,
             Banner::CopyUnavailable,
             Banner::HostForgotten,

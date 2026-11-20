@@ -26,6 +26,7 @@ fn tab(connection: Uuid, collection: &str) -> SavedTab {
         }),
         draft: None,
         text_dropped: false,
+        options_dropped: false,
     }
 }
 
@@ -316,10 +317,10 @@ fn invalid_entries_do_not_eat_into_the_bound_and_both_notices_are_given() {
     );
     assert_eq!(
         loaded.also,
-        Some(Recovery::WorkspaceOverflow {
+        vec![Recovery::WorkspaceOverflow {
             count: 2,
             backed_up: true
-        })
+        }]
     );
 }
 
@@ -338,8 +339,19 @@ fn one_tabs_bad_options_cost_that_tab_its_options_and_nothing_else() {
     );
     let path = write(&dir, text.as_bytes());
     let id: Uuid = id.parse().unwrap();
-    let loaded = load(&path, &back_up, &known(&[id]));
-    assert_eq!(loaded.recovery, None, "the file is not corrupt");
+    let tags = RefCell::new(Vec::new());
+    let loaded = load(&path, &recording(&tags), &known(&[id]));
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceRepaired {
+            count: 1,
+            backed_up: true
+        }),
+        "the person is told, and the original was kept first"
+    );
+    assert_eq!(*tags.borrow(), ["repaired"]);
+    assert!(loaded.file.tabs[0].options_dropped, "that tab is flagged");
+    assert!(!loaded.file.tabs[1].options_dropped);
     assert_eq!(loaded.file.tabs.len(), 2);
     let bad = loaded.file.tabs[0].find.as_ref().unwrap();
     assert_eq!(bad.filter, r#"{"keep": 1}"#, "the tab and its text stay");

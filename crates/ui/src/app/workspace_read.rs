@@ -113,8 +113,8 @@ pub(super) fn load_with(
     let tag = match read_bounded(path) {
         Ok(None) => return usable(WorkspaceFile::default(), 0, false),
         Ok(Some(bytes)) => match parse(&bytes) {
-            Ok((file, repaired)) => {
-                return filtered(path, backup, (known, keep_unknown), file, repaired);
+            Ok((file, dropped)) => {
+                return filtered(path, backup, (known, keep_unknown), file, dropped);
             }
             Err(Unusable::Newer) => return newer(),
             Err(Unusable::Corrupt) => "corrupt",
@@ -134,7 +134,7 @@ fn unusable(recovery: Recovery, may_save: bool) -> WorkspaceStartup {
         file: WorkspaceFile::default(),
         guard: guard_after(may_save),
         recovery: Some(recovery),
-        also: None,
+        also: Vec::new(),
         needs_rewrite: false,
     }
 }
@@ -152,9 +152,9 @@ fn read_bounded(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-/// The file and whether bad options had to be dropped from some tab to read it: one tab's
-/// invalid option costs that tab its options, not every saved tab.
-fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, bool), Unusable> {
+/// The file and how many tabs had bad options dropped to read it: one tab's invalid option costs
+/// that tab its options (it is flagged `options_dropped`), not every saved tab.
+fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, usize), Unusable> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Unusable::Corrupt);
     }
@@ -165,23 +165,26 @@ fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, bool), Unusable> {
         _ => return Err(Unusable::Corrupt),
     }
     if let Ok(file) = serde_json::from_slice(bytes) {
-        return Ok((file, false));
+        return Ok((file, 0));
     }
-    if !without_bad_options(&mut value) {
+    let dropped = without_bad_options(&mut value);
+    if dropped == 0 {
         return Err(Unusable::Corrupt);
     }
     serde_json::from_value(value)
-        .map(|file| (file, true))
+        .map(|file| (file, dropped))
         .map_err(|_| Unusable::Corrupt)
 }
 
-/// Removes the options of every tab whose options do not validate; whether any was removed.
-fn without_bad_options(value: &mut serde_json::Value) -> bool {
+/// Removes the options of every tab whose options do not validate and flags that tab; how many
+/// tabs that was.
+fn without_bad_options(value: &mut serde_json::Value) -> usize {
     let Some(tabs) = value.get_mut("tabs").and_then(|t| t.as_array_mut()) else {
-        return false;
+        return 0;
     };
-    let mut changed = false;
+    let mut dropped = 0;
     for tab in tabs {
+        let mut bad_here = false;
         for part in ["find", "draft"] {
             let Some(part) = tab.get_mut(part).and_then(|p| p.as_object_mut()) else {
                 continue;
@@ -191,14 +194,18 @@ fn without_bad_options(value: &mut serde_json::Value) -> bool {
             });
             if bad {
                 part.remove("options");
-                changed = true;
+                bad_here = true;
             }
         }
+        if bad_here {
+            tab["options_dropped"] = serde_json::Value::Bool(true);
+            dropped += 1;
+        }
     }
-    if changed {
-        log::warn!("options of a saved tab were not valid and were dropped");
+    if dropped > 0 {
+        log::warn!("options of {dropped} saved tab(s) were not valid and were dropped");
     }
-    changed
+    dropped
 }
 
 fn newer() -> WorkspaceStartup {
@@ -214,7 +221,7 @@ fn usable(file: WorkspaceFile, skipped: usize, backed_up: bool) -> WorkspaceStar
         file,
         guard: guard_after(backed_up || skipped == 0),
         recovery,
-        also: None,
+        also: Vec::new(),
         needs_rewrite: skipped > 0,
     }
 }
@@ -244,7 +251,7 @@ fn filtered(
     backup: BackupFn<'_>,
     (known, keep_unknown): (&BTreeSet<Uuid>, bool),
     file: WorkspaceFile,
-    repaired: bool,
+    repaired: usize,
 ) -> WorkspaceStartup {
     if !file.restore {
         return usable(WorkspaceFile::without_tabs(false), 0, true);
@@ -280,8 +287,10 @@ fn filtered(
         ..WorkspaceFile::default()
     };
     let lost = skipped + overflow;
-    let backed_up = lost == 0 || backed_up(path, backup, "skipped");
-    let mut notices = [
+    // The original is kept whenever anything was dropped from it, and says why in its name.
+    let tag = if repaired > 0 { "repaired" } else { "skipped" };
+    let backed_up = lost + repaired == 0 || backed_up(path, backup, tag);
+    let notices: Vec<Recovery> = [
         (skipped > 0).then_some(Recovery::WorkspaceSkipped {
             count: skipped,
             backed_up,
@@ -290,14 +299,20 @@ fn filtered(
             count: overflow,
             backed_up,
         }),
+        (repaired > 0).then_some(Recovery::WorkspaceRepaired {
+            count: repaired,
+            backed_up,
+        }),
     ]
     .into_iter()
-    .flatten();
+    .flatten()
+    .collect();
+    let mut notices = notices.into_iter();
     WorkspaceStartup {
         file,
         guard: guard_after(backed_up),
         recovery: notices.next(),
-        also: notices.next(),
-        needs_rewrite: lost > 0 || repaired,
+        also: notices.collect(),
+        needs_rewrite: lost > 0 || repaired > 0,
     }
 }

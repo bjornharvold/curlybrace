@@ -97,6 +97,9 @@ pub(super) fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {
     );
     // A restored tab whose text was dropped stays flagged until something is typed in it.
     let still_dropped = state.tabs.text_dropped.contains(&tab) && find.is_none() && draft.is_none();
+    let options_dropped = state.tabs.options_dropped.contains(&tab)
+        && find.as_ref().is_none_or(|f| f.options.is_empty())
+        && draft.as_ref().is_none_or(|d| d.options.is_empty());
     Some(
         SavedTab {
             connection: session,
@@ -107,6 +110,7 @@ pub(super) fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {
             find,
             draft,
             text_dropped: still_dropped,
+            options_dropped,
         }
         .bounded(),
     )
@@ -129,6 +133,7 @@ pub(super) fn fingerprint(state: &AppState) -> u64 {
     for tab in state.visible_tabs() {
         tab.hash(&mut h);
         state.tabs.text_dropped.contains(&tab).hash(&mut h);
+        state.tabs.options_dropped.contains(&tab).hash(&mut h);
         let Some(session) = state.tabs.owner.get(&tab).copied() else {
             continue;
         };

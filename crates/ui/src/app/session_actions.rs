@@ -65,6 +65,15 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
 /// Connecting `id` withdraws the banner about it (and a banner nobody owns); a banner another
 /// session raised, and that session's forget offer, stay.
 fn cleared_for_connect(state: AppState, id: Uuid) -> AppState {
+    // The notice that saved tabs are waiting for room is about the whole app, not a connection.
+    if matches!(
+        state.banner,
+        Some(super::state::Banner::Recovery(
+            super::persistence::Recovery::WorkspaceWaiting { .. }
+        ))
+    ) {
+        return state;
+    }
     match state.banner_owner() {
         Some(owner) if owner != id => state,
         _ => state.without_banner(),

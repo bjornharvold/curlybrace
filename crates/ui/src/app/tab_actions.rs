@@ -296,10 +296,13 @@ fn close(state: AppState, tab: TabId) -> Out {
         .then(|| neighbour_of(&state, tab))
         .flatten();
     let state = close_one(state, tab);
-    match focus {
+    let (mut state, commands) = match focus {
         Some(next) => activate(state, next),
         None => (state, Vec::new()),
-    }
+    };
+    // The slot this tab leaves lets a saved tab that did not fit reopen.
+    super::workspace_restore::refill(&mut state);
+    (state, commands)
 }
 
 /// Closes every tab of `keep`'s connection other than `keep` (or only those after it), then shows

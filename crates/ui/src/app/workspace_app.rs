@@ -143,10 +143,10 @@ impl AppState {
             Some(recovery) => state.with_recovery_notice(recovery),
             None => state,
         };
-        match started.also {
-            Some(recovery) => state.with_recovery_notice(recovery),
-            None => state,
-        }
+        started
+            .also
+            .into_iter()
+            .fold(state, AppState::with_recovery_notice)
     }
 }
 

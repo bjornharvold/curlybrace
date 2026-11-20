@@ -141,7 +141,7 @@ shot!(tabs_restored_dormant, vec![], |state| {
     }
     let session = state.active.expect("an active session");
     for tab in state.tabs_of(session) {
-        state.tabs = std::mem::take(&mut state.tabs).made_restored(tab, false);
+        state.tabs = std::mem::take(&mut state.tabs).made_restored(tab, false, false);
     }
 });
 

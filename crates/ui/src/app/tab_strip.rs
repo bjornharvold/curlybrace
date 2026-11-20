@@ -74,6 +74,8 @@ pub struct TabStrip {
     pub restored: BTreeSet<TabId>,
     /// Restored tabs whose query text was too long to be saved: their note says the text is gone.
     pub text_dropped: BTreeSet<TabId>,
+    /// Restored tabs whose saved query options were not valid and were dropped.
+    pub options_dropped: BTreeSet<TabId>,
     /// Current tabs that show less than the server holds (a parked tab keeps this mark in its own
     /// view; it moves here while the tab is current and back when it is parked again).
     pub stale: BTreeSet<TabId>,
@@ -146,6 +148,8 @@ impl TabStrip {
         restored.remove(&tab);
         let mut text_dropped = self.text_dropped;
         text_dropped.remove(&tab);
+        let mut options_dropped = self.options_dropped;
+        options_dropped.remove(&tab);
         let mut stale = self.stale;
         stale.remove(&tab);
         // A pane that closes ends the split: it never names a tab that is gone.
@@ -161,6 +165,7 @@ impl TabStrip {
             dormant,
             restored,
             text_dropped,
+            options_dropped,
             stale,
             split,
             ..self
@@ -235,20 +240,26 @@ impl TabStrip {
         restored.remove(&tab);
         let mut text_dropped = self.text_dropped;
         text_dropped.remove(&tab);
+        let mut options_dropped = self.options_dropped;
+        options_dropped.remove(&tab);
         Self {
             dormant,
             restored,
             text_dropped,
+            options_dropped,
             ..self
         }
     }
 
     /// `tab` was reopened from the saved session: dormant, with nothing run yet.
-    pub fn made_restored(self, tab: TabId, text_dropped: bool) -> Self {
+    pub fn made_restored(self, tab: TabId, text_dropped: bool, options_dropped: bool) -> Self {
         let mut next = self.made_dormant([tab]);
         next.restored.insert(tab);
         if text_dropped {
             next.text_dropped.insert(tab);
+        }
+        if options_dropped {
+            next.options_dropped.insert(tab);
         }
         next
     }

@@ -375,6 +375,7 @@ fn turning_restore_off_deletes_the_backup_copies() {
         "workspace.json.corrupt-1700000000",
         "workspace.json.skipped-1700000001-1",
         "workspace.json.unreadable-1",
+        "workspace.json.repaired-1",
         "workspace.json.keep",
     ] {
         std::fs::write(rig.dir.path().join(name), b"SAVED QUERY TEXT").unwrap();
@@ -480,15 +481,10 @@ fn turning_off_with_a_lost_connection_list_erases_the_text_and_the_backups() {
     let dir = tempfile::tempdir().unwrap();
     let (mut app, path) = lost_list_app(&dir, ON_WITH_TAB);
     std::fs::write(dir.path().join("workspace.json.corrupt-1"), b"SAVED TEXT").unwrap();
+    // A clean banner slot: the switch works here, so it raises no notice of its own.
+    app.state_mut().banner = None;
     app.dispatch(Input::Tools(ToolsAction::SetRestore(false)));
-    assert_eq!(
-        app.state()
-            .banner
-            .as_ref()
-            .map(|b| matches!(b, Banner::Recovery(_))),
-        Some(true),
-        "no notice: it works"
-    );
+    assert_eq!(app.state().banner, None, "it works: nothing to say");
     app.save_workspace_if_changed(&egui::Context::default(), Instant::now());
     let file: WorkspaceFile = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(file, WorkspaceFile::without_tabs(false));
@@ -525,8 +521,9 @@ fn a_partly_loaded_connection_list_keeps_saving_on_and_keeps_unknown_tabs() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("workspace.json");
     std::fs::write(&path, ON_WITH_TAB).unwrap();
-    let (app, _events, _commands) = app_in(&dir, Vec::new());
-    std::mem::forget((_events, _commands));
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let (app, events, _commands) = app_in(&dir, vec![cfg]);
     let mut app = app
         .with_banner(Some(Banner::Recovery(Recovery::Skipped {
             count: 1,
@@ -537,17 +534,42 @@ fn a_partly_loaded_connection_list_keeps_saving_on_and_keeps_unknown_tabs() {
     assert_eq!(
         app.state().restore.dormant.len(),
         1,
-        "the tab of an unknown id waits"
+        "the unknown tab waits"
     );
     assert_eq!(
         backups(&dir),
         Vec::<String>::new(),
         "nothing was skipped or backed up"
     );
-    app.state_mut().restore.restore = true;
-    app.save_workspace_now();
-    let text = std::fs::read_to_string(&path).unwrap();
-    assert!(text.contains("users"), "and it stays in the file: {text}");
+    // A change of the open tabs writes, and the written file holds the unknown tab too.
+    app.dispatch(Input::Connect(id));
+    let epoch = app.state().epoch_counter;
+    events
+        .send(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        })
+        .unwrap();
+    app.pump();
+    app.dispatch(Input::Sidebar(SidebarAction::Open(Namespace::new(
+        "app", "newone",
+    ))));
+    let before = app.state().restore.sync.writes;
+    app.save_workspace_if_changed(&egui::Context::default(), Instant::now());
+    assert_eq!(
+        app.state().restore.sync.writes,
+        before + 1,
+        "a write happened"
+    );
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert_ne!(written.as_bytes(), ON_WITH_TAB);
+    assert!(written.contains("newone"), "the new tab: {written}");
+    assert!(
+        written.contains("00000000-0000-0000-0000-000000000009") && written.contains("users"),
+        "and the unknown connection's tab is in what was written: {written}"
+    );
+    std::mem::forget((events, _commands));
 }
 
 #[test]

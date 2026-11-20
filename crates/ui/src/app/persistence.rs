@@ -110,6 +110,17 @@ pub enum Recovery {
         count: usize,
         backed_up: bool,
     },
+    /// Options of some saved tabs were not valid and were dropped from those tabs (they keep
+    /// their text); the original file was backed up first.
+    WorkspaceRepaired {
+        count: usize,
+        backed_up: bool,
+    },
+    /// Older waiting tabs did not fit in the file when open tabs went back to waiting, and were
+    /// dropped.
+    WorkspaceTrimmed {
+        count: usize,
+    },
     /// Saved tabs of a connection that connected did not fit under the tab limit: they wait and
     /// reopen as tabs are closed.
     WorkspaceWaiting {
@@ -165,6 +176,13 @@ impl Recovery {
             Self::WorkspaceOverflow {
                 backed_up: false, ..
             } => "persist.workspace_overflow_backup_failed",
+            Self::WorkspaceRepaired {
+                backed_up: true, ..
+            } => "persist.workspace_repaired_backed_up",
+            Self::WorkspaceRepaired {
+                backed_up: false, ..
+            } => "persist.workspace_repaired_backup_failed",
+            Self::WorkspaceTrimmed { .. } => "persist.workspace_overflow_trimmed",
             Self::WorkspaceWaiting { .. } => "tabs.restore.overflow",
             Self::WorkspaceSkipped {
                 backed_up: true, ..

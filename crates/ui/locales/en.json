@@ -1654,6 +1654,9 @@
     "workspace_newer": "The saved tabs file was written by a newer version of Curlybrace and was left untouched. No tabs were reopened and none are saved.",
     "workspace_overflow_backed_up": "{n} saved tab(s) were over the most the tabs file holds and were left out. A backup copy of the original file was kept.",
     "workspace_overflow_backup_failed": "{n} saved tab(s) were over the most the tabs file holds and were left out, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
+    "workspace_overflow_trimmed": "{n} older saved tab(s) did not fit in the tabs file and were dropped.",
+    "workspace_repaired_backed_up": "Some saved tabs had query options that were not valid. Their options were dropped and their text kept. A backup copy of the original file was kept.",
+    "workspace_repaired_backup_failed": "Some saved tabs had query options that were not valid. Their options were dropped and their text kept, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
     "workspace_skipped_backed_up": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped. A backup copy of the original file was kept.",
     "workspace_skipped_backup_failed": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
     "workspace_write_failed": "Could not save your open tabs. They will not be reopened next time unless saving works again.",
@@ -1921,6 +1924,7 @@
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
     "restore": {
+      "options_dropped": "This tab's query options were not valid, so they were not restored.",
       "overflow": "{n} saved tab(s) did not fit under the tab limit. They reopen as you close tabs.",
       "setting": "Reopen tabs at launch",
       "setting_hint": "Open tabs and the query text in them are saved on this computer and come back, without running anything, after you connect. Turning this off erases the saved text now.",
