@@ -78,6 +78,7 @@ pub(super) fn notice_dismissed_by(state: AppState, input: &Input) -> AppState {
     let answer = matches!(
         input,
         Input::ForgetFinished(_)
+            | Input::ForTab { .. }
             | Input::Tools(ToolsAction::Probed { .. } | ToolsAction::Browsed { .. })
     );
     let person = !answer && !matches!(input, Input::Tabs(_));

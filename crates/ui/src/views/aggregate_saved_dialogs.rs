@@ -158,31 +158,34 @@ fn show_failure(ui: &mut egui::Ui, failed: Option<&'static str>, i18n: &I18n) {
 fn name_dialog(ctx: &egui::Context, d: &NameDialog<'_>, i18n: &I18n) -> Option<AggregateAction> {
     let mut action = None;
     let usable = d.problem.is_none();
-    let modal = egui::Modal::new(egui::Id::new(("aggregate_saved_dialog", d.salt)))
-        .frame(modal_frame(ctx))
-        .show(ctx, |ui| {
-            ui.set_width(MODAL_WIDTH);
-            ui.label(typography::dialog_title(ui, i18n.t(d.title)));
-            let mut text = d.name.to_string();
-            let message = problem_message(d.problem, i18n);
-            let label = i18n.t("aggregate.saved.name_label");
-            let field = outlined_field_with(ui, &label, &mut text, "", message.as_deref());
-            if field.changed() {
-                action = Some((d.edited)(text));
+    let modal = egui::Modal::new(super::pane_scope::note_modal(
+        ctx,
+        super::pane_scope::scoped_id(ctx, ("aggregate_saved_dialog", d.salt)),
+    ))
+    .frame(modal_frame(ctx))
+    .show(ctx, |ui| {
+        ui.set_width(MODAL_WIDTH);
+        ui.label(typography::dialog_title(ui, i18n.t(d.title)));
+        let mut text = d.name.to_string();
+        let message = problem_message(d.problem, i18n);
+        let label = i18n.t("aggregate.saved.name_label");
+        let field = outlined_field_with(ui, &label, &mut text, "", message.as_deref());
+        if field.changed() {
+            action = Some((d.edited)(text));
+        }
+        focus_once(ui, &field, ("aggregate_saved_focus", d.salt));
+        let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        show_failure(ui, d.failed, i18n);
+        ui.horizontal(|ui| {
+            if text_button(ui, i18n.t("common.cancel")).clicked() {
+                action = Some(AggregateAction::DialogCancelled);
             }
-            focus_once(ui, &field, ("aggregate_saved_focus", d.salt));
-            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            show_failure(ui, d.failed, i18n);
-            ui.horizontal(|ui| {
-                if text_button(ui, i18n.t("common.cancel")).clicked() {
-                    action = Some(AggregateAction::DialogCancelled);
-                }
-                let confirm = gate(ui, usable, |ui| filled_button(ui, i18n.t(d.confirm)));
-                if usable && (confirm.clicked() || entered) {
-                    action = Some(d.confirmed.clone());
-                }
-            });
+            let confirm = gate(ui, usable, |ui| filled_button(ui, i18n.t(d.confirm)));
+            if usable && (confirm.clicked() || entered) {
+                action = Some(d.confirmed.clone());
+            }
         });
+    });
     action.or(modal
         .should_close()
         .then_some(AggregateAction::DialogCancelled))
@@ -190,24 +193,27 @@ fn name_dialog(ctx: &egui::Context, d: &NameDialog<'_>, i18n: &I18n) -> Option<A
 
 fn prompt_dialog(ctx: &egui::Context, p: Prompt, i18n: &I18n) -> Option<AggregateAction> {
     let mut action = None;
-    let modal = egui::Modal::new(egui::Id::new(("aggregate_saved_dialog", p.salt)))
-        .frame(modal_frame(ctx))
-        .show(ctx, |ui| {
-            ui.set_width(MODAL_WIDTH);
-            ui.label(typography::dialog_title(ui, i18n.t(p.title)));
-            ui.label(&p.message);
-            show_failure(ui, p.failed, i18n);
-            ui.horizontal(|ui| {
-                let cancel = text_button(ui, i18n.t("common.cancel"));
-                focus_once(ui, &cancel, ("aggregate_saved_focus", p.salt));
-                if cancel.clicked() {
-                    action = Some(AggregateAction::DialogCancelled);
-                }
-                if filled_button(ui, i18n.t(p.confirm)).clicked() {
-                    action = Some(p.confirmed.clone());
-                }
-            });
+    let modal = egui::Modal::new(super::pane_scope::note_modal(
+        ctx,
+        super::pane_scope::scoped_id(ctx, ("aggregate_saved_dialog", p.salt)),
+    ))
+    .frame(modal_frame(ctx))
+    .show(ctx, |ui| {
+        ui.set_width(MODAL_WIDTH);
+        ui.label(typography::dialog_title(ui, i18n.t(p.title)));
+        ui.label(&p.message);
+        show_failure(ui, p.failed, i18n);
+        ui.horizontal(|ui| {
+            let cancel = text_button(ui, i18n.t("common.cancel"));
+            focus_once(ui, &cancel, ("aggregate_saved_focus", p.salt));
+            if cancel.clicked() {
+                action = Some(AggregateAction::DialogCancelled);
+            }
+            if filled_button(ui, i18n.t(p.confirm)).clicked() {
+                action = Some(p.confirmed.clone());
+            }
         });
+    });
     action.or(modal
         .should_close()
         .then_some(AggregateAction::DialogCancelled))

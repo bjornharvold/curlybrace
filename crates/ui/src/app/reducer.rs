@@ -64,6 +64,18 @@ pub enum Input {
     Aggregate(AggregateAction),
     /// Open, close, switch or move collection tabs.
     Tabs(super::tab_actions::TabAction),
+    /// What a pane of the split view did: the tab is made the active one, then `input` is
+    /// applied to it (a closed tab's input is dropped).
+    InTab {
+        tab: super::tabs::TabId,
+        input: Box<Input>,
+    },
+    /// What a pane did on its own (an automatic refresh): applied in its tab, which stays where
+    /// it is; nothing is made the active tab.
+    ForTab {
+        tab: super::tabs::TabId,
+        input: Box<Input>,
+    },
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,

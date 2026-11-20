@@ -287,8 +287,21 @@ impl AppState {
 
     /// Runs `f` as if `tab` were the current tab of its (active) session, then puts both back.
     /// A tab that does not exist changes nothing.
-    #[inline(never)]
+    // A forwarder: inlined, so the deepest event path gains no frame.
+    #[inline(always)]
     pub fn with_tab(self, tab: TabId, f: impl FnOnce(AppState) -> Out) -> Out {
+        self.with_tab_keeping(tab, true, f)
+    }
+
+    /// Like [`AppState::with_tab`], but what `f` does to the tab's freshness stays: the step that
+    /// shows a tab (a pane that has just become visible) reads it again and clears its mark.
+    #[inline(never)]
+    pub(super) fn with_tab_shown(self, tab: TabId, f: impl FnOnce(AppState) -> Out) -> Out {
+        self.with_tab_keeping(tab, false, f)
+    }
+
+    #[inline(never)]
+    fn with_tab_keeping(self, tab: TabId, keep_mark: bool, f: impl FnOnce(AppState) -> Out) -> Out {
         let Some(session) = self.tabs.owner.get(&tab).copied() else {
             return (self, Vec::new());
         };
@@ -297,7 +310,11 @@ impl AppState {
         };
         // What the tab was before is not for an answer to change: a routed answer leaves a stale
         // tab stale.
-        let freshness = self.parked_tabs.get(&tab).map(|view| view.freshness);
+        let freshness = self
+            .parked_tabs
+            .get(&tab)
+            .map(|view| view.freshness)
+            .filter(|_| keep_mark);
         self.with_session(session, |s| {
             let (s, commands) = f(s.tab_made_current(session, tab));
             // `f` may have closed the tab it ran in or its session; put back what still exists.

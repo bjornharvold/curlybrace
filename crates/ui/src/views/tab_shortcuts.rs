@@ -91,7 +91,12 @@ fn by_position(key: Key) -> bool {
 /// exactly `mods` too). egui's own `consume_key` matches logically: a chord with an extra Shift
 /// or Alt still counts, so Cmd+Shift+W would close a tab and Cmd+Shift+3 would pick one. A tab
 /// shortcut is the chord and nothing more.
-fn consume_exact(input: &mut InputState, mods: Modifiers, key: Key, by_position: bool) -> bool {
+pub(super) fn consume_exact(
+    input: &mut InputState,
+    mods: Modifiers,
+    key: Key,
+    by_position: bool,
+) -> bool {
     let mut hit = false;
     input.events.retain(|event| {
         let is_it = matches!(

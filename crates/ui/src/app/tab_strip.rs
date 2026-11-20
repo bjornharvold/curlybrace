@@ -1,6 +1,7 @@
 //! The order, ownership and recency of the open tabs, apart from what a tab shows. Pure: every op
 //! returns the next strip.
 use super::tabs::TabId;
+use crate::viewmodel::split_layout::Orientation;
 use crate::viewmodel::{AggregateState, CollectionTab, EditorState, FindBarState, ViewMode};
 use curlybrace_core::store::Namespace;
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,6 +31,22 @@ pub enum TabNotice {
     LimitReached,
 }
 
+/// Two panes: the tab being looked at and one partner (#159). The panes may be on different
+/// connections. Focus moves between them by swapping `primary` and `secondary`; where each is
+/// drawn does not change (`secondary_first`), so nothing moves on screen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Split {
+    /// The active tab: the pane that has the keyboard and owns the dialogs.
+    pub primary: TabId,
+    /// The other pane.
+    pub secondary: TabId,
+    /// The first pane's share of the room the two have, clamped to a quarter to three quarters.
+    pub ratio: f32,
+    pub orientation: Orientation,
+    /// The partner is drawn first (left or top) and the active tab second.
+    pub secondary_first: bool,
+}
+
 /// Every open tab of the app: which session owns it, which tab of each session is the current one
 /// (the one whose fields live in the session's view, see `tabs`), and in what order they were
 /// opened and last used.
@@ -53,6 +70,8 @@ pub struct TabStrip {
     /// The last closed tabs, newest last (at most `tab_actions::CLOSED_KEPT`).
     pub closed: Vec<ClosedTab>,
     pub notice: Option<TabNotice>,
+    /// The two panes, when the view is split. Never names a tab that is closed.
+    pub split: Option<Split>,
     /// The number the next tab gets; it only grows, so a number is never reused.
     next: u64,
 }
@@ -115,6 +134,10 @@ impl TabStrip {
         dormant.remove(&tab);
         let mut stale = self.stale;
         stale.remove(&tab);
+        // A pane that closes ends the split: it never names a tab that is gone.
+        let split = self
+            .split
+            .filter(|s| s.primary != tab && s.secondary != tab);
         Self {
             order,
             active,
@@ -123,8 +146,14 @@ impl TabStrip {
             mru,
             dormant,
             stale,
+            split,
             ..self
         }
+    }
+
+    /// The split replaced by `split` (`None` ends it).
+    pub fn with_split(self, split: Option<Split>) -> Self {
+        Self { split, ..self }
     }
 
     /// Every tab of `session` closed (the session itself is gone).

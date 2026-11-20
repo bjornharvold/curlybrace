@@ -54,12 +54,30 @@ pub enum TabAction {
     DuplicateActive,
     /// Move the tab being looked at this many places along the strip.
     MoveActive(i32),
+    /// Split the view against the most recently used other tab, or end the split (Cmd+\).
+    ToggleSplit,
+    /// Show `tab` in the other pane (a tab's context menu).
+    OpenInOtherPane(TabId),
+    /// The other pane becomes the active one (F6).
+    FocusOtherPane,
+    /// The divider moved: the first pane's share of the room.
+    SetRatio(f32),
+    SetOrientation(crate::viewmodel::split_layout::Orientation),
+    /// Only one pane fits: show the other one.
+    ShowOtherPane,
+    /// The other pane is on screen: it reads again what it shows if it is stale.
+    PaneShown(TabId),
 }
 
 pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
-    let state = AppState {
-        tabs: state.tabs.clone().with_notice(None),
-        ..state
+    // The automatic step of a pane that has just become visible is not the person's action: it
+    // leaves the limit notice alone.
+    let state = match action {
+        TabAction::PaneShown(_) => state,
+        _ => AppState {
+            tabs: state.tabs.clone().with_notice(None),
+            ..state
+        },
     };
     match action {
         TabAction::Activate(tab) => activate(state, tab),
@@ -87,6 +105,7 @@ pub(super) fn on_action(state: AppState, action: TabAction) -> Out {
             None => (state, Vec::new()),
         },
         TabAction::MoveActive(by) => (nav::moved_by(state, by), Vec::new()),
+        split => super::split_actions::on_action(state, split),
     }
 }
 
@@ -122,7 +141,9 @@ fn shown(state: AppState, tab: TabId) -> AppState {
         workspace: Workspace::Browse,
         ..leaving_view(state, session)
     };
-    let shown = state.tab_current(tab);
+    // The panes follow the tab now looked at (the old one may be the partner now) before the one
+    // left is judged: a pane is not "left".
+    let shown = super::split_actions::reconciled(state.tab_current(tab));
     match left {
         Some(left) => without_empty(shown, left),
         None => shown,
@@ -132,11 +153,18 @@ fn shown(state: AppState, tab: TabId) -> AppState {
 /// `left`, a tab nobody picked a collection in, is not worth keeping once it is left: only the
 /// active empty tab is shown, so it would linger unseen. A session's only tab stays.
 fn without_empty(state: AppState, left: TabId) -> AppState {
-    let lonely = state
+    let in_split = state
         .tabs
-        .owner
-        .get(&left)
-        .is_none_or(|session| state.tabs.of_session(*session).len() < 2);
+        .split
+        .as_ref()
+        .is_some_and(|s| s.secondary == left);
+    // A pane of the split is not left, it is still on screen.
+    let lonely = in_split
+        || state
+            .tabs
+            .owner
+            .get(&left)
+            .is_none_or(|session| state.tabs.of_session(*session).len() < 2);
     // The same test as the sweep: a tab with a collection, a draft or an editor holds work.
     let idle = state.glance(left).is_some_and(|g| g.is_idle_empty());
     match lonely || !idle {
@@ -197,7 +225,7 @@ pub(super) fn activate(state: AppState, tab: TabId) -> Out {
     shown_now(shown(state, tab))
 }
 
-fn duplicate(state: AppState, tab: TabId) -> Out {
+pub(super) fn duplicate(state: AppState, tab: TabId) -> Out {
     let Some(session) = state.tabs.owner.get(&tab).copied() else {
         return (state, Vec::new());
     };

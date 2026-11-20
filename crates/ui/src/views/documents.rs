@@ -284,7 +284,7 @@ fn show_delete_confirm(
     );
     let mut confirmed = false;
     let mut cancelled = false;
-    let modal = egui::Modal::new(egui::Id::new("delete_confirm"))
+    let modal = egui::Modal::new(super::pane_scope::scoped_modal(ctx, "delete_confirm"))
         .frame(modal_frame(ctx))
         .show(ctx, |ui| {
             ui.label(message);

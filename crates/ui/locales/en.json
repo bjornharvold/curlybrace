@@ -1911,6 +1911,19 @@
     "new_tab_disabled": "New tab (needs a connection)",
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
+    "split": {
+      "divider": "Resize panes",
+      "divider_value": "{percent}%",
+      "off": "Close split view",
+      "open_in_other_pane": "Open in other pane",
+      "orientation_side_by_side": "Panes side by side",
+      "orientation_stacked": "Panes stacked",
+      "pane_active": "Active pane: {name}",
+      "pane_other": "Other pane: {name}",
+      "single_chip": "Split view needs a larger window. Showing {title}.",
+      "single_show_other": "Show other pane",
+      "toggle": "Split view"
+    },
     "state": {
       "needs_run": "needs Run",
       "production": "production connection",

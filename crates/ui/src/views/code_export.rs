@@ -36,32 +36,32 @@ pub fn show_code_dialog(ctx: &egui::Context, code: &CodeExportUi, i18n: &I18n) -
     let popup_was_open = egui::Popup::is_any_open(ctx);
     let screen = ctx.screen_rect();
     let width = MODAL_WIDTH.min(screen.width() - SIDE_ROOM);
-    let modal = egui::Modal::new(egui::Id::new("code_export_dialog"))
-        .frame(modal_frame(ctx))
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            ui.label(typography::dialog_title(ui, i18n.t("codegen.title")));
-            ui.label(i18n.t("codegen.note"));
-            let options_view = code_options_view(dialog);
-            let mut own_enter = options_rows(ui, dialog, options_view.as_ref(), &mut actions, i18n);
-            if let Some(view) = &options_view {
-                show_options_summary(ui, view, i18n);
-            }
-            let max_height = (screen.height() - MODAL_CHROME).max(MIN_CODE_HEIGHT);
-            show_code(ui, dialog, max_height, i18n);
-            let controls = buttons(ui, dialog, i18n);
-            actions.extend(controls.actions);
-            own_enter.extend(controls.activating);
-            let ready = dialog.clipboard_text().is_some();
-            let settled = !popup_was_open && !actions.iter().any(changes_options);
-            if ready
-                && settled
-                && enter_copies(ui, &own_enter)
-                && !actions.contains(&CodeAction::Close)
-            {
-                actions.push(CodeAction::Copy);
-            }
-        });
+    let modal = egui::Modal::new(super::pane_scope::note_modal(
+        ctx,
+        egui::Id::new("code_export_dialog"),
+    ))
+    .frame(modal_frame(ctx))
+    .show(ctx, |ui| {
+        ui.set_width(width);
+        ui.label(typography::dialog_title(ui, i18n.t("codegen.title")));
+        ui.label(i18n.t("codegen.note"));
+        let options_view = code_options_view(dialog);
+        let mut own_enter = options_rows(ui, dialog, options_view.as_ref(), &mut actions, i18n);
+        if let Some(view) = &options_view {
+            show_options_summary(ui, view, i18n);
+        }
+        let max_height = (screen.height() - MODAL_CHROME).max(MIN_CODE_HEIGHT);
+        show_code(ui, dialog, max_height, i18n);
+        let controls = buttons(ui, dialog, i18n);
+        actions.extend(controls.actions);
+        own_enter.extend(controls.activating);
+        let ready = dialog.clipboard_text().is_some();
+        let settled = !popup_was_open && !actions.iter().any(changes_options);
+        if ready && settled && enter_copies(ui, &own_enter) && !actions.contains(&CodeAction::Close)
+        {
+            actions.push(CodeAction::Copy);
+        }
+    });
     if modal.should_close() && !actions.contains(&CodeAction::Close) {
         actions.push(CodeAction::Close);
     }

@@ -227,7 +227,7 @@ pub fn show_workspace(
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
         Workspace::Browse | Workspace::Connections => {
-            super::browse_panel::show_collection(ui, state, i18n, out, now_secs)
+            super::split_panel::show_browse(ui, state, i18n, out, now_secs)
         }
         Workspace::Compare => {
             if let Some(action) = show_compare(ui, &state.compare, &state.conn, i18n) {
@@ -283,10 +283,11 @@ pub fn show_modals(
 ) {
     let save_enabled = state.pending.is_none();
     let connection = state.active_connection_label(i18n);
+    let scope = (save_enabled, state.active_tab());
     let saved = state
         .editor
         .as_mut()
-        .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, save_enabled));
+        .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, scope));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
     let built = state.indexes.builder.as_ref().and_then(|builder| {
         let context = BuilderContext {

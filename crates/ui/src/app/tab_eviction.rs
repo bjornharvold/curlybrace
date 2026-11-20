@@ -24,10 +24,13 @@ pub(super) fn evict_within(state: &mut AppState, parked: usize, bytes: usize) {
     if state.parked_tabs.is_empty() {
         return;
     }
+    // The split's partner is on screen beside the active tab: it keeps its page, and does not
+    // count against the parked ones.
+    let partner = state.tabs.split.as_ref().map(|s| s.secondary);
     let mut holding: Vec<(TabId, usize)> = state
         .parked_tabs
         .iter()
-        .filter(|(_, view)| view.page.is_some())
+        .filter(|(tab, view)| view.page.is_some() && Some(**tab) != partner)
         .map(|(tab, view)| (*tab, view.page_key.map_or(0, |key| key.bytes)))
         .collect();
     if holding.is_empty() {
@@ -67,12 +70,14 @@ pub(super) fn sweep_empty(state: &mut AppState) {
         return;
     }
     let active = state.active_tab();
+    // A pane of the split is on screen, empty or not.
+    let partner = state.tabs.split.as_ref().map(|s| s.secondary);
     let doomed: Vec<TabId> = state
         .tabs
         .order
         .iter()
         .copied()
-        .filter(|t| Some(*t) != active)
+        .filter(|t| Some(*t) != active && Some(*t) != partner)
         .filter(|t| state.glance(*t).is_some_and(|g| g.is_idle_empty()))
         .collect();
     for tab in doomed {

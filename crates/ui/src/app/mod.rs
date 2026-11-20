@@ -83,6 +83,8 @@ pub mod shell_actions;
 mod shell_guard;
 mod shell_preflight;
 pub mod shell_state;
+mod split_actions;
+mod split_panel;
 pub mod state;
 pub mod tab_actions;
 mod tab_eviction;
