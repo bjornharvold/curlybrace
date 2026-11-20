@@ -64,6 +64,11 @@ pub struct TabStrip {
     pub mru: Vec<TabId>,
     /// Tabs whose connection was lost: they keep their text and send nothing until Run.
     pub dormant: BTreeSet<TabId>,
+    /// Dormant tabs that came from the saved session (not from a lost connection): nothing has run
+    /// in them yet, and their note says so.
+    pub restored: BTreeSet<TabId>,
+    /// Restored tabs whose query text was too long to be saved: their note says the text is gone.
+    pub text_dropped: BTreeSet<TabId>,
     /// Current tabs that show less than the server holds (a parked tab keeps this mark in its own
     /// view; it moves here while the tab is current and back when it is parked again).
     pub stale: BTreeSet<TabId>,
@@ -132,6 +137,10 @@ impl TabStrip {
         let mru = self.mru.into_iter().filter(|t| *t != tab).collect();
         let mut dormant = self.dormant;
         dormant.remove(&tab);
+        let mut restored = self.restored;
+        restored.remove(&tab);
+        let mut text_dropped = self.text_dropped;
+        text_dropped.remove(&tab);
         let mut stale = self.stale;
         stale.remove(&tab);
         // A pane that closes ends the split: it never names a tab that is gone.
@@ -145,6 +154,8 @@ impl TabStrip {
             current,
             mru,
             dormant,
+            restored,
+            text_dropped,
             stale,
             split,
             ..self
@@ -215,7 +226,26 @@ impl TabStrip {
     pub fn awakened(self, tab: TabId) -> Self {
         let mut dormant = self.dormant;
         dormant.remove(&tab);
-        Self { dormant, ..self }
+        let mut restored = self.restored;
+        restored.remove(&tab);
+        let mut text_dropped = self.text_dropped;
+        text_dropped.remove(&tab);
+        Self {
+            dormant,
+            restored,
+            text_dropped,
+            ..self
+        }
+    }
+
+    /// `tab` was reopened from the saved session: dormant, with nothing run yet.
+    pub fn made_restored(self, tab: TabId, text_dropped: bool) -> Self {
+        let mut next = self.made_dormant([tab]);
+        next.restored.insert(tab);
+        if text_dropped {
+            next.text_dropped.insert(tab);
+        }
+        next
     }
 
     /// `tab` (a current tab) is, or is no longer, known to show less than the server holds.

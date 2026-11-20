@@ -13,6 +13,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ToolsPersist(e) => (i18n.t(e.tools_i18n_key()), None),
+        Banner::WorkspacePersist(_) => (i18n.t("persist.workspace_write_failed"), None),
         Banner::PipelinesCleanup => (i18n.t("aggregate.saved.cleanup_failed"), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
@@ -42,7 +43,9 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
 fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
     let key = recovery.i18n_key();
     match recovery {
-        Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => {
+        Recovery::Skipped { count, .. }
+        | Recovery::Repaired { count, .. }
+        | Recovery::WorkspaceSkipped { count, .. } => {
             i18n.t_with(key, &[("n", &count.to_string())])
         }
         Recovery::SkippedAndRepaired {
@@ -60,7 +63,9 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Explain { .. }
         | Recovery::Tools { .. }
         | Recovery::Pipelines { .. }
-        | Recovery::PipelinesNewer => i18n.t(key),
+        | Recovery::PipelinesNewer
+        | Recovery::Workspace { .. }
+        | Recovery::WorkspaceNewer => i18n.t(key),
     }
 }
 
@@ -79,6 +84,7 @@ pub fn banner_level(banner: &Banner) -> BannerLevel {
         Banner::Failure { .. }
         | Banner::Persist(_)
         | Banner::ToolsPersist(_)
+        | Banner::WorkspacePersist(_)
         | Banner::PipelinesCleanup
         | Banner::ImportFailed(_)
         | Banner::ExportFailed(_) => BannerLevel::Error,

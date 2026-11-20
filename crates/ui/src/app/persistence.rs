@@ -99,6 +99,17 @@ pub enum Recovery {
     /// The saved pipelines file was written by a newer version: it is left as it is, the store
     /// starts empty and saving is turned off.
     PipelinesNewer,
+    /// The saved tabs file was not usable; no tabs are reopened.
+    Workspace {
+        backed_up: bool,
+    },
+    /// The saved tabs file was written by a newer version: left as it is, saving is turned off.
+    WorkspaceNewer,
+    /// Saved tabs of a connection or collection that is gone were skipped.
+    WorkspaceSkipped {
+        count: usize,
+        backed_up: bool,
+    },
 }
 
 impl Recovery {
@@ -135,6 +146,15 @@ impl Recovery {
             Self::Pipelines { backed_up: true } => "aggregate.saved.recovered_backed_up",
             Self::Pipelines { backed_up: false } => "aggregate.saved.recovered_backup_failed",
             Self::PipelinesNewer => "aggregate.saved.error.unsupported",
+            Self::Workspace { backed_up: true } => "persist.workspace_backed_up",
+            Self::Workspace { backed_up: false } => "persist.workspace_backup_failed",
+            Self::WorkspaceNewer => "persist.workspace_newer",
+            Self::WorkspaceSkipped {
+                backed_up: true, ..
+            } => "persist.workspace_skipped_backed_up",
+            Self::WorkspaceSkipped {
+                backed_up: false, ..
+            } => "persist.workspace_skipped_backup_failed",
         }
     }
 }

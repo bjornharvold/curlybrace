@@ -104,6 +104,10 @@ mod tools_actions;
 mod tools_app;
 pub mod tools_state;
 mod verdict_create;
+mod workspace_app;
+mod workspace_file;
+mod workspace_read;
+mod workspace_restore;
 pub mod write_guard;
 
 use crate::I18n;

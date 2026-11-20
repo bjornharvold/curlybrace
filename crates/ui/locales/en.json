@@ -1648,6 +1648,12 @@
     "tools_write_failed": "Could not save the tool paths. The change applies until you close the app.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
+    "workspace_backed_up": "The saved tabs file was not readable, so no tabs were reopened. A backup copy was kept next to it; the next change will replace the original file.",
+    "workspace_backup_failed": "The saved tabs file was not readable and a backup copy could not be made. Tabs are not saved so nothing is overwritten.",
+    "workspace_newer": "The saved tabs file was written by a newer version of Curlybrace and was left untouched. No tabs were reopened and none are saved.",
+    "workspace_skipped_backed_up": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped. A backup copy of the original file was kept.",
+    "workspace_skipped_backup_failed": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
+    "workspace_write_failed": "Could not save your open tabs. They will not be reopened next time unless saving works again.",
     "write_failed": "Could not write the saved connections file."
   },
   "query": {
@@ -1911,6 +1917,12 @@
     "new_tab_disabled": "New tab (needs a connection)",
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
+    "restore": {
+      "setting": "Reopen tabs at launch",
+      "setting_hint": "Open tabs and the query text in them are saved on this computer and come back, without running anything, after you connect. Turning this off erases the saved text now.",
+      "text_dropped": "This tab's query text was too long to save, so it was not restored.",
+      "waiting": "Restored from your last session. Nothing has run yet; run the query to load documents."
+    },
     "split": {
       "divider": "Resize panes",
       "divider_value": "{percent}%",
