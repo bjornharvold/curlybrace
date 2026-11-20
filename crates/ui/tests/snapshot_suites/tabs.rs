@@ -2,17 +2,20 @@
 //! tabs, with the "All tabs" menu open, with production and read-only badges, and with a dormant
 //! tab. Included from `snapshots.rs` (which is at its size limit) so CI compiles and runs them
 //! with the other screenshots.
-use crate::support::shots::Shot;
+use crate::support::shots::{Shot, browsing};
 use crate::support::tabs_shots::{
     background_session, browsing_with_tabs, make_dormant, six_tabs, split_two,
     split_two_connections,
 };
 use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::I18n;
+use curlybrace_ui::app::tools_state::ToolsState;
 use curlybrace_ui::theme::Mode;
+use curlybrace_ui::viewmodel::ViewMode;
 use curlybrace_ui::viewmodel::split_layout::Orientation;
 use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
+use std::collections::BTreeMap;
 
 /// Three collections of one connection, the first shown.
 fn three_tabs(state: &mut curlybrace_ui::app::state::AppState) {
@@ -124,4 +127,29 @@ shot!(tabs_dormant, vec![], |state| {
     state.page_key = None;
     let shown = state.active_tab().expect("a shown tab");
     make_dormant(state, shown);
+});
+
+// A session restored from the saved file (#159, slice 4): the tabs are back and dormant, and the
+// one shown says nothing has run yet.
+shot!(tabs_restored_dormant, vec![], |state| {
+    browsing_with_tabs(state, &["invoices", "notes"]);
+    state.page = None;
+    state.page_key = None;
+    for view in state.parked_tabs.values_mut() {
+        view.page = None;
+        view.page_key = None;
+    }
+    let session = state.active.expect("an active session");
+    for tab in state.tabs_of(session) {
+        state.tabs = std::mem::take(&mut state.tabs).made_restored(tab, false);
+    }
+});
+
+// The Settings dialog with the "Reopen tabs at launch" switch under the tool paths.
+shot!(settings_restore_switch, vec![], |state| {
+    browsing(ViewMode::Table)(state);
+    let (tools, _) = ToolsState::default()
+        .open_settings(BTreeMap::new())
+        .take_queue();
+    state.tools = tools;
 });

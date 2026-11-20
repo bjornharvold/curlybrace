@@ -62,6 +62,7 @@ pub struct Harness {
 }
 
 impl Harness {
+    #[allow(dead_code)] // used by only some of the test crates that share this module
     pub fn new(connections: Vec<ConnectionConfig>) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let secrets = Arc::new(MemorySecretStore::new());
@@ -69,6 +70,7 @@ impl Harness {
     }
 
     /// A fresh app (a "restart") over the given directory and keychain.
+    #[allow(dead_code)] // used by only some of the test crates that share this module
     pub fn on(
         dir: tempfile::TempDir,
         secrets: Arc<MemorySecretStore>,

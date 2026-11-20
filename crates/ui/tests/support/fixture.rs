@@ -56,6 +56,7 @@ fn launch(
     secrets: Arc<MemorySecretStore>,
     saved: Vec<ConnectionConfig>,
     picker: Option<Arc<dyn FilePicker>>,
+    workspace: Option<PathBuf>,
 ) -> (Harness<'static, CurlybraceApp>, PathBuf) {
     let _enter = rt.enter();
     let config_path = dir.path().join("connections.json");
@@ -73,6 +74,11 @@ fn launch(
         .with_host_key_requests(requests);
     let app = match picker {
         Some(picker) => app.with_file_picker(picker, Arc::new(|| {})),
+        None => app,
+    };
+    // Only a test that asks for it reads or writes saved tabs, and then only in its own folder.
+    let app = match workspace {
+        Some(path) => app.with_workspace_path(Ok(path)),
         None => app,
     };
     let harness = Harness::builder()
@@ -194,7 +200,7 @@ impl Fixture {
         for (key, value) in &setup.secrets {
             secrets.set(key, value).expect("seed secret");
         }
-        let (harness, config_path) = launch(&rt, &dir, secrets.clone(), setup.saved, picker);
+        let (harness, config_path) = launch(&rt, &dir, secrets.clone(), setup.saved, picker, None);
         Self {
             harness,
             labels: Labels::new(),
@@ -214,6 +220,33 @@ impl Fixture {
 
     pub fn runtime(&self) -> &Runtime {
         &self.rt
+    }
+
+    /// The app saves its tabs to `path` from now on (an app of a test has no path by default).
+    pub fn use_workspace(&mut self, path: &Path) {
+        let state = self.harness.state_mut().state_mut();
+        *state = std::mem::take(state).with_workspace_path(Ok(path.to_path_buf()));
+    }
+
+    /// Quits the app (it writes its tabs, as on exit) and launches a new one on the same files,
+    /// saved connections and server, reading its tabs from `path`: what closing the window and
+    /// opening it again does.
+    pub fn relaunch(&mut self, path: &Path) {
+        self.harness.state_mut().save_workspace_now();
+        let saved = self.harness.state().state().conn.connections.clone();
+        let (harness, _) = launch(
+            &self.rt,
+            &self._dir,
+            self.secrets.clone(),
+            saved,
+            None,
+            Some(path.to_path_buf()),
+        );
+        self.harness = harness;
+        let state = self.harness.state_mut().state_mut();
+        // The flows are about tabs: the guard and the verdict would add reads of their own.
+        state.explain.guard = false;
+        state.explain.automatic = false;
     }
 
     /// Clicks the label `text` (exactly one node must match).
