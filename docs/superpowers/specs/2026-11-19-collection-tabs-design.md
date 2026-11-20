@@ -46,7 +46,7 @@ Why not one `Vec<Tab>` with `state.tabs[active].find` everywhere? Every one of t
 
 - `failed()` and `connection_lost`;
 - connect and reconnect (`session_actions::connect`, `aggregate_for_reopen`);
-- `session_dropped` (disconnect: the session's tabs go with it);
+- `session_dropped` (disconnect: the session's tabs go with it; the saved ones stay for restore: the connection's open tabs go back to the waiting group of `workspace.json` and reopen on its next connect, see section 6);
 - `session_cleared` (the runtime stopped);
 - `Mutated`, `IndexChanged` and `AdminChanged` (other tabs on the same namespace or database);
 - the `Sampler` status;
@@ -132,14 +132,16 @@ Why not one `Vec<Tab>` with `state.tabs[active].find` everywhere? Every one of t
   - the document editor's text (it is document data);
   - bulk, admin, run or index-builder dialogs;
   - passwords, passphrases, URIs and anything in `SecretStore`.
-- **Bounds:** at most `MAX_TABS` entries, and at most 256 KiB of text per tab. A tab over that is saved without its texts, and on restore it shows `tabs.restore.text_dropped`. The file as a whole is refused above 8 MiB.
+- **Bounds:** at most `MAX_TABS` (20) tabs are *open* at once, whatever restore does. The file itself may hold more: the open tabs plus the saved tabs that wait (for their connection, or for room under the limit), up to `MAX_SAVED_TABS` (200); entries past that are counted in a notice with a backup (`persist.workspace_overflow_*`). At most 256 KiB of text and 200 stages per tab: a tab over that is saved without its texts, and on restore it shows `tabs.restore.text_dropped`. The file as a whole is refused above 8 MiB.
+- **Waiting tabs:** a saved tab that has not been reopened (its connection has not connected, it did not fit under the limit, or its connection was disconnected) stays in the file. Tabs that did not fit are announced once when their connection connects (`tabs.restore.overflow`) and reopen, oldest first, dormant, as tabs are closed. Disconnecting a connection moves its open tabs back to its waiting group (after the ones already waiting), so they reopen on the next connect; deleting the connection drops them. An entry of a connection the list failed to load is kept, unverified, and never dropped for it.
+- **Connection list damaged:** when `connections.json` could not be read at all, no saved tab can be checked: none is reopened, the file is left as it is, the switch shows what the file says, and only turning it off (which erases the text and the backups) writes.
 - **Load errors** follow `settings_file::load_read`:
   - **missing:** nothing to restore;
   - **corrupt or unreadable:** backed up (tags `corrupt` / `unreadable`), with a recovery notice (`Recovery::Workspace { backed_up }`); if the backup failed, the guard blocks saving;
   - **written by a newer version:** left as it is and saving turned off (`Recovery::WorkspaceNewer`, like `PipelinesNewer`);
   - **bad entries:** an entry whose connection id is no longer saved, or whose namespace fails `curlybrace_core::copy::names::validate_namespace`, is skipped and counted in the notice.
 - **When it is written:**
-  - at once on a change of tab structure (open, close, reorder, namespace, sub-tab, view mode, split) and on Run;
+  - at once on a change of tab structure (open, close, reorder, namespace, sub-tab, view mode, split) and on a Run of the Documents find (the find the front tab sends); an Aggregate preview or run is not a separate trigger, so its stage text is written within 1 s of the last change like other typing;
   - typing is debounced by 1 s against the last written snapshot (a small value compared for equality);
   - and once more in `on_exit`.
   - A failed write is a banner (`persist.workspace_write_failed`), like the other settings files. The log line carries only the `PersistError`, which is an `io::ErrorKind` with no path text or content.

@@ -139,6 +139,8 @@ pub struct WorkspaceStartup {
     pub file: WorkspaceFile,
     pub guard: PersistGuard,
     pub recovery: Option<Recovery>,
+    /// A second notice, when the file had more than one thing wrong with it.
+    pub also: Option<Recovery>,
     /// The file on disk is not what `file` says (entries were skipped or it was replaced after a
     /// backup): the first write cleans it up.
     pub needs_rewrite: bool,
@@ -350,8 +352,20 @@ impl WorkspaceFile {
 /// restored; when the backup fails saving is blocked. A newer version is left alone with saving
 /// blocked. Entries naming a connection not in `known`, or a namespace that fails
 /// `validate_namespace`, are skipped and counted (with a backup of the original).
+#[cfg(test)]
 pub fn load(path: &Path, backup: BackupFn<'_>, known: &BTreeSet<Uuid>) -> WorkspaceStartup {
     workspace_read::load(path, backup, known)
+}
+
+/// [`load`] keeping the entries of unknown connections (waiting, unverified) when the list of
+/// connections lost entries and `keep_unknown` says so.
+pub fn load_with(
+    path: &Path,
+    backup: BackupFn<'_>,
+    known: &BTreeSet<Uuid>,
+    keep_unknown: bool,
+) -> WorkspaceStartup {
+    workspace_read::load_with(path, backup, known, keep_unknown)
 }
 
 /// Writes `file` (pretty JSON, 0600, atomic). Refused when `guard` blocks saving.
@@ -385,7 +399,9 @@ pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
         let file = entry.file_name().to_string_lossy().into_owned();
         let is_backup = ["corrupt", "unreadable", "skipped"]
             .iter()
-            .any(|tag| file.starts_with(&format!("{name}.{tag}-")));
+            .any(|tag| file.starts_with(&format!("{name}.{tag}-")))
+            // A temp file a crashed write left behind holds the same text.
+            || file.starts_with(&format!(".{name}.tmp-"));
         if !is_backup {
             continue;
         }

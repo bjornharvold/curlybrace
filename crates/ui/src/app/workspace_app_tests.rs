@@ -426,7 +426,7 @@ fn a_connection_list_that_failed_to_load_leaves_the_workspace_file_alone() {
             Vec::<String>::new(),
             "and nothing was backed up"
         );
-        assert!(app.state().restore.sync.path.is_none(), "writes are off");
+        assert!(app.state().restore.sync.unverified, "writes are off");
     }
 }
 
@@ -444,4 +444,243 @@ fn the_switch_says_so_when_saving_is_turned_off() {
     let i18n = crate::I18n::english();
     let text = crate::app::banner::banner_text(&banner.unwrap(), &i18n).0;
     assert_eq!(text, i18n.t("persist.workspace_blocked"));
+}
+
+fn lost_list_app(dir: &tempfile::TempDir, file: &[u8]) -> (CurlybraceApp, PathBuf) {
+    let path = dir.path().join("workspace.json");
+    std::fs::write(&path, file).unwrap();
+    let (app, _events, _commands) = app_in(dir, Vec::new());
+    // Leak the channels' ends so the runtime looks alive.
+    std::mem::forget((_events, _commands));
+    let app = app
+        .with_banner(Some(Banner::Recovery(Recovery::Corrupt {
+            backed_up: true,
+        })))
+        .with_workspace_path(Ok(path.clone()));
+    (app, path)
+}
+
+const OFF: &[u8] = br#"{"version":1,"restore":false,"tabs":[]}"#;
+const ON_WITH_TAB: &[u8] = br#"{"version":1,"restore":true,"tabs":[{"connection":"00000000-0000-0000-0000-000000000009","db":"app","collection":"users","sub_tab":"documents","view_mode":"table"}]}"#;
+
+#[test]
+fn a_lost_connection_list_still_shows_what_the_file_says_about_the_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _) = lost_list_app(&dir, OFF);
+    assert!(
+        !app.state().restore.restore,
+        "the switch shows Off, as the file says"
+    );
+    let (app, _) = lost_list_app(&dir, ON_WITH_TAB);
+    assert!(app.state().restore.restore);
+}
+
+#[test]
+fn turning_off_with_a_lost_connection_list_erases_the_text_and_the_backups() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = lost_list_app(&dir, ON_WITH_TAB);
+    std::fs::write(dir.path().join("workspace.json.corrupt-1"), b"SAVED TEXT").unwrap();
+    app.dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    assert_eq!(
+        app.state()
+            .banner
+            .as_ref()
+            .map(|b| matches!(b, Banner::Recovery(_))),
+        Some(true),
+        "no notice: it works"
+    );
+    app.save_workspace_if_changed(&egui::Context::default(), Instant::now());
+    let file: WorkspaceFile = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(file, WorkspaceFile::without_tabs(false));
+    assert_eq!(backups(&dir), Vec::<String>::new());
+}
+
+#[test]
+fn turning_on_with_a_lost_connection_list_says_saving_is_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = lost_list_app(&dir, OFF);
+    app.state_mut().banner = None;
+    app.dispatch(Input::Tools(ToolsAction::SetRestore(true)));
+    assert_eq!(
+        app.state().banner,
+        Some(Banner::WorkspacePersist(PersistError::Blocked))
+    );
+    app.save_workspace_if_changed(&egui::Context::default(), Instant::now());
+    assert_eq!(std::fs::read(&path).unwrap(), OFF, "and nothing is written");
+}
+
+#[test]
+fn the_switch_says_so_whenever_saving_is_off_even_without_a_place_to_save() {
+    let mut rig = rig(false);
+    rig.app
+        .dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    assert_eq!(
+        rig.app.state().banner,
+        Some(Banner::WorkspacePersist(PersistError::Blocked))
+    );
+}
+
+#[test]
+fn a_partly_loaded_connection_list_keeps_saving_on_and_keeps_unknown_tabs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspace.json");
+    std::fs::write(&path, ON_WITH_TAB).unwrap();
+    let (app, _events, _commands) = app_in(&dir, Vec::new());
+    std::mem::forget((_events, _commands));
+    let mut app = app
+        .with_banner(Some(Banner::Recovery(Recovery::Skipped {
+            count: 1,
+            backed_up: true,
+        })))
+        .with_workspace_path(Ok(path.clone()));
+    assert!(!app.state().restore.sync.unverified, "saving is on");
+    assert_eq!(
+        app.state().restore.dormant.len(),
+        1,
+        "the tab of an unknown id waits"
+    );
+    assert_eq!(
+        backups(&dir),
+        Vec::<String>::new(),
+        "nothing was skipped or backed up"
+    );
+    app.state_mut().restore.restore = true;
+    app.save_workspace_now();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("users"), "and it stays in the file: {text}");
+}
+
+#[test]
+fn what_was_typed_after_a_failed_write_is_never_written_later() {
+    let mut rig = rig(true);
+    rig.open("users");
+    let t0 = Instant::now();
+    rig.step(t0);
+    // The file can no longer be written; X is typed and its write fails.
+    let blocker = rig.dir.path().join("blocker");
+    std::fs::write(&blocker, b"x").unwrap();
+    rig.app.state_mut().restore.sync.path = Some(blocker.join("workspace.json"));
+    rig.app.state_mut().find.text.filter = "X".into();
+    rig.step(t0 + Duration::from_millis(100));
+    rig.step(t0 + Duration::from_millis(1200));
+    assert!(rig.app.state().restore.sync.failed.is_some(), "X failed");
+    // Y is typed, then X is typed back; saving works again.
+    rig.app.state_mut().find.text.filter = "Y".into();
+    rig.step(t0 + Duration::from_millis(1300));
+    rig.app.state_mut().find.text.filter = "X".into();
+    rig.step(t0 + Duration::from_millis(1400));
+    rig.app.state_mut().restore.sync.path = Some(rig.path());
+    let before = rig.writes();
+    rig.step(t0 + Duration::from_secs(5));
+    rig.step(t0 + Duration::from_secs(9));
+    let saved = rig.on_disk().tabs.remove(0).find;
+    assert!(
+        saved.as_ref().is_none_or(|f| f.filter != "Y"),
+        "Y was written: {saved:?}"
+    );
+    assert_eq!(rig.writes(), before, "nothing was written");
+}
+
+#[test]
+fn turning_restore_off_also_deletes_leftover_temp_files_and_only_those() {
+    let mut rig = rig(true);
+    let dir = rig.dir.path().to_path_buf();
+    for name in [
+        ".workspace.json.tmp-1-2-3",
+        "connections.json",
+        "workspace.json.keep",
+        ".connections.json.tmp-9",
+    ] {
+        std::fs::write(dir.join(name), b"x").unwrap();
+    }
+    rig.app
+        .dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    rig.step(Instant::now());
+    let mut left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != "workspace.json" && n != "pipelines.json")
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        [
+            ".connections.json.tmp-9",
+            "connections.json",
+            "workspace.json.keep"
+        ]
+    );
+}
+
+#[test]
+fn the_backup_of_an_oversized_file_is_read_at_most_to_the_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspace.json");
+    let size = crate::app::workspace_file::MAX_FILE_BYTES + 5000;
+    std::fs::write(&path, vec![b'x'; size]).unwrap();
+    let (app, _e, _c) = app_in(&dir, Vec::new());
+    std::mem::forget((_e, _c));
+    let _app = app.with_workspace_path(Ok(path));
+    let copy = backups(&dir)
+        .into_iter()
+        .find(|n| n.contains("corrupt"))
+        .expect("a backup copy");
+    let kept = std::fs::metadata(dir.path().join(copy)).unwrap().len();
+    assert_eq!(kept, crate::app::workspace_file::MAX_FILE_BYTES as u64 + 1);
+}
+
+#[test]
+fn aggregate_options_and_mode_survive_a_relaunch_through_the_real_file() {
+    use curlybrace_core::pipeline_options::PipelineOptions;
+    let options = PipelineOptions {
+        comment: Some("agg".into()),
+        allow_disk_use: Some(true),
+        ..PipelineOptions::default()
+    };
+    let mut first = rig(true);
+    first.open("users");
+    first
+        .app
+        .dispatch(Input::Tab(crate::viewmodel::CollectionTab::Aggregate));
+    for text in [r#"{"$match": {}}"#, r#"{"$out": "dest"}"#] {
+        first
+            .app
+            .dispatch(Input::Aggregate(AggregateAction::AddStage("$match".into())));
+        let at = first.app.state().aggregate.stages.len() - 1;
+        first
+            .app
+            .dispatch(Input::Aggregate(AggregateAction::Edit(at, text.into())));
+    }
+    first.app.state_mut().aggregate.options = options.clone();
+    first
+        .app
+        .dispatch(Input::Aggregate(AggregateAction::SetMode(
+            crate::viewmodel::aggregate::Mode::Text,
+        )));
+    first.app.save_workspace_now();
+    // A new app on the same folder: it reads the file the first one wrote.
+    let id = first.id;
+    let cfg = first.app.state().connection(id).cloned().unwrap();
+    let (app, events, _commands) = app_in(&first.dir, vec![cfg]);
+    let mut app = app.with_workspace_path(Ok(first.path()));
+    app.dispatch(Input::Connect(id));
+    let epoch = app.state().epoch_counter;
+    events
+        .send(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        })
+        .unwrap();
+    app.pump();
+    let s = app.state();
+    assert_eq!(s.aggregate.mode, crate::viewmodel::aggregate::Mode::Text);
+    assert_eq!(s.aggregate.options, options);
+    app.dispatch(Input::Aggregate(AggregateAction::RunClicked));
+    assert!(
+        app.state().aggregate.run.dialog.is_some(),
+        "Run asks before the $out"
+    );
+    std::mem::forget(events);
 }

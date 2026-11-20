@@ -48,9 +48,9 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
     match recovery {
         Recovery::Skipped { count, .. }
         | Recovery::Repaired { count, .. }
-        | Recovery::WorkspaceSkipped { count, .. } => {
-            i18n.t_with(key, &[("n", &count.to_string())])
-        }
+        | Recovery::WorkspaceSkipped { count, .. }
+        | Recovery::WorkspaceOverflow { count, .. }
+        | Recovery::WorkspaceWaiting { count } => i18n.t_with(key, &[("n", &count.to_string())]),
         Recovery::SkippedAndRepaired {
             skipped, repaired, ..
         } => i18n.t_with(

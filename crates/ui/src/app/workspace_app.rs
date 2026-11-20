@@ -27,6 +27,9 @@ pub struct WorkspaceSync {
     pub snapshots: u64,
     /// The backup copies of the file (they hold query text) are to be deleted.
     pub purge_backups: bool,
+    /// The connection list could not be read, so no saved tab can be checked: the file is left
+    /// as it is while tabs are reopened, and only the opt-out may rewrite it (with no tabs).
+    pub unverified: bool,
     pub(super) pending: Option<(WorkspaceFile, Instant)>,
     pub(super) failed: Option<WorkspaceFile>,
     /// The fingerprint of the state the last snapshot was built from.
@@ -39,21 +42,62 @@ pub struct WorkspaceSync {
 }
 
 impl AppState {
-    /// Whether the connection list could not be read as it was saved (the notice of the startup
-    /// load says so): its ids cannot tell which saved tabs are still good.
-    fn connections_unreliable(&self) -> bool {
-        let damaged = |r: &Recovery| {
+    /// What the startup load of the connection list found, from its notices: `lost` when it could
+    /// not be read at all (its ids prove nothing), `partial` when only some entries were skipped
+    /// (the ids that loaded are good, the others are unknown, not deleted).
+    fn connections_found(&self) -> (bool, bool) {
+        let notices = || {
+            self.banner
+                .iter()
+                .filter_map(|b| match b {
+                    Banner::Recovery(r) => Some(r),
+                    _ => None,
+                })
+                .chain(self.pending_recovery.iter())
+        };
+        let lost = self.persist.check().is_err()
+            || notices()
+                .any(|r| matches!(r, Recovery::Corrupt { .. } | Recovery::Unreadable { .. }));
+        let partial = notices().any(|r| {
             matches!(
                 r,
-                Recovery::Corrupt { .. }
-                    | Recovery::Unreadable { .. }
-                    | Recovery::Skipped { .. }
-                    | Recovery::SkippedAndRepaired { .. }
+                Recovery::Skipped { .. } | Recovery::SkippedAndRepaired { .. }
             )
+        });
+        (lost, partial)
+    }
+
+    /// The saved tabs when the connection list was lost: they cannot be checked, so they are not
+    /// reopened and the file is left alone, but the setting shows what the file says and the
+    /// opt-out still works.
+    fn workspace_unverified(self, path: std::path::PathBuf) -> Self {
+        let (restore, may_save) = super::workspace_read::peek_restore(&path);
+        let sync = WorkspaceSync {
+            path: Some(path),
+            guard: match may_save {
+                true => PersistGuard::default(),
+                false => PersistGuard::blocked(),
+            },
+            unverified: true,
+            ..WorkspaceSync::default()
         };
-        self.persist.check().is_err()
-            || matches!(&self.banner, Some(Banner::Recovery(r)) if damaged(r))
-            || self.pending_recovery.iter().any(damaged)
+        Self {
+            restore: Box::new(RestoreState {
+                restore,
+                sync,
+                ..RestoreState::default()
+            }),
+            ..self
+        }
+    }
+
+    /// Whether the tabs are not being saved right now, for any reason: no place to save, saving
+    /// turned off (a newer file, a failed backup) or a connection list that could not be read.
+    pub(super) fn workspace_saving_off(&self) -> bool {
+        let sync = &self.restore.sync;
+        sync.path.is_none()
+            || sync.guard.check().is_err()
+            || (sync.unverified && self.restore.restore)
     }
 
     /// Loads the saved tabs from `path`. They wait, grouped by connection, until their
@@ -65,15 +109,16 @@ impl AppState {
         let Ok(path) = path else {
             return self;
         };
-        if self.connections_unreliable() {
-            return self;
+        let (lost, partial) = self.connections_found();
+        if lost {
+            return self.workspace_unverified(path);
         }
         let known: BTreeSet<Uuid> = self.conn.connections.iter().map(|c| c.id).collect();
         // A file too big to be ours is kept cut at the bound, not read whole.
         let backup = |p: &std::path::Path, tag: &str| {
             persistence::back_up_limited(p, tag, Some(MAX_FILE_BYTES as u64 + 1))
         };
-        let started = workspace_file::load(&path, &backup, &known);
+        let started = workspace_file::load_with(&path, &backup, &known, partial);
         let sync = WorkspaceSync {
             path: Some(path),
             guard: started.guard,
@@ -94,7 +139,11 @@ impl AppState {
             }
             false => state,
         };
-        match started.recovery {
+        let state = match started.recovery {
+            Some(recovery) => state.with_recovery_notice(recovery),
+            None => state,
+        };
+        match started.also {
             Some(recovery) => state.with_recovery_notice(recovery),
             None => state,
         }
@@ -155,6 +204,8 @@ impl AppState {
         }
         // The same content that just failed is not tried again until something changes.
         if sync.failed.as_ref() == Some(&snap) {
+            // What was typed since is not what the file should get: it is not written later.
+            sync.pending = None;
             return None;
         }
         let structural = sync.written.as_ref().is_none_or(|w| !w.same_shape(&snap));
@@ -192,8 +243,7 @@ impl AppState {
     }
 
     fn workspace_may_write(&self) -> bool {
-        let sync = &self.restore.sync;
-        sync.path.is_some() && sync.guard.check().is_ok()
+        !self.workspace_saving_off()
     }
 
     /// Writes `snap`. A failure is logged (the error kind only, never a path or text) and raises

@@ -4,6 +4,7 @@
 //! sent and nothing shows in the strip. When a connection connects, its saved tabs become
 //! `Dormant` tabs holding their namespace, text, sub-tab and view mode. A dormant tab sends
 //! nothing when shown; its Run is the only way its query goes out.
+use super::persistence::Recovery;
 use super::session::carried_aggregate;
 use super::state::{AppState, Workspace};
 use super::tab_actions::{MAX_TABS, activate};
@@ -91,9 +92,16 @@ impl RestoreState {
 }
 
 impl AppState {
-    /// The saved tabs of connections that are no longer saved dropped (a deleted connection).
-    pub(super) fn dormant_pruned(mut self) -> AppState {
-        let known: BTreeSet<Uuid> = self.conn.connections.iter().map(|c| c.id).collect();
+    /// The saved tabs of the connection `id` dropped (it was deleted). Those of connections the
+    /// list failed to load are not touched: they are unknown, not deleted.
+    pub(super) fn dormant_forgotten(mut self, id: Uuid) -> AppState {
+        let known: BTreeSet<Uuid> = self
+            .restore
+            .dormant
+            .keys()
+            .copied()
+            .filter(|k| *k != id)
+            .collect();
         self.restore.known_only(&known);
         self
     }
@@ -105,27 +113,57 @@ impl AppState {
 /// it is on the deepest event path.
 pub(super) fn materialise(state: &mut AppState, session: Uuid, background: bool) {
     if state.restore.dormant.contains_key(&session) {
-        reopened(state, session, background);
+        reopened(state, session, background, true);
+    }
+}
+
+/// Room appeared (a tab was closed): the saved tabs of connected sessions that did not fit reopen,
+/// oldest first, dormant and sending nothing, behind whatever the person is looking at.
+pub(super) fn refill(state: &mut AppState) {
+    if state.restore.dormant.is_empty() {
+        return;
+    }
+    let waiting: Vec<Uuid> = state
+        .open
+        .iter()
+        .copied()
+        .filter(|s| state.restore.dormant.contains_key(s))
+        .filter(|s| state.status_of(*s) == Some(super::state::ConnStatus::Connected))
+        .collect();
+    for session in waiting {
+        if room_for(state, false, None) == 0 {
+            return;
+        }
+        reopened(state, session, true, false);
     }
 }
 
 #[inline(never)]
-fn reopened(state: &mut AppState, session: Uuid, background: bool) {
+fn reopened(state: &mut AppState, session: Uuid, background: bool, initial: bool) {
     let mut saved = state.restore.dormant.remove(&session).unwrap_or_default();
     let active = state
         .restore
         .active_hint
-        .take_if(|(id, _)| *id == session)
+        .filter(|(id, _)| *id == session)
         .map(|(_, at)| at);
     let split = state
         .restore
         .split_hint
         .take_if(|(id, _)| *id == session)
         .map(|(_, split)| split);
-    let front = in_front(state, session, background);
+    // Only the connect itself takes the front; a tab reopened later waits behind it.
+    let front = initial && in_front(state, session, background);
     let room = room_for(state, front, active);
     // What does not fit keeps waiting, in the file too: nothing saved is dropped for lack of room.
     let rest = saved.split_off(room.min(saved.len()));
+    let opened_count = saved.len();
+    if active.is_some() {
+        // The saved active tab keeps its place among the tabs that still wait.
+        state.restore.active_hint = active
+            .filter(|at| *at >= opened_count)
+            .map(|at| (session, at - opened_count));
+    }
+    let overflow = rest.len();
     if !rest.is_empty() {
         state.restore.dormant.insert(session, rest);
     }
@@ -141,6 +179,10 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool) {
     if let Some(tab) = active.and_then(at).filter(|_| front) {
         next = shown(next, tab);
         next = paired(next, tab, split, at);
+    }
+    if initial && overflow > 0 {
+        let notice = Recovery::WorkspaceWaiting { count: overflow };
+        next = next.with_recovery_notice(notice);
     }
     *state = next;
 }
@@ -278,15 +320,31 @@ impl AppState {
         if open.is_empty() {
             return self;
         }
-        let front = self.active_tab();
-        let at = open.iter().position(|(tab, _)| Some(*tab) == front);
+        let place = |tab: TabId| open.iter().position(|(t, _)| *t == tab);
+        let front = self.active_tab().and_then(place);
+        let split = self.tabs.split.clone().and_then(|s| {
+            let (primary, secondary) = (place(s.primary)?, place(s.secondary)?);
+            (Some(primary) == front && primary != secondary).then_some((secondary, s))
+        });
+        // The tabs that were already waiting stay first: they have waited longest, and reopening
+        // takes them in order, so tabs left open are never ahead of them.
         let waiting = self.restore.dormant.remove(&session).unwrap_or_default();
-        let mut tabs: Vec<SavedTab> = open.into_iter().map(|(_, saved)| saved).collect();
-        tabs.extend(waiting);
+        let before = waiting.len();
+        let mut tabs = waiting;
+        tabs.extend(open.into_iter().map(|(_, saved)| saved));
         tabs.truncate(MAX_SAVED_TABS);
         self.restore.dormant.insert(session, tabs);
-        if let Some(at) = at {
-            self.restore.active_hint = Some((session, at));
+        if let Some(at) = front {
+            self.restore.active_hint = Some((session, before + at));
+            self.restore.split_hint = split.map(|(secondary, s)| {
+                let saved = SavedSplit {
+                    secondary: before + secondary,
+                    ratio: s.ratio,
+                    orientation: s.orientation.into(),
+                    secondary_first: s.secondary_first,
+                };
+                (session, saved)
+            });
         }
         self
     }

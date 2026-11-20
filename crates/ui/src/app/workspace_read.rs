@@ -9,6 +9,7 @@ use super::workspace_file::{
 };
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::{AggregateState, CollectionTab, FindBarState, ViewMode};
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::store::Namespace;
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -66,22 +67,55 @@ enum Unusable {
     Newer,
 }
 
+#[cfg(test)]
 pub(super) fn load(path: &Path, backup: BackupFn<'_>, known: &BTreeSet<Uuid>) -> WorkspaceStartup {
+    load_with(path, backup, known, false)
+}
+
+/// Whether the file at `path` says tabs are reopened, and whether it may be replaced: a file
+/// that is missing says yes; one that cannot be read, is not ours or is newer is left alone.
+/// Never backs anything up and never keeps a tab: for when the connection list could not be read.
+pub(super) fn peek_restore(path: &Path) -> (bool, bool) {
+    if std::fs::metadata(path).is_ok_and(|m| !m.is_file()) {
+        return (true, false);
+    }
+    let bytes = match read_bounded(path) {
+        Ok(None) => return (true, true),
+        Ok(Some(bytes)) if bytes.len() <= MAX_FILE_BYTES => bytes,
+        _ => return (true, false),
+    };
+    let Ok(value) = json_object(&bytes) else {
+        return (true, false);
+    };
+    match value.get("version").and_then(serde_json::Value::as_u64) {
+        Some(v) if v == u64::from(VERSION) => {
+            let restore = value.get("restore").and_then(serde_json::Value::as_bool);
+            (restore.unwrap_or(true), true)
+        }
+        _ => (true, false),
+    }
+}
+
+/// [`load`]; with `keep_unknown` an entry whose connection is not in `known` is kept, waiting and
+/// unverified, instead of skipped (the list of connections lost entries, so its ids prove nothing).
+pub(super) fn load_with(
+    path: &Path,
+    backup: BackupFn<'_>,
+    known: &BTreeSet<Uuid>,
+    keep_unknown: bool,
+) -> WorkspaceStartup {
     // Something that is not a file (a pipe would block the launch, a folder cannot be read) is
     // never opened, and never backed up: saving stays off so it is not replaced either.
     if std::fs::metadata(path).is_ok_and(|m| !m.is_file()) {
         log::warn!("the saved tabs path is not a regular file");
-        return WorkspaceStartup {
-            file: WorkspaceFile::default(),
-            guard: PersistGuard::blocked(),
-            recovery: Some(Recovery::Workspace { backed_up: false }),
-            needs_rewrite: false,
-        };
+        return unusable(Recovery::Workspace { backed_up: false }, false);
     }
     let tag = match read_bounded(path) {
         Ok(None) => return usable(WorkspaceFile::default(), 0, false),
         Ok(Some(bytes)) => match parse(&bytes) {
-            Ok(file) => return filtered(path, backup, known, file),
+            Ok((file, repaired)) => {
+                return filtered(path, backup, (known, keep_unknown), file, repaired);
+            }
             Err(Unusable::Newer) => return newer(),
             Err(Unusable::Corrupt) => "corrupt",
         },
@@ -89,10 +123,19 @@ pub(super) fn load(path: &Path, backup: BackupFn<'_>, known: &BTreeSet<Uuid>) ->
     };
     let backed_up = backed_up(path, backup, tag);
     WorkspaceStartup {
-        file: WorkspaceFile::default(),
         guard: guard_after(backed_up),
-        recovery: Some(Recovery::Workspace { backed_up }),
         needs_rewrite: true,
+        ..unusable(Recovery::Workspace { backed_up }, backed_up)
+    }
+}
+
+fn unusable(recovery: Recovery, may_save: bool) -> WorkspaceStartup {
+    WorkspaceStartup {
+        file: WorkspaceFile::default(),
+        guard: guard_after(may_save),
+        recovery: Some(recovery),
+        also: None,
+        needs_rewrite: false,
     }
 }
 
@@ -109,26 +152,57 @@ fn read_bounded(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-fn parse(bytes: &[u8]) -> Result<WorkspaceFile, Unusable> {
+/// The file and whether bad options had to be dropped from some tab to read it: one tab's
+/// invalid option costs that tab its options, not every saved tab.
+fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, bool), Unusable> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Unusable::Corrupt);
     }
-    let value = json_object(bytes).map_err(|_| Unusable::Corrupt)?;
+    let mut value = json_object(bytes).map_err(|_| Unusable::Corrupt)?;
     match value.get("version").and_then(serde_json::Value::as_u64) {
         Some(v) if v > u64::from(VERSION) => return Err(Unusable::Newer),
         Some(v) if v == u64::from(VERSION) => {}
         _ => return Err(Unusable::Corrupt),
     }
-    serde_json::from_value(value).map_err(|_| Unusable::Corrupt)
+    if let Ok(file) = serde_json::from_slice(bytes) {
+        return Ok((file, false));
+    }
+    if !without_bad_options(&mut value) {
+        return Err(Unusable::Corrupt);
+    }
+    serde_json::from_value(value)
+        .map(|file| (file, true))
+        .map_err(|_| Unusable::Corrupt)
+}
+
+/// Removes the options of every tab whose options do not validate; whether any was removed.
+fn without_bad_options(value: &mut serde_json::Value) -> bool {
+    let Some(tabs) = value.get_mut("tabs").and_then(|t| t.as_array_mut()) else {
+        return false;
+    };
+    let mut changed = false;
+    for tab in tabs {
+        for part in ["find", "draft"] {
+            let Some(part) = tab.get_mut(part).and_then(|p| p.as_object_mut()) else {
+                continue;
+            };
+            let bad = part.get("options").is_some_and(|options| {
+                serde_json::from_value::<PipelineOptions>(options.clone()).is_err()
+            });
+            if bad {
+                part.remove("options");
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        log::warn!("options of a saved tab were not valid and were dropped");
+    }
+    changed
 }
 
 fn newer() -> WorkspaceStartup {
-    WorkspaceStartup {
-        file: WorkspaceFile::default(),
-        guard: PersistGuard::blocked(),
-        recovery: Some(Recovery::WorkspaceNewer),
-        needs_rewrite: false,
-    }
+    unusable(Recovery::WorkspaceNewer, false)
 }
 
 fn usable(file: WorkspaceFile, skipped: usize, backed_up: bool) -> WorkspaceStartup {
@@ -140,6 +214,7 @@ fn usable(file: WorkspaceFile, skipped: usize, backed_up: bool) -> WorkspaceStar
         file,
         guard: guard_after(backed_up || skipped == 0),
         recovery,
+        also: None,
         needs_rewrite: skipped > 0,
     }
 }
@@ -161,31 +236,33 @@ fn backed_up(path: &Path, backup: BackupFn<'_>, tag: &str) -> bool {
     }
 }
 
-/// Keeps the entries that can be used: a known connection and a valid namespace, at most
-/// `MAX_TABS`, each within its text bound. The active tab and the split follow their entries.
+/// Keeps the entries that can be used: a known connection and a valid namespace, each within its
+/// text bound, at most `MAX_SAVED_TABS` of them. The active tab and the split follow their
+/// entries. An entry that is invalid is skipped and counted; one past the bound is counted apart.
 fn filtered(
     path: &Path,
     backup: BackupFn<'_>,
-    known: &BTreeSet<Uuid>,
+    (known, keep_unknown): (&BTreeSet<Uuid>, bool),
     file: WorkspaceFile,
+    repaired: bool,
 ) -> WorkspaceStartup {
     if !file.restore {
         return usable(WorkspaceFile::without_tabs(false), 0, true);
     }
     let mut kept: Vec<SavedTab> = Vec::new();
     let mut position: Vec<Option<usize>> = Vec::new();
-    let mut skipped = 0;
+    let (mut skipped, mut overflow) = (0, 0);
     for tab in file.tabs {
-        // Entries past the most the file may hold are counted, never silently dropped.
-        if position.len() < MAX_SAVED_TABS
-            && known.contains(&tab.connection)
-            && valid_namespace(&tab)
-        {
-            position.push(Some(kept.len()));
-            kept.push(tab.bounded());
-        } else {
+        let usable = (keep_unknown || known.contains(&tab.connection)) && valid_namespace(&tab);
+        if !usable {
             position.push(None);
             skipped += 1;
+        } else if kept.len() >= MAX_SAVED_TABS {
+            position.push(None);
+            overflow += 1;
+        } else {
+            position.push(Some(kept.len()));
+            kept.push(tab.bounded());
         }
     }
     let moved = |at: usize| position.get(at).copied().flatten();
@@ -202,6 +279,25 @@ fn filtered(
         split,
         ..WorkspaceFile::default()
     };
-    let backed_up = skipped == 0 || backed_up(path, backup, "skipped");
-    usable(file, skipped, backed_up)
+    let lost = skipped + overflow;
+    let backed_up = lost == 0 || backed_up(path, backup, "skipped");
+    let mut notices = [
+        (skipped > 0).then_some(Recovery::WorkspaceSkipped {
+            count: skipped,
+            backed_up,
+        }),
+        (overflow > 0).then_some(Recovery::WorkspaceOverflow {
+            count: overflow,
+            backed_up,
+        }),
+    ]
+    .into_iter()
+    .flatten();
+    WorkspaceStartup {
+        file,
+        guard: guard_after(backed_up),
+        recovery: notices.next(),
+        also: notices.next(),
+        needs_rewrite: lost > 0 || repaired,
+    }
 }

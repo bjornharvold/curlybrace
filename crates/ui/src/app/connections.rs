@@ -208,7 +208,7 @@ pub fn deleted(
         ..state
     };
     // Its saved tabs have nothing to reopen on: the next write drops them from the file.
-    (next.dormant_pruned(), written)
+    (next.dormant_forgotten(id), written)
 }
 
 #[cfg(test)]

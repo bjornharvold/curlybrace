@@ -83,6 +83,8 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         .get(position + 1)
         .or_else(|| position.checked_sub(1).and_then(|p| state.open.get(p)))
         .copied();
+    // Its open tabs wait for its next connect: read before the focus moves to the neighbour.
+    let state = state.tabs_waiting(id);
     let epoch = state.epoch_counter + 1;
     // The closed session's running shell is cancelled before the Disconnect (which kills it in
     // the core as well), under the same rule as a lost connection.

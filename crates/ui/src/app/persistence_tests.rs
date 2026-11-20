@@ -424,6 +424,7 @@ fn error_keys_are_distinct() {
     assert_eq!(keys.len(), 6);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_planted_link_at_the_old_temp_name_is_never_followed() {
     let dir = tempfile::tempdir().unwrap();

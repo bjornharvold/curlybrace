@@ -10,8 +10,7 @@ use super::state::{AppState, Banner};
 pub(super) fn restore_set(state: AppState, on: bool) -> AppState {
     let mut state = state;
     state.restore.restore = on;
-    let sync = &state.restore.sync;
-    if sync.path.is_some() && sync.guard.check().is_err() && state.banner.is_none() {
+    if state.workspace_saving_off() && state.banner.is_none() {
         state.banner = Some(Banner::WorkspacePersist(PersistError::Blocked));
     }
     if !on {

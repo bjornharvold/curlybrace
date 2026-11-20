@@ -285,12 +285,68 @@ fn entries_past_the_most_the_file_may_hold_are_counted_with_a_backup() {
     assert_eq!(loaded.file.tabs.len(), MAX_SAVED_TABS);
     assert_eq!(
         loaded.recovery,
-        Some(Recovery::WorkspaceSkipped {
+        Some(Recovery::WorkspaceOverflow {
             count: 5,
             backed_up: true
         })
     );
     assert_eq!(*tags.borrow(), ["skipped"]);
+}
+
+#[test]
+fn invalid_entries_do_not_eat_into_the_bound_and_both_notices_are_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let (id, gone) = (Uuid::new_v4(), Uuid::new_v4());
+    let mut tabs: Vec<SavedTab> = (0..3).map(|_| tab(gone, "x")).collect();
+    tabs.extend((0..MAX_SAVED_TABS + 2).map(|n| tab(id, &format!("c{n}"))));
+    let path = dir.path().join("workspace.json");
+    std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
+    let loaded = load(&path, &back_up, &known(&[id]));
+    assert_eq!(
+        loaded.file.tabs.len(),
+        MAX_SAVED_TABS,
+        "all the valid ones that fit"
+    );
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceSkipped {
+            count: 3,
+            backed_up: true
+        })
+    );
+    assert_eq!(
+        loaded.also,
+        Some(Recovery::WorkspaceOverflow {
+            count: 2,
+            backed_up: true
+        })
+    );
+}
+
+#[test]
+fn one_tabs_bad_options_cost_that_tab_its_options_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "00000000-0000-0000-0000-000000000001";
+    let text = format!(
+        r#"{{"version":1,"restore":true,"tabs":[
+        {{"connection":"{id}","db":"a","collection":"bad","sub_tab":"documents","view_mode":"table",
+          "find":{{"filter":"{{\"keep\": 1}}","sort":"","projection":"","skip":"","limit":"",
+                   "options":{{"maxTimeMS":0}}}}}},
+        {{"connection":"{id}","db":"a","collection":"good","sub_tab":"documents","view_mode":"table",
+          "find":{{"filter":"{{}}","sort":"","projection":"","skip":"","limit":"",
+                   "options":{{"comment":"fine"}}}}}}]}}"#
+    );
+    let path = write(&dir, text.as_bytes());
+    let id: Uuid = id.parse().unwrap();
+    let loaded = load(&path, &back_up, &known(&[id]));
+    assert_eq!(loaded.recovery, None, "the file is not corrupt");
+    assert_eq!(loaded.file.tabs.len(), 2);
+    let bad = loaded.file.tabs[0].find.as_ref().unwrap();
+    assert_eq!(bad.filter, r#"{"keep": 1}"#, "the tab and its text stay");
+    assert!(bad.options.is_empty(), "its options do not");
+    let good = loaded.file.tabs[1].find.as_ref().unwrap();
+    assert_eq!(good.options.comment.as_deref(), Some("fine"));
+    assert!(loaded.needs_rewrite, "the first write cleans the file");
 }
 
 #[test]

@@ -654,6 +654,10 @@ fn aggregate_mode_and_options_come_back_and_out_still_needs_typing() {
     assert_eq!(s.aggregate.options, options);
     assert!(s.aggregate.text.contains("$out"));
     let (s, _) = update(s, Input::Aggregate(AggregateAction::RunClicked));
+    assert!(
+        s.aggregate.run.dialog.is_some(),
+        "Run is ready in text mode, and asks first"
+    );
     let (_, commands) = update(s, Input::Aggregate(AggregateAction::RunConfirmed));
     assert!(
         !commands
@@ -711,3 +715,6 @@ fn a_restored_tab_reopened_or_copied_keeps_its_note_and_its_flag() {
     let back = s.active_tab().expect("the reopened tab");
     assert!(s.tabs.restored.contains(&back) && s.tabs.text_dropped.contains(&back));
 }
+
+#[path = "workspace_waiting_tests.rs"]
+mod waiting;

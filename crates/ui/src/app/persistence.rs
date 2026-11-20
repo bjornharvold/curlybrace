@@ -105,6 +105,16 @@ pub enum Recovery {
     },
     /// The saved tabs file was written by a newer version: left as it is, saving is turned off.
     WorkspaceNewer,
+    /// More saved tabs than the file may hold: the ones past the bound were left out.
+    WorkspaceOverflow {
+        count: usize,
+        backed_up: bool,
+    },
+    /// Saved tabs of a connection that connected did not fit under the tab limit: they wait and
+    /// reopen as tabs are closed.
+    WorkspaceWaiting {
+        count: usize,
+    },
     /// Saved tabs of a connection or collection that is gone were skipped.
     WorkspaceSkipped {
         count: usize,
@@ -149,6 +159,13 @@ impl Recovery {
             Self::Workspace { backed_up: true } => "persist.workspace_backed_up",
             Self::Workspace { backed_up: false } => "persist.workspace_backup_failed",
             Self::WorkspaceNewer => "persist.workspace_newer",
+            Self::WorkspaceOverflow {
+                backed_up: true, ..
+            } => "persist.workspace_overflow_backed_up",
+            Self::WorkspaceOverflow {
+                backed_up: false, ..
+            } => "persist.workspace_overflow_backup_failed",
+            Self::WorkspaceWaiting { .. } => "tabs.restore.overflow",
             Self::WorkspaceSkipped {
                 backed_up: true, ..
             } => "persist.workspace_skipped_backed_up",
