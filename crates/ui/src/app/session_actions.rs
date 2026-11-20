@@ -104,7 +104,9 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
     };
     // A failure the closed session raised goes with it; other sessions' banners stay.
     let own_failure = focused.banner_owner() == Some(id);
-    let dropped = focused.session_dropped(id);
+    let mut dropped = focused.session_dropped(id);
+    // What waited for room on this connection no longer does.
+    dropped.waiting_notice_checked();
     let next = if own_failure {
         dropped.without_banner()
     } else {

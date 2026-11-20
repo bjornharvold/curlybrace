@@ -4,14 +4,14 @@ use super::settings_file::json_object;
 use super::state::AppState;
 use super::tabs::TabId;
 use super::workspace_file::{
-    MAX_FILE_BYTES, MAX_WAITING_TABS, SavedSplit, SavedTab, VERSION, WorkspaceFile,
-    WorkspaceStartup, valid_namespace,
+    MAX_FILE_BYTES, MAX_SAVED_TABS, SavedSplit, SavedTab, VERSION, WorkspaceFile, WorkspaceStartup,
+    valid_namespace,
 };
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::{AggregateState, CollectionTab, FindBarState, ViewMode};
 use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::store::Namespace;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::Path;
 use uuid::Uuid;
@@ -152,9 +152,10 @@ fn read_bounded(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
-/// The file and how many tabs had bad options dropped to read it: one tab's invalid option costs
-/// that tab its options (it is flagged `options_dropped`), not every saved tab.
-fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, usize), Unusable> {
+/// The file and which of its tabs (by position) had bad options dropped to read it: one tab's
+/// invalid option costs that tab its options (it is flagged `options_dropped`), not every saved
+/// tab.
+fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, Vec<usize>), Unusable> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Unusable::Corrupt);
     }
@@ -165,10 +166,10 @@ fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, usize), Unusable> {
         _ => return Err(Unusable::Corrupt),
     }
     if let Ok(file) = serde_json::from_slice(bytes) {
-        return Ok((file, 0));
+        return Ok((file, Vec::new()));
     }
     let dropped = without_bad_options(&mut value);
-    if dropped == 0 {
+    if dropped.is_empty() {
         return Err(Unusable::Corrupt);
     }
     serde_json::from_value(value)
@@ -176,14 +177,14 @@ fn parse(bytes: &[u8]) -> Result<(WorkspaceFile, usize), Unusable> {
         .map_err(|_| Unusable::Corrupt)
 }
 
-/// Removes the options of every tab whose options do not validate and flags that tab; how many
-/// tabs that was.
-fn without_bad_options(value: &mut serde_json::Value) -> usize {
+/// Removes the options of every tab whose options do not validate and flags that tab; which tabs
+/// that was.
+fn without_bad_options(value: &mut serde_json::Value) -> Vec<usize> {
     let Some(tabs) = value.get_mut("tabs").and_then(|t| t.as_array_mut()) else {
-        return 0;
+        return Vec::new();
     };
-    let mut dropped = 0;
-    for tab in tabs {
+    let mut dropped = Vec::new();
+    for (at, tab) in tabs.iter_mut().enumerate() {
         let mut bad_here = false;
         for part in ["find", "draft"] {
             let Some(part) = tab.get_mut(part).and_then(|p| p.as_object_mut()) else {
@@ -199,11 +200,14 @@ fn without_bad_options(value: &mut serde_json::Value) -> usize {
         }
         if bad_here {
             tab["options_dropped"] = serde_json::Value::Bool(true);
-            dropped += 1;
+            dropped.push(at);
         }
     }
-    if dropped > 0 {
-        log::warn!("options of {dropped} saved tab(s) were not valid and were dropped");
+    if !dropped.is_empty() {
+        log::warn!(
+            "options of {} saved tab(s) were not valid and were dropped",
+            dropped.len()
+        );
     }
     dropped
 }
@@ -251,26 +255,31 @@ fn filtered(
     backup: BackupFn<'_>,
     (known, keep_unknown): (&BTreeSet<Uuid>, bool),
     file: WorkspaceFile,
-    repaired: usize,
+    repaired_at: Vec<usize>,
 ) -> WorkspaceStartup {
     if !file.restore {
         return usable(WorkspaceFile::without_tabs(false), 0, true);
     }
-    let mut kept: Vec<SavedTab> = Vec::new();
-    let mut position: Vec<Option<usize>> = Vec::new();
-    let (mut skipped, mut overflow) = (0, 0);
-    for tab in file.tabs {
-        let usable = (keep_unknown || known.contains(&tab.connection)) && valid_namespace(&tab);
-        if !usable {
-            position.push(None);
-            skipped += 1;
-        } else if kept.len() >= MAX_WAITING_TABS {
-            position.push(None);
-            overflow += 1;
-        } else {
-            position.push(Some(kept.len()));
-            kept.push(tab.bounded());
+    let total = file.tabs.len();
+    let mut skipped = 0;
+    let mut usable: Vec<(usize, SavedTab)> = Vec::new();
+    for (at, tab) in file.tabs.into_iter().enumerate() {
+        match (keep_unknown || known.contains(&tab.connection)) && valid_namespace(&tab) {
+            true => usable.push((at, tab)),
+            false => skipped += 1,
         }
+    }
+    // A file over the bound (hand edited, or from an older release) is cut the way the running
+    // app cuts its waiting tabs: from the tail of the longest group. Counted apart from the
+    // entries that were invalid.
+    let overflow = trim_longest(&mut usable);
+    let mut kept: Vec<SavedTab> = Vec::new();
+    let mut position: Vec<Option<usize>> = vec![None; total];
+    let mut repaired = 0;
+    for (at, tab) in usable {
+        position[at] = Some(kept.len());
+        repaired += usize::from(repaired_at.contains(&at));
+        kept.push(tab.bounded());
     }
     let moved = |at: usize| position.get(at).copied().flatten();
     let active = file.active.and_then(moved);
@@ -287,13 +296,6 @@ fn filtered(
         ..WorkspaceFile::default()
     };
     let lost = skipped + overflow;
-    // Only the tabs that were kept count as repaired.
-    let repaired = file
-        .tabs
-        .iter()
-        .filter(|t| t.options_dropped)
-        .count()
-        .min(repaired);
     // The original is kept whenever anything was dropped from it, and says why in its name.
     let tag = if repaired > 0 { "repaired" } else { "skipped" };
     let backed_up = lost + repaired == 0 || backed_up(path, backup, tag);
@@ -322,4 +324,27 @@ fn filtered(
         also: notices.collect(),
         needs_rewrite: lost > 0 || repaired > 0,
     }
+}
+
+/// Entries cut from the tail of the longest connection's group until at most `MAX_SAVED_TABS`
+/// remain; how many were cut.
+fn trim_longest(usable: &mut Vec<(usize, SavedTab)>) -> usize {
+    let mut cut = 0;
+    while usable.len() > MAX_SAVED_TABS {
+        let mut sizes: BTreeMap<Uuid, usize> = BTreeMap::new();
+        for (_, tab) in usable.iter() {
+            *sizes.entry(tab.connection).or_default() += 1;
+        }
+        let Some((longest, _)) = sizes.into_iter().max_by_key(|(id, n)| (*n, *id)) else {
+            break;
+        };
+        if let Some(at) = usable
+            .iter()
+            .rposition(|(_, tab)| tab.connection == longest)
+        {
+            usable.remove(at);
+            cut += 1;
+        }
+    }
+    cut
 }

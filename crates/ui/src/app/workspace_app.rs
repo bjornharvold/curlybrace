@@ -195,6 +195,14 @@ impl AppState {
             return self.workspace_waiting_text(now, ran);
         }
         sync.seen = Some(fp);
+        // Open tabs that took room the waiting ones had: the oldest of those go, and it is said.
+        let trimmed = self.waiting_fitted(uuid::Uuid::nil(), 0, None);
+        if trimmed > 0 {
+            *self = std::mem::take(self).trimmed_notice_raised(trimmed);
+        }
+        let fp = if trimmed > 0 { fingerprint(self) } else { fp };
+        self.restore.sync.seen = Some(fp);
+        let sync = &mut self.restore.sync;
         sync.snapshots += 1;
         let snap = snapshot(self);
         let sync = &mut self.restore.sync;

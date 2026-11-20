@@ -276,14 +276,14 @@ fn the_file_may_hold_more_tabs_than_the_open_limit() {
 fn entries_past_the_most_the_file_may_hold_are_counted_with_a_backup() {
     let dir = tempfile::tempdir().unwrap();
     let id = Uuid::new_v4();
-    let tabs: Vec<SavedTab> = (0..MAX_WAITING_TABS + 5)
+    let tabs: Vec<SavedTab> = (0..MAX_SAVED_TABS + 5)
         .map(|n| tab(id, &format!("c{n}")))
         .collect();
     let path = dir.path().join("workspace.json");
     std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
     let tags = RefCell::new(Vec::new());
     let loaded = load(&path, &recording(&tags), &known(&[id]));
-    assert_eq!(loaded.file.tabs.len(), MAX_WAITING_TABS);
+    assert_eq!(loaded.file.tabs.len(), MAX_SAVED_TABS);
     assert_eq!(
         loaded.recovery,
         Some(Recovery::WorkspaceOverflow {
@@ -299,13 +299,13 @@ fn invalid_entries_do_not_eat_into_the_bound_and_both_notices_are_given() {
     let dir = tempfile::tempdir().unwrap();
     let (id, gone) = (Uuid::new_v4(), Uuid::new_v4());
     let mut tabs: Vec<SavedTab> = (0..3).map(|_| tab(gone, "x")).collect();
-    tabs.extend((0..MAX_WAITING_TABS + 2).map(|n| tab(id, &format!("c{n}"))));
+    tabs.extend((0..MAX_SAVED_TABS + 2).map(|n| tab(id, &format!("c{n}"))));
     let path = dir.path().join("workspace.json");
     std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
     let loaded = load(&path, &back_up, &known(&[id]));
     assert_eq!(
         loaded.file.tabs.len(),
-        MAX_WAITING_TABS,
+        MAX_SAVED_TABS,
         "all the valid ones that fit"
     );
     assert_eq!(
@@ -690,4 +690,76 @@ fn only_the_tabs_that_are_kept_count_as_repaired() {
         }],
         "one repaired tab was kept, not two"
     );
+}
+
+#[test]
+fn a_file_over_the_bound_is_cut_the_way_the_running_app_cuts_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (b, c, d) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    let mut tabs: Vec<SavedTab> = Vec::new();
+    tabs.extend((0..150).map(|n| tab(b, &format!("b{n}"))));
+    tabs.extend((0..70).map(|n| tab(c, &format!("c{n}"))));
+    tabs.extend((0..30).map(|n| tab(d, &format!("d{n}"))));
+    assert_eq!(tabs.len(), 250);
+    let path = dir.path().join("workspace.json");
+    std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
+    let tags = RefCell::new(Vec::new());
+    let loaded = load(&path, &recording(&tags), &known(&[b, c, d]));
+    let count = |id: Uuid| {
+        loaded
+            .file
+            .tabs
+            .iter()
+            .filter(|t| t.connection == id)
+            .count()
+    };
+    assert_eq!(
+        (count(b), count(c), count(d)),
+        (100, 70, 30),
+        "the longest group lost its tail"
+    );
+    assert_eq!(loaded.file.tabs.len(), MAX_SAVED_TABS);
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceOverflow {
+            count: 50,
+            backed_up: true
+        })
+    );
+    assert_eq!(*tags.borrow(), ["skipped"]);
+}
+
+#[test]
+fn a_tab_repaired_at_an_earlier_launch_is_not_counted_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (kept, gone) = (
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+    );
+    let flagged = format!(
+        r#"{{"connection":"{kept}","db":"a","collection":"one","sub_tab":"documents","view_mode":"table","options_dropped":true}}"#
+    );
+    let bad = format!(
+        r#"{{"connection":"{gone}","db":"a","collection":"two","sub_tab":"documents","view_mode":"table",
+          "find":{{"filter":"{{}}","sort":"","projection":"","skip":"","limit":"","options":{{"maxTimeMS":0}}}}}}"#
+    );
+    let text = format!(r#"{{"version":1,"restore":true,"tabs":[{flagged},{bad}]}}"#);
+    let path = write(&dir, text.as_bytes());
+    let tags = RefCell::new(Vec::new());
+    let id: Uuid = kept.parse().unwrap();
+    let loaded = load(&path, &recording(&tags), &known(&[id]));
+    assert_eq!(loaded.file.tabs.len(), 1);
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceSkipped {
+            count: 1,
+            backed_up: true
+        })
+    );
+    assert!(
+        loaded.also.is_empty(),
+        "nothing was repaired by this load: {:?}",
+        loaded.also
+    );
+    assert_eq!(*tags.borrow(), ["skipped"]);
 }

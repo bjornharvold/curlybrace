@@ -84,6 +84,16 @@ fn waiting_split(state: &AppState, live_count: usize) -> Option<SavedSplit> {
     Some(SavedSplit { secondary, ..split })
 }
 
+/// Whether `tab` is one that is saved: it shows a collection of a saved connection.
+pub(super) fn is_saved_tab(state: &AppState, tab: TabId) -> bool {
+    let known = state
+        .tabs
+        .owner
+        .get(&tab)
+        .is_some_and(|session| state.connection(*session).is_some());
+    known && state.tab_ns(tab).is_some()
+}
+
 /// `tab` as it is saved: its namespace, choices and text. `None` for a tab without a collection
 /// and for one of a session that is not a saved connection.
 pub(super) fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {

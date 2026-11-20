@@ -349,13 +349,13 @@ fn the_waiting_groups_are_cut_across_connections_and_never_the_open_tabs() {
     let (x, y) = (Uuid::new_v4(), Uuid::new_v4());
     s.restore
         .dormant
-        .insert(x, (0..100).map(|n| tab(x, &format!("x{n}"))).collect());
+        .insert(x, (0..120).map(|n| tab(x, &format!("x{n}"))).collect());
     s.restore
         .dormant
         .insert(y, (0..78).map(|n| tab(y, &format!("y{n}"))).collect());
     let (s, _) = update(s, Input::Disconnect(id));
     let total: usize = s.restore.dormant.values().map(Vec::len).sum();
-    assert_eq!(total, MAX_WAITING_TABS);
+    assert_eq!(total, MAX_SAVED_TABS);
     assert_eq!(s.restore.dormant[&id].len(), 10, "the working set is whole");
     assert_eq!(s.restore.active_hint, Some((id, 0)), "with its front tab");
     let told = |r: &Recovery| matches!(r, Recovery::WorkspaceTrimmed { count: 8 });
@@ -367,22 +367,150 @@ fn the_waiting_groups_are_cut_across_connections_and_never_the_open_tabs() {
     );
 }
 
-#[test]
-fn live_and_waiting_tabs_never_need_a_cut_in_the_snapshot() {
-    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
-    let id = cfg.id;
-    let (mut s, _) = connected(waiting(vec![cfg], vec![], None), id);
-    let other = Uuid::new_v4();
-    s.restore.dormant.insert(
-        other,
-        (0..MAX_WAITING_TABS)
-            .map(|n| tab(other, &format!("w{n}")))
-            .collect(),
+/// Open tabs, waiting tabs and the file's one bound: the snapshot is whole.
+fn assert_never_cut(s: &AppState) {
+    let live = s
+        .visible_tabs()
+        .into_iter()
+        .filter(|t| s.tab_ns(*t).is_some() && s.connection(s.tabs.owner[t]).is_some())
+        .count();
+    let waiting: usize = s.restore.dormant.values().map(Vec::len).sum();
+    assert!(
+        live + waiting <= MAX_SAVED_TABS,
+        "{live} open + {waiting} waiting"
     );
-    let s = open_on(s, id, MAX_TABS);
-    let file = snapshot(&s);
-    assert_eq!(file.tabs.len(), MAX_TABS + MAX_WAITING_TABS);
-    assert!(file.tabs.len() <= crate::app::workspace_file::MAX_SAVED_TABS);
+    assert_eq!(
+        snapshot(s).tabs.len(),
+        live + waiting,
+        "the snapshot cut something"
+    );
+}
+
+#[test]
+fn driving_the_app_never_leaves_more_to_save_than_the_file_holds() {
+    let cfgs: Vec<ConnectionConfig> = (0..4)
+        .map(|n| ConnectionConfig::new(&format!("c{n}"), "mongodb://x"))
+        .collect();
+    let ids: Vec<Uuid> = cfgs.iter().map(|c| c.id).collect();
+    let saved: Vec<SavedTab> = ids
+        .iter()
+        .flat_map(|id| (0..45).map(move |n| tab(*id, &format!("s{n}"))))
+        .collect();
+    let mut s = waiting(cfgs, saved, None);
+    assert_never_cut(&s);
+    for id in &ids {
+        let (next, _) = connected(s, *id);
+        s = open_on(next, *id, 8);
+        assert_never_cut(&s);
+    }
+    for id in &ids {
+        let (next, _) = update(s, Input::Disconnect(*id));
+        s = next;
+        assert_never_cut(&s);
+        let (next, _) = connected(s, *id);
+        s = next;
+        assert_never_cut(&s);
+    }
+    let s = s.session_cleared();
+    assert_never_cut(&s);
+}
+
+#[test]
+fn a_runtime_stop_raises_one_trimmed_notice_for_all_the_sessions() {
+    use crate::app::persistence::Recovery;
+    let (a, b) = ab();
+    let (ida, idb) = (a.id, b.id);
+    let (s, _) = connected(waiting(vec![a, b], vec![], None), ida);
+    let (s, _) = connected(s, idb);
+    let s = open_on(s, ida, 5);
+    let mut s = open_on(s, idb, 5);
+    let x = Uuid::new_v4();
+    s.restore
+        .dormant
+        .insert(x, (0..195).map(|n| tab(x, &format!("x{n}"))).collect());
+    let s = s.session_cleared();
+    let trimmed = |r: &Recovery| match r {
+        Recovery::WorkspaceTrimmed { count } => Some(*count),
+        _ => None,
+    };
+    let mut all: Vec<usize> = s.pending_recovery.iter().filter_map(trimmed).collect();
+    if let Some(Banner::Recovery(r)) = &s.banner {
+        all.extend(trimmed(r));
+    }
+    assert_eq!(all.len(), 1, "one notice: {all:?}");
+    assert!(all[0] >= 5);
+    assert_never_cut(&s);
+}
+
+#[test]
+fn a_full_file_that_the_app_wrote_loads_back_whole_and_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfgs: Vec<ConnectionConfig> = (0..3)
+        .map(|n| ConnectionConfig::new(&format!("c{n}"), "mongodb://x"))
+        .collect();
+    let ids: Vec<Uuid> = cfgs.iter().map(|c| c.id).collect();
+    let mut saved: Vec<SavedTab> = (0..100).map(|n| tab(ids[1], &format!("b{n}"))).collect();
+    saved.extend((0..80).map(|n| tab(ids[2], &format!("c{n}"))));
+    let (s, _) = connected(waiting(cfgs.clone(), saved, None), ids[0]);
+    let s = open_on(s, ids[0], MAX_TABS);
+    let written = snapshot(&s);
+    assert_eq!(
+        written.tabs.len(),
+        MAX_SAVED_TABS,
+        "20 open and 180 waiting"
+    );
+    let path = dir.path().join("workspace.json");
+    save(&path, &PersistGuard::default(), &written).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut next = AppState::new(cfgs).with_workspace_path(Ok(path.clone()));
+    let waiting_now: usize = next.restore.dormant.values().map(Vec::len).sum();
+    assert_eq!(waiting_now, MAX_SAVED_TABS, "nothing was lost");
+    assert!(
+        next.banner.is_none() && next.pending_recovery.is_empty(),
+        "and nothing is reported"
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
+    assert_eq!(leftovers.len(), 1, "no backup was made");
+    next.workspace_step(std::time::Instant::now());
+    assert_eq!(next.restore.sync.writes, 0);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "same bytes after a frame"
+    );
+}
+
+#[test]
+fn waiting_tabs_make_room_for_tabs_opened_after_a_full_load() {
+    use crate::app::persistence::Recovery;
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = ab();
+    let (ida, idb) = (a.id, b.id);
+    let saved: Vec<SavedTab> = (0..MAX_SAVED_TABS)
+        .map(|n| tab(idb, &format!("w{n}")))
+        .collect();
+    let path = dir.path().join("workspace.json");
+    save(&path, &PersistGuard::default(), &file_of_tabs(saved)).unwrap();
+    let s = AppState::new(vec![a, b]).with_workspace_path(Ok(path));
+    let (s, _) = connected(s, ida);
+    let mut s = open_on(s, ida, 5);
+    s.workspace_step(std::time::Instant::now());
+    let total: usize = s.restore.dormant.values().map(Vec::len).sum();
+    assert_eq!(total, MAX_SAVED_TABS - 5, "the oldest waiting made room");
+    assert_never_cut(&s);
+    let told = |r: &Recovery| matches!(r, Recovery::WorkspaceTrimmed { count: 5 });
+    let shown = matches!(&s.banner, Some(Banner::Recovery(r)) if told(r));
+    assert!(
+        shown || s.pending_recovery.iter().any(told),
+        "and it is said"
+    );
+}
+
+fn file_of_tabs(tabs: Vec<SavedTab>) -> WorkspaceFile {
+    WorkspaceFile {
+        tabs,
+        ..WorkspaceFile::default()
+    }
 }
 
 fn waiting_notices(s: &AppState) -> usize {
@@ -483,13 +611,13 @@ fn a_full_file_drops_the_oldest_waiting_tabs_and_says_so() {
     let id = cfg.id;
     let saved: Vec<SavedTab> = (0..3).map(|n| tab(id, &format!("open{n}"))).collect();
     let (mut s, _) = connected(waiting(vec![cfg], saved, Some(0)), id);
-    let old: Vec<SavedTab> = (0..MAX_WAITING_TABS)
+    let old: Vec<SavedTab> = (0..MAX_SAVED_TABS)
         .map(|n| tab(id, &format!("old{n}")))
         .collect();
     s.restore.dormant.insert(id, old);
     let (s, _) = update(s, Input::Disconnect(id));
     let group = &s.restore.dormant[&id];
-    assert_eq!(group.len(), MAX_WAITING_TABS);
+    assert_eq!(group.len(), MAX_SAVED_TABS);
     assert_eq!(group[0].collection, "open0", "the working set is kept");
     let told = |r: &Recovery| matches!(r, Recovery::WorkspaceTrimmed { count: 3 });
     let shown = matches!(&s.banner, Some(Banner::Recovery(r)) if told(r));
@@ -515,7 +643,7 @@ fn the_waiting_notice_survives_another_connection_connecting() {
 }
 
 #[test]
-fn another_connections_unapplied_split_hint_survives_a_disconnect() {
+fn a_connection_that_is_not_in_front_leaves_another_ones_hints_alone() {
     let (a, c) = ab();
     let (ida, idc) = (a.id, c.id);
     let file = WorkspaceFile {
@@ -572,4 +700,64 @@ fn a_tab_whose_options_were_dropped_says_so_until_it_runs() {
     let front = s.active_tab().unwrap();
     let (s, _) = update(s, Input::Tabs(TabAction::Run(front)));
     assert!(!s.active_tab_options_dropped(), "Run wakes the tab");
+}
+
+#[test]
+fn the_waiting_notice_counts_what_waits_now_and_only_on_connected_sessions() {
+    use crate::app::persistence::Recovery;
+    let (s, ida, idb) = crowded(10, 15, None);
+    let left = |s: &AppState| s.restore.dormant.get(&idb).map_or(0, Vec::len);
+    let shown = |s: &AppState| match &s.banner {
+        Some(Banner::Recovery(Recovery::WorkspaceWaiting { count })) => Some(*count),
+        _ => None,
+    };
+    assert_eq!(shown(&s), Some(left(&s)));
+    // A close reopens one: the count follows.
+    let tab = s.tabs_of(ida)[0];
+    let s = close_tab(s, tab);
+    assert_eq!(shown(&s), Some(left(&s)), "updated as tabs reopen");
+    // Disconnecting the connection withdraws it.
+    let (s, _) = update(s, Input::Disconnect(idb));
+    assert_eq!(shown(&s), None);
+    // A connection that is being connected is not "waiting for room".
+    let (s, _) = update(s, Input::Connect(idb));
+    assert_eq!(s.waiting_for_room(), 0);
+}
+
+#[test]
+fn the_front_connection_wins_the_files_one_hint_slot() {
+    let (a, c) = ab();
+    let (ida, idc) = (a.id, c.id);
+    let file = WorkspaceFile {
+        tabs: vec![tab(idc, "x"), tab(idc, "y")],
+        active: Some(0),
+        split: Some(crate::app::workspace_file::SavedSplit {
+            secondary: 1,
+            ratio: 0.4,
+            orientation: crate::app::workspace_file::SavedOrientation::Stacked,
+            secondary_first: false,
+        }),
+        ..WorkspaceFile::default()
+    };
+    let mut s = AppState::new(vec![a, c]);
+    s.restore = Box::new(RestoreState::of_file(&file, WorkspaceSync::default()));
+    let (s, _) = connected(s, ida);
+    let (s, _) = update(
+        s,
+        Input::Sidebar(crate::viewmodel::SidebarAction::Open(Namespace::new(
+            "app", "mine",
+        ))),
+    );
+    let (s, _) = update(s, Input::Disconnect(ida));
+    let written = snapshot(&s);
+    let front = &written.tabs[written.active.expect("a front tab")];
+    assert_eq!(
+        front.collection, "mine",
+        "the file's one hint is the front connection's"
+    );
+    assert_eq!(written.split, None, "and c's split is not written");
+    // c connects in front: it comes back without its saved front tab.
+    let (s, _) = connected(s, idc);
+    assert_eq!(namespaces(&s, idc), ["x", "y"], "its tabs are there");
+    assert_eq!(s.tab_ns(s.active_tab().unwrap()), None, "but not in front");
 }

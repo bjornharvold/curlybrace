@@ -12,9 +12,9 @@ use super::tab_strip::Split;
 use super::tabs::TabId;
 use super::workspace_app::WorkspaceSync;
 use super::workspace_file::{
-    MAX_WAITING_TABS, SavedDraftText, SavedFind, SavedSplit, SavedTab, WorkspaceFile,
+    MAX_SAVED_TABS, SavedDraftText, SavedFind, SavedSplit, SavedTab, WorkspaceFile,
 };
-use super::workspace_snapshot::saved_tab;
+use super::workspace_snapshot::{is_saved_tab, saved_tab};
 use crate::viewmodel::AggregateState;
 use crate::viewmodel::aggregate_view::AggregateView;
 use curlybrace_core::saved_pipeline::SavedPipeline;
@@ -78,11 +78,12 @@ impl RestoreState {
         }
     }
 
-    /// Waiting tabs over `MAX_WAITING_TABS` cut from the tail of the longest group, never from the
-    /// first `protected` tabs of `session`'s group (the tabs just open); how many were cut.
-    pub(super) fn waiting_trimmed(&mut self, session: Uuid, protected: usize) -> usize {
+    /// Waiting tabs over `max` cut from the tail of the longest group, never from the first
+    /// `protected` tabs of `session`'s group (the tabs just open); how many were cut. The same
+    /// rule trims a file that is too full at load.
+    pub(super) fn waiting_trimmed(&mut self, session: Uuid, protected: usize, max: usize) -> usize {
         let mut trimmed = 0;
-        while self.dormant.values().map(Vec::len).sum::<usize>() > MAX_WAITING_TABS {
+        while self.dormant.values().map(Vec::len).sum::<usize>() > max {
             let spare =
                 |id: &Uuid, len: usize| len - len.min(if *id == session { protected } else { 0 });
             let longest = self
@@ -90,15 +91,15 @@ impl RestoreState {
                 .iter()
                 .map(|(id, tabs)| (spare(id, tabs.len()), *id))
                 .max();
-            let Some((room, id)) = longest.filter(|(room, _)| *room > 0) else {
+            let Some((_, id)) = longest.filter(|(room, _)| *room > 0) else {
                 break;
             };
-            let _ = room;
             if let Some(group) = self.dormant.get_mut(&id) {
                 group.pop();
                 trimmed += 1;
             }
         }
+        self.hints_checked();
         trimmed
     }
 
@@ -245,7 +246,7 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool, initial: bool
         };
     }
     if initial && overflow > 0 {
-        next = next.waiting_notice_raised(overflow);
+        next = next.waiting_notice_raised();
     }
     *state = next;
     opened_count
@@ -379,9 +380,14 @@ impl AppState {
     /// all connections together are over their bound, the tails of the longest groups are cut,
     /// never the tabs just open, and a notice says so. The connection folding while it is in
     /// front takes the one slot the file has for the front tab and the split.
-    pub(super) fn tabs_waiting(mut self, session: Uuid) -> AppState {
+    pub(super) fn tabs_waiting(self, session: Uuid) -> AppState {
+        let (state, trimmed) = self.tabs_folded(session, true);
+        state.trimmed_notice_raised(trimmed)
+    }
+
+    fn tabs_folded(mut self, session: Uuid, fit: bool) -> (AppState, usize) {
         if !self.restore.restore || self.connection(session).is_none() {
-            return self;
+            return (self, 0);
         }
         let open: Vec<(TabId, SavedTab)> = self
             .tabs
@@ -390,7 +396,7 @@ impl AppState {
             .filter_map(|tab| Some((tab, saved_tab(&self, tab)?)))
             .collect();
         if open.is_empty() {
-            return self;
+            return (self, 0);
         }
         let place = |tab: TabId| open.iter().position(|(t, _)| *t == tab);
         let front = self.active_tab().and_then(place);
@@ -420,7 +426,10 @@ impl AppState {
             s.secondary += open_len;
         }
         self.restore.dormant.insert(session, tabs);
-        let trimmed = self.restore.waiting_trimmed(session, open_len);
+        let trimmed = match fit {
+            true => self.waiting_fitted(session, open_len, Some(session)),
+            false => 0,
+        };
         if let Some(at) = front {
             self.restore.active_hint = Some((session, at));
             self.restore.split_hint = split.map(|(secondary, s)| {
@@ -434,17 +443,22 @@ impl AppState {
             });
         }
         self.restore.hints_checked();
-        match trimmed {
-            0 => self,
-            count => self.with_recovery_notice(Recovery::WorkspaceTrimmed { count }),
-        }
+        (self, trimmed)
     }
 
-    /// The notice that saved tabs are waiting for room: a new one replaces any shown or queued.
-    pub(super) fn waiting_notice_raised(mut self, count: usize) -> AppState {
-        let is = |r: &Recovery| matches!(r, Recovery::WorkspaceWaiting { .. });
+    /// How many saved tabs of connected sessions wait for room.
+    pub(super) fn waiting_for_room(&self) -> usize {
+        self.open
+            .iter()
+            .filter(|s| self.status_of(**s) == Some(super::state::ConnStatus::Connected))
+            .filter_map(|s| self.restore.dormant.get(s))
+            .map(Vec::len)
+            .sum()
+    }
+
+    /// `notice` shown, replacing any notice of its kind that is shown or queued.
+    fn notice_replacing(mut self, is: fn(&Recovery) -> bool, notice: Recovery) -> AppState {
         self.pending_recovery.retain(|r| !is(r));
-        let notice = Recovery::WorkspaceWaiting { count };
         match &self.banner {
             Some(Banner::Recovery(r)) if is(r) => {
                 self.banner = Some(Banner::Recovery(notice));
@@ -454,29 +468,100 @@ impl AppState {
         }
     }
 
-    /// The waiting notice withdrawn once no tab of an open connection waits any more.
+    /// The notice that saved tabs are waiting for room, with how many wait now; a new one
+    /// replaces any shown or queued.
+    pub(super) fn waiting_notice_raised(self) -> AppState {
+        let count = self.waiting_for_room();
+        self.notice_replacing(is_waiting, Recovery::WorkspaceWaiting { count })
+    }
+
+    /// The waiting notice kept true: withdrawn once no tab of a connected session waits for room,
+    /// and showing how many do while some do.
     pub(super) fn waiting_notice_checked(&mut self) {
-        let left: usize = self
-            .open
-            .iter()
-            .filter_map(|s| self.restore.dormant.get(s))
-            .map(Vec::len)
-            .sum();
-        if left > 0 {
+        let left = self.waiting_for_room();
+        let notice = Recovery::WorkspaceWaiting { count: left };
+        if left == 0 {
+            self.pending_recovery.retain(|r| !is_waiting(r));
+            if matches!(&self.banner, Some(Banner::Recovery(r)) if is_waiting(r)) {
+                self.banner = None;
+            }
             return;
         }
-        let is = |r: &Recovery| matches!(r, Recovery::WorkspaceWaiting { .. });
-        self.pending_recovery.retain(|r| !is(r));
-        if matches!(&self.banner, Some(Banner::Recovery(r)) if is(r)) {
-            self.banner = None;
+        for queued in self.pending_recovery.iter_mut().filter(|r| is_waiting(r)) {
+            *queued = notice.clone();
+        }
+        if matches!(&self.banner, Some(Banner::Recovery(r)) if is_waiting(r)) {
+            self.banner = Some(Banner::Recovery(notice));
         }
     }
 
-    /// Every open session's tabs back to waiting (the sessions are all gone).
+    /// One notice that `count` waiting tabs were cut, adding to one that is already up.
+    pub(super) fn trimmed_notice_raised(self, count: usize) -> AppState {
+        if count == 0 {
+            return self;
+        }
+        let shown = match &self.banner {
+            Some(Banner::Recovery(Recovery::WorkspaceTrimmed { count })) => *count,
+            _ => 0,
+        };
+        let queued: usize = self
+            .pending_recovery
+            .iter()
+            .map(|r| match r {
+                Recovery::WorkspaceTrimmed { count } => *count,
+                _ => 0,
+            })
+            .sum();
+        let notice = Recovery::WorkspaceTrimmed {
+            count: count + shown + queued,
+        };
+        self.notice_replacing(is_trimmed, notice)
+    }
+
+    /// The saved tabs of every open session that is open or waiting counted against the file's
+    /// bound: the tabs of the strip that are saved, except those of `except`.
+    fn live_saved_count(&self, except: Option<Uuid>) -> usize {
+        self.visible_tabs()
+            .into_iter()
+            .filter(|tab| self.tabs.owner.get(tab).copied() != except)
+            .filter(|tab| is_saved_tab(self, *tab))
+            .count()
+    }
+
+    /// Waiting tabs cut until open and waiting tabs together fit the file; how many were cut (the
+    /// first `protected` tabs of `session`'s group are never cut).
+    pub(super) fn waiting_fitted(
+        &mut self,
+        session: Uuid,
+        protected: usize,
+        except_live: Option<Uuid>,
+    ) -> usize {
+        let max = MAX_SAVED_TABS.saturating_sub(self.live_saved_count(except_live));
+        self.restore.waiting_trimmed(session, protected, max)
+    }
+
+    /// Every open session's tabs back to waiting (the sessions are all gone), with one notice for
+    /// what was cut.
     pub(super) fn all_tabs_waiting(self) -> AppState {
         let open = self.open.clone();
-        open.into_iter().fold(self, AppState::tabs_waiting)
+        // Every session goes: no tab of the strip is left to count, so the cut is made once, at
+        // the end, over all the waiting groups.
+        let mut state = open
+            .into_iter()
+            .fold(self, |state, session| state.tabs_folded(session, false).0);
+        let trimmed = state
+            .restore
+            .waiting_trimmed(Uuid::nil(), 0, MAX_SAVED_TABS);
+        state.trimmed_notice_raised(trimmed)
     }
+}
+
+fn is_waiting(r: &Recovery) -> bool {
+    matches!(r, Recovery::WorkspaceWaiting { .. })
+}
+
+fn is_trimmed(r: &Recovery) -> bool {
+    matches!(r, Recovery::WorkspaceTrimmed { .. })
 }
 
 #[cfg(test)]
