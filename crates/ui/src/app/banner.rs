@@ -1,5 +1,5 @@
 //! Localized banner text. Pure so it can be tested without egui.
-use super::persistence::Recovery;
+use super::persistence::{PersistError, Recovery};
 use super::session::session_display_name;
 use super::state::{AppState, Banner};
 use crate::I18n;
@@ -13,6 +13,9 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ToolsPersist(e) => (i18n.t(e.tools_i18n_key()), None),
+        Banner::WorkspacePersist(PersistError::Blocked) => {
+            (i18n.t("persist.workspace_blocked"), None)
+        }
         Banner::WorkspacePersist(_) => (i18n.t("persist.workspace_write_failed"), None),
         Banner::PipelinesCleanup => (i18n.t("aggregate.saved.cleanup_failed"), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),

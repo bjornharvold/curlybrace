@@ -5,11 +5,11 @@ use crate::app::AggregateAction;
 use crate::app::persistence::PersistGuard;
 use crate::app::pipelines_wiring_tests::app_in;
 use crate::app::reducer::{Input, update};
-use crate::app::state::{Banner, ConnStatus};
+use crate::app::state::{Banner, ConnStatus, Workspace};
 use crate::app::tab_actions::TabAction;
 use crate::app::tabs::Freshness;
 use crate::app::tabs::test_support::parked;
-use crate::app::workspace_file::{SavedSubTab, SavedViewMode, save};
+use crate::app::workspace_file::{SavedSubTab, SavedViewMode, save, snapshot};
 use crate::viewmodel::{CollectionTab, EditorAction, tab_title::labels};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::runtime::{Command, Event};
@@ -182,6 +182,7 @@ fn a_restored_draft_with_out_stage_sends_nothing_and_run_still_needs_typed_confi
         find: None,
         draft: Some(SavedDraftText {
             stages: vec![stage(r#"{"$match": {}}"#), stage(r#"{"$out": "dest"}"#)],
+            ..SavedDraftText::default()
         }),
         ..tab(id, "users")
     };
@@ -346,13 +347,14 @@ fn max_tabs_respected_when_materialising_on_top_of_open_tabs() {
     }
     assert_eq!(s.visible_tabs().len(), MAX_TABS - 1);
     let (s, _) = connected(s, idb);
-    assert_eq!(namespaces(&s, idb).len(), 1, "only the room that was left");
+    let waiting_on = s.restore.dormant.get(&idb).map_or(0, Vec::len);
+    assert_eq!(namespaces(&s, idb).len() + waiting_on, 5, "none was lost");
     let held: usize = s
         .visible_tabs()
         .into_iter()
         .filter(|t| s.tab_ns(*t).is_some())
         .count();
-    assert_eq!(held, MAX_TABS);
+    assert!(held <= MAX_TABS, "{held} tabs");
 }
 
 #[test]
@@ -417,8 +419,32 @@ fn a_connection_behind_another_one_takes_nothing_from_the_front() {
     let (s, _) = connected(s, ida);
     let (s, _) = update(s, Input::Connect(idb));
     let epoch = s.epoch_counter;
-    // The person goes back to `a` while `b` is still connecting.
+    // The person goes back to `a` while `b` is still connecting; `a` shows an Aggregate draft
+    // with the write run's confirmation open.
     let (s, _) = update(s, Input::Activate(ida));
+    let (s, _) = update(
+        s,
+        Input::Sidebar(crate::viewmodel::SidebarAction::Open(Namespace::new(
+            "app", "users",
+        ))),
+    );
+    let (s, _) = update(s, Input::Tab(CollectionTab::Aggregate));
+    let (s, _) = update(
+        s,
+        Input::Aggregate(AggregateAction::AddStage("$match".into())),
+    );
+    let (s, _) = update(
+        s,
+        Input::Aggregate(AggregateAction::AddStage("$out".into())),
+    );
+    let (s, _) = update(
+        s,
+        Input::Aggregate(AggregateAction::Edit(1, r#"{"$out": "dest"}"#.into())),
+    );
+    let (s, _) = update(s, Input::Aggregate(AggregateAction::RunClicked));
+    assert!(s.aggregate.run.dialog.is_some(), "the confirmation is open");
+    assert_eq!(s.workspace, Workspace::Browse);
+    let (active, mru, workspace) = (s.tabs.active, s.tabs.mru.clone(), s.workspace);
     let (s, commands) = update(
         s,
         Input::Event(Event::Connected {
@@ -429,5 +455,259 @@ fn a_connection_behind_another_one_takes_nothing_from_the_front() {
     );
     only_list_databases(idb, &commands);
     assert_eq!(s.active, Some(ida), "focus stays");
+    assert_eq!(s.workspace, workspace, "the workspace was not switched");
+    assert!(
+        s.aggregate.run.dialog.is_some(),
+        "the confirmation stayed open"
+    );
+    assert_eq!(s.tabs.active, active, "the tab in front is the same");
+    assert_eq!(
+        s.tabs.mru.first(),
+        mru.first(),
+        "and so is the one used last"
+    );
     assert_eq!(namespaces(&s, idb), ["orders"], "the tab is there, behind");
+}
+
+/// A launch of the saved file: what `s` would write, read back by a new app.
+fn relaunched(s: &AppState, configs: Vec<ConnectionConfig>) -> AppState {
+    let bytes = serde_json::to_vec(&snapshot(s)).unwrap();
+    let file: WorkspaceFile = serde_json::from_slice(&bytes).unwrap();
+    let mut next = AppState::new(configs);
+    next.restore = Box::new(RestoreState::of_file(&file, WorkspaceSync::default()));
+    next
+}
+
+fn open_on(mut s: AppState, session: Uuid, n: usize) -> AppState {
+    for i in 0..n {
+        let ns = Namespace::new("app", format!("open{i}"));
+        s = update(s, Input::Tabs(TabAction::OpenInNew { session, ns })).0;
+    }
+    s
+}
+
+#[test]
+fn disconnect_moves_the_tabs_back_to_waiting_and_the_file_keeps_them() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let tabs = (0..5).map(|n| tab(id, &format!("c{n}"))).collect();
+    let (s, _) = connected(waiting(vec![cfg], tabs, Some(2)), id);
+    assert!(s.restore.dormant.is_empty());
+    let (s, _) = update(s, Input::Disconnect(id));
+    assert_eq!(
+        s.restore.dormant[&id].len(),
+        5,
+        "waiting for the next connect"
+    );
+    let file = snapshot(&s);
+    assert_eq!(file.tabs.len(), 5, "the file keeps them");
+    assert_eq!(file.active, Some(2), "and the one that was in front");
+    let (s, _) = connected(s, id);
+    assert_eq!(
+        namespaces(&s, id).len(),
+        5,
+        "they reopen on the next connect"
+    );
+}
+
+#[test]
+fn a_disconnected_connection_that_is_then_deleted_loses_its_tabs() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let (s, _) = connected(waiting(vec![cfg], vec![tab(id, "c")], Some(0)), id);
+    let (s, _) = update(s, Input::Disconnect(id));
+    let path = Ok(dir.path().join("connections.json"));
+    let s = crate::app::connections::deleted(s, id, &MemorySecretStore::default(), &path).0;
+    assert!(s.restore.dormant.is_empty() && snapshot(&s).tabs.is_empty());
+}
+
+#[test]
+fn a_torn_down_session_keeps_its_tabs_waiting() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let tabs = (0..3).map(|n| tab(id, &format!("c{n}"))).collect();
+    let (s, _) = connected(waiting(vec![cfg], tabs, Some(1)), id);
+    let s = s.session_cleared();
+    assert!(s.tabs.order.is_empty(), "the strip is gone");
+    assert_eq!(snapshot(&s).tabs.len(), 3, "the file is not");
+    assert_eq!(snapshot(&s).active, Some(1));
+}
+
+#[test]
+fn tabs_that_do_not_fit_stay_waiting_and_in_the_file() {
+    let (a, b) = (
+        ConnectionConfig::new("a", "mongodb://a"),
+        ConnectionConfig::new("b", "mongodb://b"),
+    );
+    let (ida, idb) = (a.id, b.id);
+    let saved: Vec<SavedTab> = (0..15).map(|n| tab(idb, &format!("saved{n}"))).collect();
+    let (s, _) = connected(waiting(vec![a, b], saved, None), ida);
+    let s = open_on(s, ida, 10);
+    assert_eq!(snapshot(&s).tabs.len(), 25, "10 open and 15 waiting");
+    let (s, _) = connected(s, idb);
+    let opened = namespaces(&s, idb).len();
+    assert!(
+        opened > 0 && opened < 15,
+        "only the room that was left: {opened}"
+    );
+    assert_eq!(opened + s.restore.dormant[&idb].len(), 15, "the rest waits");
+    assert_eq!(snapshot(&s).tabs.len(), 25, "nothing was dropped");
+}
+
+#[test]
+fn a_waiting_split_survives_the_first_write() {
+    let (a, b) = (
+        ConnectionConfig::new("a", "mongodb://a"),
+        ConnectionConfig::new("b", "mongodb://b"),
+    );
+    let idb = b.id;
+    let file = WorkspaceFile {
+        tabs: vec![tab(idb, "one"), tab(idb, "two")],
+        active: Some(0),
+        split: Some(crate::app::workspace_file::SavedSplit {
+            secondary: 1,
+            ratio: 0.3,
+            orientation: crate::app::workspace_file::SavedOrientation::Stacked,
+            secondary_first: true,
+        }),
+        ..WorkspaceFile::default()
+    };
+    let mut s = AppState::new(vec![a, b]);
+    s.restore = Box::new(RestoreState::of_file(&file, WorkspaceSync::default()));
+    let written = snapshot(&s);
+    assert_eq!(written.active, Some(0));
+    assert_eq!(
+        written.split, file.split,
+        "the split is not dropped by a write"
+    );
+}
+
+#[test]
+fn never_a_21st_tab_with_an_empty_front_tab() {
+    let (a, b) = (
+        ConnectionConfig::new("a", "mongodb://a"),
+        ConnectionConfig::new("b", "mongodb://b"),
+    );
+    let (ida, idb) = (a.id, b.id);
+    let saved: Vec<SavedTab> = (0..5).map(|n| tab(idb, &format!("saved{n}"))).collect();
+    let (s, _) = connected(waiting(vec![a, b], saved, Some(3)), ida);
+    let s = open_on(s, ida, MAX_TABS - 1);
+    let (s, _) = connected(s, idb);
+    assert!(
+        s.visible_tabs().len() <= MAX_TABS,
+        "{} tabs",
+        s.visible_tabs().len()
+    );
+}
+
+#[test]
+fn find_options_come_back_and_a_run_sends_the_same_ones() {
+    use curlybrace_core::pipeline_options::PipelineOptions;
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let options = PipelineOptions {
+        comment: Some("why".into()),
+        max_time_ms: Some(250),
+        allow_disk_use: Some(true),
+        ..PipelineOptions::default()
+    };
+    let mut saved = tab(id, "users");
+    saved.find = Some(SavedFind {
+        options: options.clone(),
+        ..saved.find.clone().unwrap()
+    });
+    let (s, _) = connected(waiting(vec![cfg.clone()], vec![saved], Some(0)), id);
+    assert_eq!(s.find.options.parsed().ok(), Some(&options));
+    // The file a later launch reads holds them too.
+    let (s, _) = connected(relaunched(&s, vec![cfg]), id);
+    assert_eq!(s.find.options.parsed().ok(), Some(&options));
+    let query = crate::viewmodel::submit_find(&s.find).expect("a query");
+    assert_eq!(query.options.comment.as_deref(), Some("why"));
+    assert_eq!(query.options.max_time_ms, Some(250));
+}
+
+#[test]
+fn aggregate_mode_and_options_come_back_and_out_still_needs_typing() {
+    use curlybrace_core::pipeline_options::PipelineOptions;
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let options = PipelineOptions {
+        comment: Some("agg".into()),
+        allow_disk_use: Some(true),
+        ..PipelineOptions::default()
+    };
+    let draft = SavedTab {
+        sub_tab: SavedSubTab::Aggregate,
+        find: None,
+        draft: Some(SavedDraftText {
+            stages: vec![stage(r#"{"$match": {}}"#), stage(r#"{"$out": "dest"}"#)],
+            text_mode: true,
+            options: options.clone(),
+        }),
+        ..tab(id, "users")
+    };
+    let (s, _) = connected(waiting(vec![cfg.clone()], vec![draft], Some(0)), id);
+    let (s, commands) = connected(relaunched(&s, vec![cfg]), id);
+    only_list_databases(id, &commands);
+    assert_eq!(s.aggregate.mode, crate::viewmodel::aggregate::Mode::Text);
+    assert_eq!(s.aggregate.options, options);
+    assert!(s.aggregate.text.contains("$out"));
+    let (s, _) = update(s, Input::Aggregate(AggregateAction::RunClicked));
+    let (_, commands) = update(s, Input::Aggregate(AggregateAction::RunConfirmed));
+    assert!(
+        !commands
+            .iter()
+            .any(|c| matches!(c, Command::AggregateRun { .. }))
+    );
+}
+
+#[test]
+fn a_stage_still_inside_the_typing_pause_is_saved() {
+    use crate::viewmodel::aggregate_view::PendingEdit;
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let draft = SavedTab {
+        sub_tab: SavedSubTab::Aggregate,
+        find: None,
+        draft: Some(SavedDraftText {
+            stages: vec![stage(r#"{"$match": {}}"#)],
+            ..SavedDraftText::default()
+        }),
+        ..tab(id, "users")
+    };
+    let (mut s, _) = connected(waiting(vec![cfg], vec![draft], Some(0)), id);
+    s.aggregate_view.pending = Some(PendingEdit {
+        index: 0,
+        text: r#"{"$match": {"typed": 1}}"#.into(),
+        at: 0.0,
+    });
+    let saved = snapshot(&s).tabs.remove(0).draft.unwrap();
+    assert_eq!(saved.stages[0].text, r#"{"$match": {"typed": 1}}"#);
+}
+
+#[test]
+fn a_restored_tab_reopened_or_copied_keeps_its_note_and_its_flag() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let dropped = SavedTab {
+        find: None,
+        text_dropped: true,
+        ..tab(id, "users")
+    };
+    let (s, _) = connected(
+        waiting(vec![cfg], vec![dropped, tab(id, "orders")], Some(1)),
+        id,
+    );
+    let users = restored_tab(&s, "users");
+    // A copy is a restored tab with the same flag.
+    let (s, _) = update(s, Input::Tabs(TabAction::Duplicate(users)));
+    let copy = s.active_tab().expect("the copy");
+    assert_ne!(copy, users);
+    assert!(s.tabs.restored.contains(&copy) && s.tabs.text_dropped.contains(&copy));
+    // Closed and reopened, the same.
+    let (s, _) = update(s, Input::Tabs(TabAction::Close(copy)));
+    let (s, _) = update(s, Input::Tabs(TabAction::ReopenClosed));
+    let back = s.active_tab().expect("the reopened tab");
+    assert!(s.tabs.restored.contains(&back) && s.tabs.text_dropped.contains(&back));
 }

@@ -8,13 +8,14 @@
 use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };
-use super::state::AppState;
-use super::tab_actions::MAX_TABS;
-use super::tabs::TabId;
 use super::{ConfigPath, workspace_read};
+use crate::viewmodel::aggregate::Mode;
+use crate::viewmodel::aggregate_options::OptionsForm;
+use crate::viewmodel::aggregate_view::PendingEdit;
 use crate::viewmodel::split_layout::Orientation;
 use crate::viewmodel::{AggregateState, CollectionTab, FindBarState, ViewMode};
 use curlybrace_core::copy::names::validate_namespace;
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::QueryText;
 use curlybrace_core::saved_pipeline::SavedStage;
 use curlybrace_core::store::Namespace;
@@ -27,6 +28,11 @@ use uuid::Uuid;
 pub const VERSION: u32 = 1;
 /// The most query text one tab keeps; a tab over it is saved without its text.
 pub const MAX_TEXT_PER_TAB: usize = 256 * 1024;
+/// The most stages one Aggregate draft keeps; a draft over it is saved without its text.
+pub const MAX_STAGES_PER_DRAFT: usize = 200;
+/// The most tabs the file holds: the open ones (at most `MAX_TABS`) and the saved ones still
+/// waiting for a connection or for room.
+pub const MAX_SAVED_TABS: usize = 200;
 /// The largest file read; a bigger one is refused as corrupt.
 pub const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 const FILE_NAME: &str = "workspace.json";
@@ -54,20 +60,28 @@ pub enum SavedOrientation {
     Stacked,
 }
 
-/// The find bar's typed text, as typed.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The find bar's typed text, as typed, and the options it applies.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedFind {
     pub filter: String,
     pub sort: String,
     pub projection: String,
     pub skip: String,
     pub limit: String,
+    /// The Query options form as it applies (collation, hint, time limit, read preference,
+    /// comment, disk use). Absent in files written before it was saved.
+    #[serde(default, skip_serializing_if = "PipelineOptions::is_empty")]
+    pub options: PipelineOptions,
 }
 
-/// The Aggregate draft's stages, as typed.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The Aggregate draft: its stages as typed, the mode it was in and the options it applies.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedDraftText {
     pub stages: Vec<SavedStage>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text_mode: bool,
+    #[serde(default, skip_serializing_if = "PipelineOptions::is_empty")]
+    pub options: PipelineOptions,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -194,20 +208,24 @@ impl From<SavedOrientation> for Orientation {
 }
 
 impl SavedFind {
-    fn of(text: &QueryText) -> Option<Self> {
-        let find = Self {
+    pub(super) fn of(find: &FindBarState) -> Option<Self> {
+        let text = &find.text;
+        let saved = Self {
             filter: text.filter.clone(),
             sort: text.sort.clone(),
             projection: text.projection.clone(),
             skip: text.skip.clone(),
             limit: text.limit.clone(),
+            // A form with a problem in it is not an option that applies: it is not saved.
+            options: find.options.parsed().ok().cloned().unwrap_or_default(),
         };
-        (find != Self::default()).then_some(find)
+        (saved != Self::default()).then_some(saved)
     }
 
-    /// The find bar this text makes: the text and nothing else.
+    /// The find bar this makes: the text and the options form.
     pub fn into_bar(self) -> FindBarState {
         FindBarState {
+            options: OptionsForm::from_options(&self.options),
             text: QueryText {
                 filter: self.filter,
                 sort: self.sort,
@@ -220,7 +238,7 @@ impl SavedFind {
     }
 
     fn bytes(&self) -> usize {
-        [
+        let text: usize = [
             &self.filter,
             &self.sort,
             &self.projection,
@@ -229,18 +247,39 @@ impl SavedFind {
         ]
         .iter()
         .map(|t| t.len())
-        .sum()
+        .sum();
+        text + options_bytes(&self.options)
     }
 }
 
+/// What the options take in the file.
+fn options_bytes(options: &PipelineOptions) -> usize {
+    if options.is_empty() {
+        return 0;
+    }
+    serde_json::to_string(options).map_or(0, |text| text.len())
+}
+
 impl SavedDraftText {
-    fn of(draft: &AggregateState) -> Option<Self> {
-        let stages = draft.as_saved_stages();
-        (!stages.is_empty()).then_some(Self { stages })
+    /// The draft as saved: its stages (the text buffer when it is the one edited), with a stage
+    /// typed in and not applied yet included, so the text still inside the typing pause is kept.
+    pub(super) fn of(draft: &AggregateState, pending: Option<&PendingEdit>) -> Option<Self> {
+        let mut stages = draft.as_saved_stages();
+        if let Some(edit) = pending.filter(|_| draft.mode == Mode::Stages) {
+            if let Some(stage) = stages.get_mut(edit.index) {
+                stage.text = edit.text.clone();
+            }
+        }
+        let saved = Self {
+            stages,
+            text_mode: draft.mode == Mode::Text,
+            options: draft.options.clone(),
+        };
+        (!saved.stages.is_empty() || !saved.options.is_empty()).then_some(saved)
     }
 
     fn bytes(&self) -> usize {
-        self.stages.iter().map(|s| s.text.len()).sum()
+        self.stages.iter().map(|s| s.text.len()).sum::<usize>() + options_bytes(&self.options)
     }
 }
 
@@ -257,7 +296,8 @@ impl SavedTab {
 
     /// This tab with its text dropped (and flagged) when it is over the bound.
     pub fn bounded(self) -> Self {
-        match self.text_bytes() > MAX_TEXT_PER_TAB {
+        let stages = self.draft.as_ref().map_or(0, |d| d.stages.len());
+        match self.text_bytes() > MAX_TEXT_PER_TAB || stages > MAX_STAGES_PER_DRAFT {
             true => Self {
                 find: None,
                 draft: None,
@@ -325,86 +365,35 @@ pub fn save(path: &Path, guard: &PersistGuard, file: &WorkspaceFile) -> Result<(
     atomic_write(path, &bytes)
 }
 
-/// What the state would write now: the tabs the strip shows with a collection, then the saved
-/// tabs of connections that have not connected yet. Pure; reads the find bars and drafts but
-/// never a page, an editor, a URI or a secret.
-pub fn snapshot(state: &AppState) -> WorkspaceFile {
-    if !state.restore.restore {
-        return WorkspaceFile::without_tabs(false);
-    }
-    let live: Vec<(TabId, SavedTab)> = state
-        .visible_tabs()
-        .into_iter()
-        .filter_map(|tab| Some((tab, saved_tab(state, tab)?)))
-        .collect();
-    let live_count = live.len();
-    let active_tab = state.active_tab();
-    let at = |tab: Option<TabId>| live.iter().position(|(t, _)| Some(*t) == tab);
-    let split = state.tabs.split.as_ref().and_then(|s| {
-        let secondary = at(Some(s.secondary))?;
-        at(Some(s.primary))?;
-        Some(SavedSplit {
-            secondary,
-            ratio: s.ratio,
-            orientation: s.orientation.into(),
-            secondary_first: s.secondary_first,
-        })
-    });
-    let mut tabs: Vec<SavedTab> = live.iter().map(|(_, tab)| tab.clone()).collect();
-    tabs.extend(state.restore.dormant.values().flatten().cloned());
-    tabs.truncate(MAX_TABS);
-    let active = at(active_tab)
-        .or_else(|| dormant_active(state, live_count))
-        .filter(|i| *i < tabs.len());
-    WorkspaceFile {
-        version: VERSION,
-        restore: true,
-        tabs,
-        active,
-        split,
-    }
-}
+pub use super::workspace_snapshot::snapshot;
 
-/// The saved active tab that has not been restored yet (its connection has not connected), as a
-/// position in the list `snapshot` builds.
-fn dormant_active(state: &AppState, live_count: usize) -> Option<usize> {
-    let (connection, index) = state.restore.active_hint?;
-    state.restore.dormant.get(&connection)?.get(index)?;
-    let before: usize = state
-        .restore
-        .dormant
-        .range(..connection)
-        .map(|(_, tabs)| tabs.len())
-        .sum();
-    Some(live_count + before + index)
-}
-
-/// `tab` as it is saved: its namespace, choices and text. `None` for a tab without a collection
-/// and for one of a session that is not a saved connection.
-fn saved_tab(state: &AppState, tab: TabId) -> Option<SavedTab> {
-    let session = state.tabs.owner.get(&tab).copied()?;
-    state.connection(session)?;
-    let read = workspace_read::tab_read(state, session, tab)?;
-    let ns = read.ns?;
-    let (find, draft) = (
-        SavedFind::of(&read.find.text),
-        SavedDraftText::of(read.aggregate),
-    );
-    // A restored tab whose text was dropped stays flagged until something is typed in it.
-    let still_dropped = state.tabs.text_dropped.contains(&tab) && find.is_none() && draft.is_none();
-    Some(
-        SavedTab {
-            connection: session,
-            db: ns.db.clone(),
-            collection: ns.collection.clone(),
-            sub_tab: read.sub.into(),
-            view_mode: read.view_mode.into(),
-            find,
-            draft,
-            text_dropped: still_dropped,
+/// Deletes the backup copies of the file at `path` (`<name>.corrupt-*`, `.unreadable-*`,
+/// `.skipped-*`): they hold the query text a person asked to erase. Every copy is tried; the
+/// first failure is reported.
+pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(PersistError::InvalidPath);
+    };
+    let name = name.to_string_lossy();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(PersistError::Write(e.kind())),
+    };
+    let mut failed = None;
+    for entry in entries.flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        let is_backup = ["corrupt", "unreadable", "skipped"]
+            .iter()
+            .any(|tag| file.starts_with(&format!("{name}.{tag}-")));
+        if !is_backup {
+            continue;
         }
-        .bounded(),
-    )
+        if let Err(e) = std::fs::remove_file(entry.path()) {
+            failed.get_or_insert(e.kind());
+        }
+    }
+    failed.map_or(Ok(()), |kind| Err(PersistError::Write(kind)))
 }
 
 /// Whether `tab` names a namespace MongoDB accepts.

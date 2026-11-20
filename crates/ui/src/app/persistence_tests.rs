@@ -423,3 +423,27 @@ fn error_keys_are_distinct() {
     keys.dedup();
     assert_eq!(keys.len(), 6);
 }
+
+#[test]
+fn a_planted_link_at_the_old_temp_name_is_never_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim");
+    std::fs::write(&victim, b"keep").unwrap();
+    let path = dir.path().join("f.json");
+    let planted = dir
+        .path()
+        .join(format!(".f.json.tmp-{}", std::process::id()));
+    std::os::unix::fs::symlink(&victim, &planted).unwrap();
+    atomic_write(&path, b"new").unwrap();
+    assert_eq!(
+        std::fs::read(&victim).unwrap(),
+        b"keep",
+        "the link was not written through"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}

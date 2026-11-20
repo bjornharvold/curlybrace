@@ -10,7 +10,10 @@ use super::tab_actions::{MAX_TABS, activate};
 use super::tab_strip::Split;
 use super::tabs::TabId;
 use super::workspace_app::WorkspaceSync;
-use super::workspace_file::{SavedDraftText, SavedFind, SavedSplit, SavedTab, WorkspaceFile};
+use super::workspace_file::{
+    MAX_SAVED_TABS, SavedDraftText, SavedFind, SavedSplit, SavedTab, WorkspaceFile,
+};
+use super::workspace_snapshot::saved_tab;
 use crate::viewmodel::AggregateState;
 use crate::viewmodel::aggregate_view::AggregateView;
 use curlybrace_core::saved_pipeline::SavedPipeline;
@@ -60,8 +63,10 @@ impl RestoreState {
         let active_hint = file.active.and_then(|a| place.get(a).copied());
         let split_hint = file.split.and_then(|split| {
             let (connection, secondary) = place.get(split.secondary).copied()?;
-            let (active, _) = active_hint?;
-            (active == connection).then_some((connection, SavedSplit { secondary, ..split }))
+            let (active, at) = active_hint?;
+            // A split of a tab with itself is no split.
+            (active == connection && secondary != at)
+                .then_some((connection, SavedSplit { secondary, ..split }))
         });
         Self {
             restore: file.restore,
@@ -104,13 +109,9 @@ pub(super) fn materialise(state: &mut AppState, session: Uuid, background: bool)
     }
 }
 
-#[cfg(test)]
-#[path = "workspace_restore_tests.rs"]
-mod tests;
-
 #[inline(never)]
 fn reopened(state: &mut AppState, session: Uuid, background: bool) {
-    let saved = state.restore.dormant.remove(&session).unwrap_or_default();
+    let mut saved = state.restore.dormant.remove(&session).unwrap_or_default();
     let active = state
         .restore
         .active_hint
@@ -121,24 +122,37 @@ fn reopened(state: &mut AppState, session: Uuid, background: bool) {
         .split_hint
         .take_if(|(id, _)| *id == session)
         .map(|(_, split)| split);
-    let room = MAX_TABS.saturating_sub(held(state));
+    let front = in_front(state, session, background);
+    let room = room_for(state, front, active);
+    // What does not fit keeps waiting, in the file too: nothing saved is dropped for lack of room.
+    let rest = saved.split_off(room.min(saved.len()));
+    if !rest.is_empty() {
+        state.restore.dormant.insert(session, rest);
+    }
     let mut next = std::mem::take(state);
     let mut opened: Vec<Option<TabId>> = Vec::new();
-    for tab in saved.iter().take(room) {
+    for tab in &saved {
         let after = opened.iter().rev().flatten().next().copied();
         let (n, id) = tab_opened(next, session, after, tab);
         next = n;
         opened.push(id);
     }
     let at = |i: usize| opened.get(i).copied().flatten();
-    if let Some(tab) = active
-        .and_then(at)
-        .filter(|_| in_front(&next, session, background))
-    {
+    if let Some(tab) = active.and_then(at).filter(|_| front) {
         next = shown(next, tab);
         next = paired(next, tab, split, at);
     }
     *state = next;
+}
+
+/// How many tabs may still be opened: the limit counts every tab the strip shows, an empty one in
+/// front included, unless the saved active tab is about to take its place.
+fn room_for(state: &AppState, front: bool, active: Option<usize>) -> usize {
+    let held = held(state);
+    let shown = state.visible_tabs().len();
+    let replaced =
+        front && shown > held && active.is_some_and(|i| i < MAX_TABS.saturating_sub(held));
+    MAX_TABS.saturating_sub(if replaced { held } else { shown })
 }
 
 /// The tabs that hold something: those that count against the limit.
@@ -190,16 +204,22 @@ fn tab_opened(
 fn restored_draft(draft: Option<&SavedDraftText>) -> (Box<AggregateState>, Box<AggregateView>) {
     let base = AggregateState::default();
     let state = match draft {
-        Some(text) => base
-            .opened_from(&SavedPipeline {
-                id: Uuid::nil(),
-                name: String::new(),
-                ns_hint: None,
-                saved_unix: 0,
-                stages: text.stages.clone(),
-                options: Default::default(),
-            })
-            .without_opened(),
+        Some(text) => {
+            let draft = base
+                .opened_from(&SavedPipeline {
+                    id: Uuid::nil(),
+                    name: String::new(),
+                    ns_hint: None,
+                    saved_unix: 0,
+                    stages: text.stages.clone(),
+                    options: text.options.clone(),
+                })
+                .without_opened();
+            match text.text_mode {
+                true => draft.to_text(),
+                false => draft,
+            }
+        }
         None => base,
     };
     carried_aggregate(&state, &AggregateView::default())
@@ -222,7 +242,10 @@ fn paired(
     split: Option<SavedSplit>,
     at: impl Fn(usize) -> Option<TabId>,
 ) -> AppState {
-    let Some((split, partner)) = split.and_then(|s| Some((s, at(s.secondary)?))) else {
+    let Some((split, partner)) = split
+        .and_then(|s| Some((s, at(s.secondary)?)))
+        .filter(|(_, partner)| *partner != active)
+    else {
         return state;
     };
     let split = Split {
@@ -237,3 +260,44 @@ fn paired(
         ..state
     }
 }
+
+impl AppState {
+    /// `session`'s open tabs go back to waiting for its next connect: they stay in the saved file
+    /// and reopen, dormant, when it connects again. For a connection that is closed (but still
+    /// saved) and for a runtime that stopped. Tabs already waiting for room come after them.
+    pub(super) fn tabs_waiting(mut self, session: Uuid) -> AppState {
+        if !self.restore.restore || self.connection(session).is_none() {
+            return self;
+        }
+        let open: Vec<(TabId, SavedTab)> = self
+            .tabs
+            .of_session(session)
+            .into_iter()
+            .filter_map(|tab| Some((tab, saved_tab(&self, tab)?)))
+            .collect();
+        if open.is_empty() {
+            return self;
+        }
+        let front = self.active_tab();
+        let at = open.iter().position(|(tab, _)| Some(*tab) == front);
+        let waiting = self.restore.dormant.remove(&session).unwrap_or_default();
+        let mut tabs: Vec<SavedTab> = open.into_iter().map(|(_, saved)| saved).collect();
+        tabs.extend(waiting);
+        tabs.truncate(MAX_SAVED_TABS);
+        self.restore.dormant.insert(session, tabs);
+        if let Some(at) = at {
+            self.restore.active_hint = Some((session, at));
+        }
+        self
+    }
+
+    /// Every open session's tabs back to waiting (the sessions are all gone).
+    pub(super) fn all_tabs_waiting(self) -> AppState {
+        let open = self.open.clone();
+        open.into_iter().fold(self, AppState::tabs_waiting)
+    }
+}
+
+#[cfg(test)]
+#[path = "workspace_restore_tests.rs"]
+mod tests;

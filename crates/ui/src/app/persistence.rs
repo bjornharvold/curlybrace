@@ -365,8 +365,22 @@ pub fn save_connections(path: &Path, connections: &[ConnectionConfig]) -> Result
 /// Copies the file to a new `<name>.<tag>-<unix seconds>[-n]` sibling (0600) and never
 /// overwrites an existing backup. Fails when the file cannot be read.
 pub fn back_up(path: &Path, tag: &str) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-    let bytes = std::fs::read(path)?;
+    back_up_limited(path, tag, None)
+}
+
+/// [`back_up`] reading at most `limit` bytes of the file (a file too big to be one of ours is
+/// kept cut at the limit rather than read whole).
+pub fn back_up_limited(path: &Path, tag: &str, limit: Option<u64>) -> std::io::Result<PathBuf> {
+    use std::io::{Read, Write};
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path)?;
+    match limit {
+        Some(limit) => file.take(limit).read_to_end(&mut bytes)?,
+        None => {
+            let mut file = file;
+            file.read_to_end(&mut bytes)?
+        }
+    };
     let (dir, name) = split_path(path)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path"))?;
     let stamp = std::time::SystemTime::now()
@@ -411,29 +425,49 @@ fn private_options() -> std::fs::OpenOptions {
     options
 }
 
-/// Writes `bytes` to a 0600 temp file in the same directory, syncs it and renames it over
-/// `path`. The temp file is removed on failure.
+/// Writes `bytes` to a new 0600 temp file in the same directory, syncs it and renames it over
+/// `path`. The temp file is created exclusively under a name nobody else can have picked, so a
+/// planted file or link at that name is never opened or followed; it is removed on failure.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PersistError> {
     let write_err = |e: std::io::Error| PersistError::Write(e.kind());
     let (dir, name) = split_path(path)?;
     std::fs::create_dir_all(dir).map_err(write_err)?;
-    let tmp = dir.join(format!(
-        ".{}.tmp-{}",
-        name.to_string_lossy(),
-        std::process::id()
-    ));
-    let result = write_temp_then_rename(&tmp, path, bytes);
+    let (tmp, file) = create_temp(dir, &name.to_string_lossy()).map_err(write_err)?;
+    let result = write_temp_then_rename(file, &tmp, path, bytes);
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result.map_err(write_err)
 }
 
-fn write_temp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// A temp file that did not exist, created with mode 0600 from the start.
+fn create_temp(dir: &Path, name: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    for _ in 0..100 {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = dir.join(format!(".{name}.tmp-{}-{nanos}-{n}", std::process::id()));
+        let mut options = private_options();
+        options.create_new(true);
+        match options.open(&tmp) {
+            Ok(file) => return Ok((tmp, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
+}
+
+fn write_temp_then_rename(
+    mut file: std::fs::File,
+    tmp: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = private_options();
-    options.create(true).truncate(true);
-    let mut file = options.open(tmp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(tmp, path)

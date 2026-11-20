@@ -3,6 +3,8 @@ use super::*;
 use crate::app::AggregateAction;
 use crate::app::persistence::back_up;
 use crate::app::reducer::{Input, update};
+use crate::app::state::AppState;
+use crate::app::tab_actions::MAX_TABS;
 use crate::app::tabs::test_support::{act, ev, orders, results, two_tabs, users};
 use crate::viewmodel::DocAction;
 use bson::doc;
@@ -255,7 +257,8 @@ fn over_8_mib_is_refused_as_corrupt() {
 }
 
 #[test]
-fn more_than_max_tabs_are_cut_to_max() {
+fn the_file_may_hold_more_tabs_than_the_open_limit() {
+    // Saved tabs that wait (for a connection or for room) are not cut to what can be open.
     let dir = tempfile::tempdir().unwrap();
     let id = Uuid::new_v4();
     let tabs: Vec<SavedTab> = (0..MAX_TABS + 5)
@@ -264,8 +267,149 @@ fn more_than_max_tabs_are_cut_to_max() {
     let path = dir.path().join("workspace.json");
     save(&path, &PersistGuard::default(), &file_of(tabs)).unwrap();
     let loaded = load(&path, &back_up, &known(&[id]));
-    assert_eq!(loaded.file.tabs.len(), MAX_TABS);
-    assert_eq!(loaded.recovery, None, "cutting is not a failure");
+    assert_eq!(loaded.file.tabs.len(), MAX_TABS + 5);
+    assert_eq!(loaded.recovery, None);
+}
+
+#[test]
+fn entries_past_the_most_the_file_may_hold_are_counted_with_a_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let tabs: Vec<SavedTab> = (0..MAX_SAVED_TABS + 5)
+        .map(|n| tab(id, &format!("c{n}")))
+        .collect();
+    let path = dir.path().join("workspace.json");
+    std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
+    let tags = RefCell::new(Vec::new());
+    let loaded = load(&path, &recording(&tags), &known(&[id]));
+    assert_eq!(loaded.file.tabs.len(), MAX_SAVED_TABS);
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceSkipped {
+            count: 5,
+            backed_up: true
+        })
+    );
+    assert_eq!(*tags.borrow(), ["skipped"]);
+}
+
+#[test]
+fn a_split_of_a_tab_with_itself_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let file = WorkspaceFile {
+        active: Some(0),
+        split: Some(SavedSplit {
+            secondary: 0,
+            ratio: 0.5,
+            orientation: SavedOrientation::Stacked,
+            secondary_first: false,
+        }),
+        ..file_of(vec![tab(id, "a"), tab(id, "b")])
+    };
+    let path = dir.path().join("workspace.json");
+    save(&path, &PersistGuard::default(), &file).unwrap();
+    let loaded = load(&path, &back_up, &known(&[id]));
+    assert_eq!(loaded.file.split, None);
+    let waiting = crate::app::workspace_restore::RestoreState::of_file(
+        &loaded.file,
+        crate::app::workspace_app::WorkspaceSync::default(),
+    );
+    assert_eq!(waiting.split_hint, None);
+    let again = WorkspaceFile {
+        split: file.split,
+        ..loaded.file
+    };
+    let waiting = crate::app::workspace_restore::RestoreState::of_file(
+        &again,
+        crate::app::workspace_app::WorkspaceSync::default(),
+    );
+    assert_eq!(
+        waiting.split_hint, None,
+        "also for a file that was not loaded"
+    );
+}
+
+#[test]
+fn a_draft_with_too_many_stages_is_saved_without_text_and_flagged() {
+    let many = SavedDraftText {
+        stages: (0..=MAX_STAGES_PER_DRAFT)
+            .map(|_| SavedStage {
+                text: "{}".into(),
+                enabled: true,
+            })
+            .collect(),
+        ..SavedDraftText::default()
+    };
+    let t = SavedTab {
+        draft: Some(many),
+        ..tab(Uuid::new_v4(), "users")
+    }
+    .bounded();
+    assert!(t.draft.is_none() && t.text_dropped);
+}
+
+#[test]
+fn a_pipe_where_the_file_should_be_does_not_block_the_launch() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspace.json");
+    let made = std::process::Command::new("mkfifo").arg(&path).status();
+    if !made.is_ok_and(|s| s.success()) {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let known = BTreeSet::new();
+    std::thread::spawn(move || {
+        let tags = RefCell::new(Vec::new());
+        let loaded = load(&path, &recording(&tags), &known);
+        let _ = tx.send((loaded.recovery, loaded.guard, tags.borrow().len()));
+    });
+    let answer = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the launch was blocked by a pipe");
+    assert_eq!(answer.0, Some(Recovery::Workspace { backed_up: false }));
+    assert_eq!(answer.1, PersistGuard::blocked(), "nothing replaces it");
+    assert_eq!(answer.2, 0, "and it was not opened for a backup either");
+}
+
+#[test]
+fn a_backup_never_reads_more_than_its_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(&dir, &[b'x'; 100]);
+    let copy = crate::app::persistence::back_up_limited(&path, "corrupt", Some(10)).unwrap();
+    assert_eq!(std::fs::read(copy).unwrap().len(), 10);
+}
+
+#[test]
+fn the_options_are_saved_and_an_older_file_without_them_loads() {
+    use curlybrace_core::pipeline_options::PipelineOptions;
+    let id = Uuid::new_v4();
+    let options = PipelineOptions {
+        comment: Some("why".into()),
+        max_time_ms: Some(250),
+        allow_disk_use: Some(true),
+        ..PipelineOptions::default()
+    };
+    let t = SavedTab {
+        find: Some(SavedFind {
+            options: options.clone(),
+            ..SavedFind::default()
+        }),
+        draft: Some(SavedDraftText {
+            options: options.clone(),
+            text_mode: true,
+            ..SavedDraftText::default()
+        }),
+        ..tab(id, "users")
+    };
+    let text = serde_json::to_string(&t).unwrap();
+    let back: SavedTab = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, t);
+    let old = r#"{"connection":"00000000-0000-0000-0000-000000000001","db":"a","collection":"b",
+        "sub_tab":"documents","view_mode":"table","find":{"filter":"{}","sort":"","projection":"",
+        "skip":"","limit":""},"draft":{"stages":[]}}"#;
+    let loaded: SavedTab = serde_json::from_str(old).unwrap();
+    assert!(loaded.find.unwrap().options.is_empty() && !loaded.draft.unwrap().text_mode);
 }
 
 #[test]

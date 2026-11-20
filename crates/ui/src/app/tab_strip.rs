@@ -20,6 +20,11 @@ pub struct ClosedTab {
     pub editor: Option<EditorState>,
     /// Closed while it had not run since the connection was lost: it reopens the same way.
     pub dormant: bool,
+    /// It was reopened from the saved session and had not run: it reopens the same way, with the
+    /// same note.
+    pub restored: bool,
+    /// Its query text was too long to be saved.
+    pub text_dropped: bool,
     /// The query that produced the page it showed.
     pub query: curlybrace_core::store::Query,
 }

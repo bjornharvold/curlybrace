@@ -51,9 +51,11 @@ fn tunnelled_form() -> ConnectionForm {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn workspace_file_never_holds_a_uri_or_secret() {
+    // Its own folder: nothing of this test goes to the shared system temp directory.
+    let hosts = tempfile::tempdir().unwrap();
     let config = RuntimeConfig {
         tunnel_opener: Arc::new(FakeOpener),
-        known_hosts_path: Some(std::env::temp_dir().join("curlybrace-workspace-audit-hosts")),
+        known_hosts_path: Some(hosts.path().join("known_hosts")),
         ..RuntimeConfig::default()
     };
     let mut h = Harness::with_config(Vec::new(), config);

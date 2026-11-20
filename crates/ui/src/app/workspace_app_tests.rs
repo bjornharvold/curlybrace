@@ -1,8 +1,11 @@
 //! Writing `workspace.json`: when it is written, when it is not, and what a failure says.
 use super::*;
+use crate::app::AggregateAction;
+use crate::app::persistence::{PersistError, Recovery};
 use crate::app::pipelines_wiring_tests::app_in;
 use crate::app::reducer::Input;
 use crate::app::state::Banner;
+use crate::app::tools_state::ToolsAction;
 use crate::log_capture::{capture, records_mentioning};
 use crate::viewmodel::{FindAction, SidebarAction};
 use curlybrace_core::connection::ConnectionConfig;
@@ -12,7 +15,7 @@ use eframe::egui;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-struct Rig {
+pub(in crate::app) struct Rig {
     app: CurlybraceApp,
     events: UnboundedSender<Event>,
     commands: UnboundedReceiver<Command>,
@@ -46,7 +49,7 @@ impl Rig {
 }
 
 /// A connected app with a workspace path in its own folder.
-fn rig(with_path: bool) -> Rig {
+pub(in crate::app) fn rig(with_path: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ConnectionConfig::new("a", "mongodb://localhost");
     let id = cfg.id;
@@ -272,4 +275,173 @@ fn no_log_line_contains_query_text() {
     );
     assert!(records_mentioning(sentinel).is_empty());
     let _ = (&rig.commands, rig.id);
+}
+
+#[test]
+fn typing_in_a_stage_writes_once_after_a_second() {
+    let mut rig = rig(true);
+    rig.open("users");
+    rig.app
+        .dispatch(Input::Tab(crate::viewmodel::CollectionTab::Aggregate));
+    rig.app
+        .dispatch(Input::Aggregate(AggregateAction::AddStage("$match".into())));
+    let t0 = Instant::now();
+    rig.step(t0);
+    let before = rig.writes();
+    // Every edit makes a new preview request: that is not a Run.
+    for i in 1..=3_u64 {
+        let text = format!(r#"{{"$match": {{"n": {i}}}}}"#);
+        rig.app
+            .dispatch(Input::Aggregate(AggregateAction::Edit(0, text)));
+        rig.step(t0 + Duration::from_millis(100 * i));
+    }
+    assert_eq!(rig.writes(), before, "typing waits");
+    rig.step(t0 + Duration::from_millis(1100));
+    assert_eq!(rig.writes(), before, "a second after the LAST change");
+    rig.step(t0 + Duration::from_millis(1500));
+    assert_eq!(rig.writes(), before + 1, "then once");
+    rig.step(t0 + Duration::from_secs(9));
+    assert_eq!(rig.writes(), before + 1);
+}
+
+#[test]
+fn a_frame_in_which_nothing_changed_builds_no_snapshot() {
+    let mut rig = rig(true);
+    rig.open("users");
+    let t0 = Instant::now();
+    rig.step(t0);
+    let built = rig.app.state().restore.sync.snapshots;
+    assert!(built >= 1);
+    for i in 1..=5_u64 {
+        rig.step(t0 + Duration::from_millis(i));
+    }
+    assert_eq!(rig.app.state().restore.sync.snapshots, built);
+    // A change builds one again.
+    rig.app.state_mut().find.text.filter = "{}".into();
+    rig.step(t0 + Duration::from_millis(10));
+    assert_eq!(rig.app.state().restore.sync.snapshots, built + 1);
+}
+
+#[test]
+fn a_runtime_that_stops_leaves_the_saved_tabs_in_the_file() {
+    let mut rig = rig(true);
+    rig.open("users");
+    let t0 = Instant::now();
+    rig.step(t0);
+    assert_eq!(rig.on_disk().tabs.len(), 1);
+    rig.commands.close();
+    rig.open("orders");
+    assert!(
+        matches!(
+            rig.app.state().banner,
+            Some(Banner::Failure {
+                context: "runtime",
+                ..
+            })
+        ),
+        "the runtime stopped"
+    );
+    rig.step(t0 + Duration::from_secs(1));
+    rig.step(t0 + Duration::from_secs(2));
+    rig.app.save_workspace_now();
+    let names: Vec<String> = rig
+        .on_disk()
+        .tabs
+        .into_iter()
+        .map(|t| t.collection)
+        .collect();
+    assert_eq!(
+        names,
+        ["orders"],
+        "the tab the strip had when the runtime stopped"
+    );
+}
+
+fn backups(dir: &tempfile::TempDir) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("workspace.json."))
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn turning_restore_off_deletes_the_backup_copies() {
+    let mut rig = rig(true);
+    for name in [
+        "workspace.json.corrupt-1700000000",
+        "workspace.json.skipped-1700000001-1",
+        "workspace.json.unreadable-1",
+        "workspace.json.keep",
+    ] {
+        std::fs::write(rig.dir.path().join(name), b"SAVED QUERY TEXT").unwrap();
+    }
+    rig.app
+        .dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    rig.step(Instant::now());
+    assert_eq!(backups(&rig.dir), ["workspace.json.keep"]);
+    assert_eq!(rig.app.state().banner, None);
+}
+
+#[test]
+fn a_backup_that_cannot_be_deleted_raises_the_write_failed_banner() {
+    let mut rig = rig(true);
+    // A folder where a copy should be: it cannot be removed as a file.
+    let stuck = rig.dir.path().join("workspace.json.corrupt-5");
+    std::fs::create_dir(&stuck).unwrap();
+    rig.app
+        .dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    rig.step(Instant::now());
+    assert!(matches!(
+        rig.app.state().banner,
+        Some(Banner::WorkspacePersist(PersistError::Write(_)))
+    ));
+}
+
+#[test]
+fn a_connection_list_that_failed_to_load_leaves_the_workspace_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspace.json");
+    let id = Uuid::new_v4();
+    let kept = br#"{"version":1,"restore":true,"tabs":[{"connection":"00000000-0000-0000-0000-000000000009","db":"app","collection":"users","sub_tab":"documents","view_mode":"table"}]}"#;
+    std::fs::write(&path, kept).unwrap();
+    let _ = id;
+    for damage in [
+        Recovery::Corrupt { backed_up: true },
+        Recovery::Unreadable { backed_up: false },
+    ] {
+        let (app, _events, _commands) = app_in(&dir, Vec::new());
+        let mut app = app
+            .with_banner(Some(Banner::Recovery(damage)))
+            .with_workspace_path(Ok(path.clone()));
+        let t0 = Instant::now();
+        app.save_workspace_if_changed(&egui::Context::default(), t0);
+        app.save_workspace_now();
+        assert_eq!(std::fs::read(&path).unwrap(), kept, "the file is untouched");
+        assert_eq!(
+            backups(&dir),
+            Vec::<String>::new(),
+            "and nothing was backed up"
+        );
+        assert!(app.state().restore.sync.path.is_none(), "writes are off");
+    }
+}
+
+#[test]
+fn the_switch_says_so_when_saving_is_turned_off() {
+    let mut rig = rig(true);
+    rig.app.state_mut().restore.sync.guard = PersistGuard::blocked();
+    rig.app
+        .dispatch(Input::Tools(ToolsAction::SetRestore(false)));
+    let banner = rig.app.state().banner.clone();
+    assert_eq!(
+        banner,
+        Some(Banner::WorkspacePersist(PersistError::Blocked))
+    );
+    let i18n = crate::I18n::english();
+    let text = crate::app::banner::banner_text(&banner.unwrap(), &i18n).0;
+    assert_eq!(text, i18n.t("persist.workspace_blocked"));
 }

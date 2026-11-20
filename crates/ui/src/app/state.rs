@@ -443,6 +443,11 @@ impl AppState {
 
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
     pub fn session_cleared(self) -> Self {
+        // The saved tabs of the sessions that end here wait for the next connect.
+        self.all_tabs_waiting().sessions_ended()
+    }
+
+    fn sessions_ended(self) -> Self {
         Self {
             sidebar: SidebarState::default(),
             selection: SidebarSelection::default(),

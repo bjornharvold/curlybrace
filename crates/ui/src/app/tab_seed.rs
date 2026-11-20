@@ -20,11 +20,18 @@ pub(super) struct Seed {
     editor: Option<EditorState>,
     query: Query,
     dormant: bool,
+    /// Reopened from the saved session and not run since, and its text was too long to save.
+    restored: bool,
+    text_dropped: bool,
 }
 
 impl Seed {
     /// The foreground tab's text and choices: never its results, nothing in flight.
-    fn of_foreground(state: &AppState, dormant: bool) -> Self {
+    fn of_foreground(
+        state: &AppState,
+        dormant: bool,
+        (restored, text_dropped): (bool, bool),
+    ) -> Self {
         let (aggregate, _) = carried_aggregate(&state.aggregate, &state.aggregate_view);
         // A copy ran nothing: it takes none of the source's run (its number would route the
         // source's answer to the copy, and "outcome unknown" would be a lie, the connection never
@@ -39,6 +46,8 @@ impl Seed {
             editor: state.editor.clone(),
             query: state.page_query.clone(),
             dormant,
+            restored,
+            text_dropped,
         }
     }
 
@@ -65,6 +74,8 @@ impl Seed {
             aggregate: self.aggregate,
             editor: self.editor,
             dormant: self.dormant,
+            restored: self.restored,
+            text_dropped: self.text_dropped,
             query: self.query,
         }
     }
@@ -79,6 +90,8 @@ impl Seed {
             editor: closed.editor,
             query: closed.query,
             dormant: closed.dormant,
+            restored: closed.restored,
+            text_dropped: closed.text_dropped,
         }
     }
 }
@@ -86,9 +99,13 @@ impl Seed {
 /// The seed of `tab`, read where its fields live.
 pub(super) fn seed_of(state: AppState, tab: TabId) -> (AppState, Option<Seed>) {
     let dormant = state.tabs.dormant.contains(&tab);
+    let origin = (
+        state.tabs.restored.contains(&tab),
+        state.tabs.text_dropped.contains(&tab),
+    );
     let mut seed = None;
     let (state, _) = state.with_tab(tab, |s| {
-        seed = Some(Seed::of_foreground(&s, dormant));
+        seed = Some(Seed::of_foreground(&s, dormant, origin));
         (s, Vec::new())
     });
     (state, seed)
@@ -106,6 +123,8 @@ pub(super) fn seeded(state: AppState, seed: Seed, tab: TabId) -> Out {
         editor,
         query,
         dormant,
+        restored,
+        text_dropped,
     } = seed;
     let Some(ns) = ns else {
         let next = AppState {
@@ -127,7 +146,11 @@ pub(super) fn seeded(state: AppState, seed: Seed, tab: TabId) -> Out {
         ..state
     };
     if dormant || state.status != ConnStatus::Connected {
-        let tabs = state.tabs.clone().made_dormant([tab]);
+        // A copy of a tab that had not run since it was restored is one too, with its note.
+        let tabs = match restored {
+            true => state.tabs.clone().made_restored(tab, text_dropped),
+            false => state.tabs.clone().made_dormant([tab]),
+        };
         return (AppState { tabs, ..state }, Vec::new());
     }
     let (state, mut commands) = issue_find(state, query);
