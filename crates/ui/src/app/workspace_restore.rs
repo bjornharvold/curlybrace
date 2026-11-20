@@ -408,7 +408,13 @@ impl AppState {
             return (self, 0);
         }
         let place = |tab: TabId| open.iter().position(|(t, _)| *t == tab);
-        let front = self.active_tab().and_then(place);
+        // The front tab: the one in front, or the saved one reopened while the person was
+        // somewhere else.
+        let remembered = self.restore.front_live.and_then(place);
+        let front = self.active_tab().and_then(place).or(remembered);
+        if remembered.is_some() {
+            self.restore.front_live = None;
+        }
         let split = self.tabs.split.clone().and_then(|s| {
             let (primary, secondary) = (place(s.primary)?, place(s.secondary)?);
             (Some(primary) == front && primary != secondary).then_some((secondary, s))

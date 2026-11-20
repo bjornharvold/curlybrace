@@ -99,6 +99,10 @@ pub(super) fn show_pane(
             .into_iter()
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
+    // A tab whose text the saved file could not take says so while it runs, too.
+    if state.active_tab_text_dropped() && !state.dormant_active() {
+        ui.weak(i18n.t("tabs.restore.text_dropped"));
+    }
     show_switches_and_verdict(ui, state, i18n, out);
     show_guard(ui, state, i18n, out);
     let target = DocTarget {

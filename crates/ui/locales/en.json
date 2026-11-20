@@ -1928,7 +1928,7 @@
       "overflow": "{n} saved tab(s) did not fit under the tab limit. They reopen as you close tabs.",
       "setting": "Reopen tabs at launch",
       "setting_hint": "Open tabs and the query text in them are saved on this computer and come back, without running anything, after you connect. Turning this off erases the saved text now.",
-      "text_dropped": "This tab's query text was too long to save, so it was not restored.",
+      "text_dropped": "This tab's query text could not be saved (it was too long, or the saved tabs file was full), so it was not restored.",
       "waiting": "Restored from your last session. Nothing has run yet; run the query to load documents."
     },
     "split": {

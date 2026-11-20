@@ -13,8 +13,25 @@ use uuid::Uuid;
 /// tabs that wait (their connection has not connected, or there was no room). Pure; reads the
 /// find bars and drafts but never a page, an editor, a URI or a secret.
 pub fn snapshot(state: &AppState) -> WorkspaceFile {
+    snapshot_parts(state).file
+}
+
+/// A snapshot and what the writer needs to know about how it was made.
+pub(super) struct Parts {
+    pub file: WorkspaceFile,
+    /// The tabs of the strip that were saved, in the order they lead the file.
+    pub live: Vec<TabId>,
+    /// The tab in front is one of them: no remembered front tab is needed.
+    pub front_saved: bool,
+}
+
+pub(super) fn snapshot_parts(state: &AppState) -> Parts {
     if !state.restore.restore {
-        return WorkspaceFile::without_tabs(false);
+        return Parts {
+            file: WorkspaceFile::without_tabs(false),
+            live: Vec::new(),
+            front_saved: false,
+        };
     }
     let live: Vec<(TabId, SavedTab)> = state
         .visible_tabs()
@@ -23,6 +40,7 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
         .collect();
     let live_count = live.len();
     let at = |tab: Option<TabId>| live.iter().position(|(t, _)| Some(*t) == tab);
+    let front_saved = at(state.active_tab()).is_some();
     let active_live = at(state.active_tab()).or_else(|| at(state.restore.front_live));
     let live_split = state.tabs.split.as_ref().and_then(|s| {
         let secondary = at(Some(s.secondary))?;
@@ -37,7 +55,6 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
     let mut tabs: Vec<SavedTab> = live.iter().map(|(_, tab)| tab.clone()).collect();
     tabs.extend(state.restore.dormant.values().flatten().cloned());
     tabs.truncate(MAX_SAVED_TABS);
-    size_fitted(&mut tabs);
     // The tab in front, or else the saved one that has not been reopened yet.
     let (active, split) = match active_live {
         Some(_) => (active_live, live_split),
@@ -46,43 +63,109 @@ pub fn snapshot(state: &AppState) -> WorkspaceFile {
             waiting_split(state, live_count),
         ),
     };
-    WorkspaceFile {
+    let mut file = WorkspaceFile {
         version: VERSION,
         restore: true,
         tabs,
         active: active.filter(|i| *i < MAX_SAVED_TABS),
         split,
+    };
+    size_fitted(&mut file);
+    Parts {
+        file,
+        live: live.into_iter().map(|(tab, _)| tab).collect(),
+        front_saved,
     }
 }
 
-/// The text of the largest tabs dropped (and flagged) until the file fits the bound: 200 tabs of
-/// 256 KiB would be refused as too big and nothing would ever be written.
-fn size_fitted(tabs: &mut [SavedTab]) {
-    // Text grows at most six-fold when escaped: under this it cannot reach the budget.
-    let text: usize = tabs.iter().map(SavedTab::text_bytes).sum();
-    if text <= SIZE_BUDGET / 8 {
+/// The text of the largest tabs dropped (and flagged) until the file, written the way `save`
+/// writes it, fits the bound: 200 tabs of 256 KiB, or of 200 stages each, would be refused as too
+/// big and nothing would ever be written. Almost always a cheap upper bound shows it fits and
+/// nothing is serialised; only near the bound is the file measured exactly.
+fn size_fitted(file: &mut WorkspaceFile) {
+    if upper_bound(&file.tabs) <= MAX_FILE_BYTES {
         return;
     }
-    let mut size = pretty_len(&*tabs);
-    let mut order: Vec<usize> = (0..tabs.len()).collect();
-    order.sort_by_key(|i| std::cmp::Reverse(tabs[*i].text_bytes()));
-    for i in order {
-        if size <= SIZE_BUDGET || tabs[i].text_bytes() == 0 {
-            break;
+    loop {
+        let size = pretty_len(&*file);
+        if size <= MAX_FILE_BYTES {
+            return;
         }
-        let before = pretty_len(&tabs[i]);
-        tabs[i] = tabs[i].clone().without_text();
-        size = size.saturating_sub(before.saturating_sub(pretty_len(&tabs[i])));
+        // The tabs that take most room go first, by what each takes as JSON, not by its text.
+        let mut order: Vec<(usize, usize)> = file
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.has_text())
+            .map(|(i, tab)| (pretty_len(tab), i))
+            .collect();
+        order.sort_by_key(|(size, i)| (std::cmp::Reverse(*size), *i));
+        if order.is_empty() {
+            // Nothing left to take text from: the last tabs are cut (there is room for none
+            // of this in a file this size), deterministically, rather than never writing.
+            file.tabs.pop();
+            file.active = file.active.filter(|at| *at < file.tabs.len());
+            file.split = file.split.filter(|s| s.secondary < file.tabs.len());
+            if file.tabs.is_empty() {
+                return;
+            }
+            continue;
+        }
+        let mut need = size - MAX_FILE_BYTES;
+        for (_, i) in order {
+            if need == 0 {
+                break;
+            }
+            let before = pretty_len(&file.tabs[i]);
+            file.tabs[i] = file.tabs[i].clone().without_text();
+            need = need.saturating_sub(before.saturating_sub(pretty_len(&file.tabs[i])));
+        }
     }
 }
 
 /// The bytes `value` takes as pretty JSON, the way the file is written.
 fn pretty_len<T: serde::Serialize + ?Sized>(value: &T) -> usize {
+    #[cfg(test)]
+    MEASURED.with(|count| count.set(count.get() + 1));
     serde_json::to_vec_pretty(value).map_or(0, |bytes| bytes.len())
 }
 
-/// What the tabs may take of the file's bound, leaving room for the rest of the file.
-const SIZE_BUDGET: usize = MAX_FILE_BYTES - 256 * 1024;
+#[cfg(test)]
+thread_local! {
+    /// How many times a value was serialised to be measured, in this thread.
+    pub(super) static MEASURED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A bound the file cannot exceed, worked out by counting (escaped text, each stage's lines at
+/// the deepest indentation, a generous allowance per tab) without serialising anything.
+fn upper_bound(tabs: &[SavedTab]) -> usize {
+    let escaped = |text: &str| -> usize {
+        text.bytes()
+            .map(|b| match b {
+                b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
+                0..=0x1f => 6,
+                _ => 1,
+            })
+            .sum()
+    };
+    let per_tab = |tab: &SavedTab| -> usize {
+        let find = tab.find.as_ref().map_or(0, |f| {
+            [&f.filter, &f.sort, &f.projection, &f.skip, &f.limit]
+                .iter()
+                .map(|t| escaped(t))
+                .sum::<usize>()
+                + 3 * tab.options_len()
+        });
+        let draft = tab.draft.as_ref().map_or(0, |d| {
+            d.stages
+                .iter()
+                .map(|s| 90 + escaped(&s.text))
+                .sum::<usize>()
+        });
+        1024 + escaped(&tab.db) + escaped(&tab.collection) + find + draft
+    };
+    tabs.iter().map(per_tab).sum::<usize>() + 1024
+}
 
 /// Where the saved tab `index` of `connection`'s waiting group sits in the list `snapshot`
 /// builds.

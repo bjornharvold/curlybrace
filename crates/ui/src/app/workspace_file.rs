@@ -299,6 +299,17 @@ impl SavedTab {
             + self.draft.as_ref().map_or(0, SavedDraftText::bytes)
     }
 
+    /// Whether the tab holds any text, a draft or options to drop.
+    pub(super) fn has_text(&self) -> bool {
+        self.find.is_some() || self.draft.is_some()
+    }
+
+    /// What the tab's options take in the file, as compact JSON.
+    pub(super) fn options_len(&self) -> usize {
+        self.find.as_ref().map_or(0, |f| options_bytes(&f.options))
+            + self.draft.as_ref().map_or(0, |d| options_bytes(&d.options))
+    }
+
     /// This tab with its text dropped and flagged.
     pub(super) fn without_text(self) -> Self {
         Self {

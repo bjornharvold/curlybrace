@@ -476,8 +476,9 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PersistError
     result.map_err(write_err)
 }
 
-/// How old a temp file of a write must be before it is taken for one a crash left behind.
-const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+/// How old a temp file of a write must be (ten minutes) before it is taken for one a crash left
+/// behind.
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Deletes the temp files (`.<name>.tmp-*`) that earlier writes of `name` left behind. Only ones
 /// not touched for a minute: a write in progress, ours or another window's, is never in the way,

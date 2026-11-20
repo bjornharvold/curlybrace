@@ -742,3 +742,32 @@ fn a_saved_front_tab_reopened_while_in_compare_stays_the_front_of_the_next_write
     let front = file.active.expect("the saved front tab is still stored");
     assert_eq!(file.tabs[front].collection, "two");
 }
+
+#[test]
+fn a_disconnect_remembers_a_front_tab_that_was_reopened_out_of_front() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let s = waiting(vec![cfg], vec![tab(id, "one"), tab(id, "two")], Some(1));
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    let mut s = s;
+    s.workspace = Workspace::Compare;
+    let (s, _) = update(
+        s,
+        Input::Event(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        }),
+    );
+    let (s, _) = update(s, Input::Disconnect(id));
+    assert_eq!(
+        s.restore.active_hint,
+        Some((id, 1)),
+        "the front tab is not lost"
+    );
+    assert_eq!(
+        snapshot(&s).tabs[snapshot(&s).active.unwrap()].collection,
+        "two"
+    );
+}

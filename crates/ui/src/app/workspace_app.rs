@@ -7,6 +7,7 @@ use super::tabs::TabId;
 use super::workspace_file::{self, MAX_FILE_BYTES, WorkspaceFile, snapshot};
 use super::workspace_restore::RestoreState;
 use super::workspace_snapshot::fingerprint;
+use super::workspace_snapshot::{Parts, snapshot_parts};
 use super::{ConfigPath, CurlybraceApp};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -204,7 +205,9 @@ impl AppState {
         let fp = if trimmed > 0 { fingerprint(self) } else { fp };
         self.restore.sync.seen = Some(fp);
         self.restore.sync.snapshots += 1;
-        let snap = snapshot(self);
+        let parts = snapshot_parts(self);
+        self.workspace_marked(&parts);
+        let snap = parts.file;
         let sync = &mut self.restore.sync;
         if sync.written.as_ref() == Some(&snap) {
             sync.pending = None;
@@ -224,6 +227,22 @@ impl AppState {
         // Typed text: it is written a second after the last change.
         sync.pending = Some((snap, now));
         Some(TEXT_DEBOUNCE)
+    }
+
+    /// What the snapshot says about the tabs of the strip, kept in the state: a tab whose text the
+    /// file could not take (the fit dropped it) shows its note while the app runs, and a tab
+    /// that was the saved front tab no longer needs remembering once a saved tab is in front.
+    fn workspace_marked(&mut self, parts: &Parts) {
+        for (at, tab) in parts.live.iter().enumerate() {
+            let dropped = parts.file.tabs.get(at).is_some_and(|t| t.text_dropped);
+            match dropped {
+                true => self.tabs.text_dropped.insert(*tab),
+                false => self.tabs.text_dropped.remove(tab),
+            };
+        }
+        if parts.front_saved {
+            self.restore.front_live = None;
+        }
     }
 
     /// Nothing changed since the last look: typed text that was waiting is written once its

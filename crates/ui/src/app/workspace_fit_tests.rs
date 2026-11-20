@@ -500,3 +500,79 @@ fn closing_the_only_tab_of_the_app_does_not_reopen_a_waiting_one() {
     assert_eq!(s.restore.dormant[&id].len(), before, "nothing reopened");
     assert_eq!(s.visible_tabs().len(), 1);
 }
+
+/// A state with a workspace path whose file is absent, so `workspace_step` really runs.
+fn stepping(cfgs: Vec<ConnectionConfig>) -> (AppState, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workspace.json");
+    (AppState::new(cfgs).with_workspace_path(Ok(path)), dir)
+}
+
+#[test]
+fn a_live_tab_whose_text_the_file_could_not_take_says_so_while_it_runs() {
+    let (a, b) = ab();
+    let (ida, idb) = (a.id, b.id);
+    let (s, _dir) = stepping(vec![a, b]);
+    let (s, _) = connected(s, ida);
+    let mut s = open_on(s, ida, 1);
+    s.find.text.filter = "x".repeat(255 * 1024);
+    // So much waits that the largest tab, this one, cannot keep its text.
+    let waiting_tabs: Vec<SavedTab> = (0..40)
+        .map(|n| SavedTab {
+            find: Some(SavedFind {
+                filter: "y".repeat(250 * 1024 - n),
+                ..SavedFind::default()
+            }),
+            ..tab(idb, &format!("w{n}"))
+        })
+        .collect();
+    s.restore.dormant.insert(idb, waiting_tabs);
+    s.workspace_step(std::time::Instant::now());
+    assert!(
+        s.active_tab_text_dropped(),
+        "the running tab carries the note"
+    );
+    let front = snapshot(&s);
+    assert!(front.tabs[0].text_dropped && front.tabs[0].find.is_none());
+}
+
+#[test]
+fn the_remembered_front_tab_goes_once_a_saved_tab_is_in_front() {
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    let (s, _dir) = stepping(vec![cfg]);
+    let file = WorkspaceFile {
+        tabs: vec![tab(id, "one"), tab(id, "two")],
+        active: Some(1),
+        ..WorkspaceFile::default()
+    };
+    let mut s = s;
+    s.restore = Box::new(RestoreState::of_file(
+        &file,
+        std::mem::take(&mut s.restore.sync),
+    ));
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    let mut s = s;
+    s.workspace = Workspace::Compare;
+    let (s, _) = update(
+        s,
+        Input::Event(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        }),
+    );
+    assert!(s.restore.front_live.is_some());
+    // A saved tab comes to the front: the remembered one is no longer needed.
+    let one = restored_tab(&s, "one");
+    let (mut s, _) = update(s, Input::Tabs(TabAction::Activate(one)));
+    s.workspace_step(std::time::Instant::now());
+    assert_eq!(s.restore.front_live, None);
+    // A new, empty tab is not "two" in front again.
+    let (mut s, _) = update(s, Input::Tabs(TabAction::New));
+    s.workspace_step(std::time::Instant::now());
+    let file = snapshot(&s);
+    let front = file.active.map(|at| file.tabs[at].collection.clone());
+    assert_ne!(front.as_deref(), Some("two"), "{front:?}");
+}

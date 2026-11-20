@@ -203,22 +203,28 @@ fn many_big_tabs_never_make_a_file_too_big_to_write() {
         small.iter().all(|t| t.find.is_some() && !t.text_dropped),
         "small tabs keep their text"
     );
-    // The largest went first.
-    let kept_big = file
+    // The largest went first: every tab that kept its text is smaller than every one that lost it.
+    let number = |tab: &SavedTab| {
+        tab.collection
+            .trim_start_matches("big")
+            .parse::<usize>()
+            .unwrap()
+    };
+    let largest_kept = file
         .tabs
         .iter()
-        .filter(|t| t.collection.starts_with("big") && t.find.is_some());
-    let smallest_dropped_n = dropped
+        .filter(|t| t.collection.starts_with("big") && t.find.is_some())
+        .map(|t| 250 * 1024 - number(t))
+        .max();
+    let smallest_dropped = dropped
         .iter()
-        .map(|t| {
-            t.collection
-                .trim_start_matches("big")
-                .parse::<usize>()
-                .unwrap()
-        })
-        .max()
+        .map(|t| 250 * 1024 - number(t))
+        .min()
         .unwrap();
-    assert!(kept_big.count() + dropped.len() == 36 && smallest_dropped_n < 36);
+    assert!(
+        largest_kept.is_none_or(|kept| kept <= smallest_dropped),
+        "kept {largest_kept:?} must not be larger than dropped {smallest_dropped}"
+    );
     assert_eq!(loaded_len(&path), file.tabs.len());
 }
 
@@ -228,4 +234,118 @@ fn loaded_len(path: &Path) -> usize {
         .unwrap()
         .tabs
         .len()
+}
+
+fn fits(file: &WorkspaceFile, dir: &tempfile::TempDir) -> u64 {
+    let path = dir.path().join("workspace.json");
+    save(&path, &PersistGuard::default(), file).expect("a write never fails on size");
+    let size = std::fs::metadata(&path).unwrap().len();
+    assert!(size <= MAX_FILE_BYTES as u64, "{size} bytes");
+    size
+}
+
+fn stage(text: String) -> SavedStage {
+    SavedStage {
+        text,
+        enabled: true,
+    }
+}
+
+#[test]
+fn many_empty_stages_and_a_few_control_character_bars_still_fit() {
+    // 196 tabs of 200 empty stages: little text, a great deal of structure; and four find bars
+    // of control characters, each of which takes six bytes in the file.
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let mut tabs: Vec<SavedTab> = (0..196)
+        .map(|n| SavedTab {
+            find: None,
+            draft: Some(SavedDraftText {
+                stages: (0..200).map(|_| stage(String::new())).collect(),
+                ..SavedDraftText::default()
+            }),
+            ..tab(id, &format!("stages{n}"))
+        })
+        .collect();
+    tabs.extend((0..4).map(|n| SavedTab {
+        find: Some(SavedFind {
+            filter: "\u{1}".repeat(240 * 1024),
+            ..SavedFind::default()
+        }),
+        ..tab(id, &format!("bar{n}"))
+    }));
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    fits(&file, &dir);
+    assert!(
+        file.tabs.iter().any(|t| t.text_dropped),
+        "something had to go"
+    );
+}
+
+#[test]
+fn the_file_is_measured_the_way_it_is_written() {
+    // 200 tabs of 200 stages of 132 bytes: measured on its own the tabs fit, nested in the file
+    // under "tabs" (two more spaces on every line) they do not.
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    let tabs: Vec<SavedTab> = (0..200)
+        .map(|n| SavedTab {
+            find: None,
+            draft: Some(SavedDraftText {
+                stages: (0..200).map(|_| stage("y".repeat(132))).collect(),
+                ..SavedDraftText::default()
+            }),
+            ..tab(id, &format!("deep{n}"))
+        })
+        .collect();
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    fits(&file, &dir);
+}
+
+#[test]
+fn a_file_that_cannot_be_made_to_fit_by_dropping_text_is_cut_not_left_unwritable() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Uuid::new_v4();
+    // No text to drop: the names alone are over the bound.
+    let tabs: Vec<SavedTab> = (0..200)
+        .map(|n| SavedTab {
+            find: None,
+            collection: format!("{n}{}", "c".repeat(50_000)),
+            ..tab(id, "x")
+        })
+        .collect();
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let file = snapshot(&s);
+    fits(&file, &dir);
+    assert!(!file.tabs.is_empty() && file.tabs.len() < 200);
+    assert!(file.active.is_none_or(|at| at < file.tabs.len()));
+}
+
+#[test]
+fn a_snapshot_well_under_the_bound_is_not_measured() {
+    let id = Uuid::new_v4();
+    let tabs: Vec<SavedTab> = (0..40)
+        .map(|n| SavedTab {
+            find: Some(SavedFind {
+                filter: "x".repeat(50 * 1024),
+                ..SavedFind::default()
+            }),
+            ..tab(id, &format!("t{n}"))
+        })
+        .collect();
+    let mut s = AppState::default();
+    s.restore.dormant.insert(id, tabs);
+    let before = crate::app::workspace_snapshot::MEASURED.with(|c| c.get());
+    let file = snapshot(&s);
+    assert_eq!(file.tabs.len(), 40);
+    assert_eq!(
+        crate::app::workspace_snapshot::MEASURED.with(|c| c.get()),
+        before,
+        "2 MiB of text is known to fit without serialising it"
+    );
 }
