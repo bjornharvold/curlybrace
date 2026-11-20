@@ -4,8 +4,8 @@ use super::settings_file::json_object;
 use super::state::AppState;
 use super::tabs::TabId;
 use super::workspace_file::{
-    MAX_FILE_BYTES, MAX_SAVED_TABS, SavedSplit, SavedTab, VERSION, WorkspaceFile, WorkspaceStartup,
-    valid_namespace,
+    MAX_FILE_BYTES, MAX_WAITING_TABS, SavedSplit, SavedTab, VERSION, WorkspaceFile,
+    WorkspaceStartup, valid_namespace,
 };
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::{AggregateState, CollectionTab, FindBarState, ViewMode};
@@ -264,7 +264,7 @@ fn filtered(
         if !usable {
             position.push(None);
             skipped += 1;
-        } else if kept.len() >= MAX_SAVED_TABS {
+        } else if kept.len() >= MAX_WAITING_TABS {
             position.push(None);
             overflow += 1;
         } else {
@@ -287,6 +287,13 @@ fn filtered(
         ..WorkspaceFile::default()
     };
     let lost = skipped + overflow;
+    // Only the tabs that were kept count as repaired.
+    let repaired = file
+        .tabs
+        .iter()
+        .filter(|t| t.options_dropped)
+        .count()
+        .min(repaired);
     // The original is kept whenever anything was dropped from it, and says why in its name.
     let tag = if repaired > 0 { "repaired" } else { "skipped" };
     let backed_up = lost + repaired == 0 || backed_up(path, backup, tag);

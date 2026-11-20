@@ -33,6 +33,9 @@ pub const MAX_STAGES_PER_DRAFT: usize = 200;
 /// The most tabs the file holds: the open ones (at most `MAX_TABS`) and the saved ones still
 /// waiting for a connection or for room.
 pub const MAX_SAVED_TABS: usize = 200;
+/// The most saved tabs that wait (for a connection or for room): what is left of the file's
+/// bound when every tab that can be open is open, so a snapshot never has to cut anything.
+pub const MAX_WAITING_TABS: usize = MAX_SAVED_TABS - super::tab_actions::MAX_TABS;
 /// The largest file read; a bigger one is refused as corrupt.
 pub const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 const FILE_NAME: &str = "workspace.json";

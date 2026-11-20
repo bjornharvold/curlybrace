@@ -276,14 +276,14 @@ fn the_file_may_hold_more_tabs_than_the_open_limit() {
 fn entries_past_the_most_the_file_may_hold_are_counted_with_a_backup() {
     let dir = tempfile::tempdir().unwrap();
     let id = Uuid::new_v4();
-    let tabs: Vec<SavedTab> = (0..MAX_SAVED_TABS + 5)
+    let tabs: Vec<SavedTab> = (0..MAX_WAITING_TABS + 5)
         .map(|n| tab(id, &format!("c{n}")))
         .collect();
     let path = dir.path().join("workspace.json");
     std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
     let tags = RefCell::new(Vec::new());
     let loaded = load(&path, &recording(&tags), &known(&[id]));
-    assert_eq!(loaded.file.tabs.len(), MAX_SAVED_TABS);
+    assert_eq!(loaded.file.tabs.len(), MAX_WAITING_TABS);
     assert_eq!(
         loaded.recovery,
         Some(Recovery::WorkspaceOverflow {
@@ -299,13 +299,13 @@ fn invalid_entries_do_not_eat_into_the_bound_and_both_notices_are_given() {
     let dir = tempfile::tempdir().unwrap();
     let (id, gone) = (Uuid::new_v4(), Uuid::new_v4());
     let mut tabs: Vec<SavedTab> = (0..3).map(|_| tab(gone, "x")).collect();
-    tabs.extend((0..MAX_SAVED_TABS + 2).map(|n| tab(id, &format!("c{n}"))));
+    tabs.extend((0..MAX_WAITING_TABS + 2).map(|n| tab(id, &format!("c{n}"))));
     let path = dir.path().join("workspace.json");
     std::fs::write(&path, serde_json::to_vec(&file_of(tabs)).unwrap()).unwrap();
     let loaded = load(&path, &back_up, &known(&[id]));
     assert_eq!(
         loaded.file.tabs.len(),
-        MAX_SAVED_TABS,
+        MAX_WAITING_TABS,
         "all the valid ones that fit"
     );
     assert_eq!(
@@ -651,4 +651,43 @@ fn a_tab_without_a_collection_or_a_saved_connection_is_not_saved() {
     );
     let _ = orders();
     let _ = results;
+}
+
+#[test]
+fn only_the_tabs_that_are_kept_count_as_repaired() {
+    let dir = tempfile::tempdir().unwrap();
+    let (kept, gone) = (
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+    );
+    let tab_json = |id: &str, name: &str| {
+        format!(
+            r#"{{"connection":"{id}","db":"a","collection":"{name}","sub_tab":"documents","view_mode":"table",
+              "find":{{"filter":"{{}}","sort":"","projection":"","skip":"","limit":"","options":{{"maxTimeMS":0}}}}}}"#
+        )
+    };
+    let text = format!(
+        r#"{{"version":1,"restore":true,"tabs":[{},{}]}}"#,
+        tab_json(kept, "one"),
+        tab_json(gone, "two")
+    );
+    let path = write(&dir, text.as_bytes());
+    let id: Uuid = kept.parse().unwrap();
+    let loaded = load(&path, &back_up, &known(&[id]));
+    assert_eq!(loaded.file.tabs.len(), 1);
+    assert_eq!(
+        loaded.recovery,
+        Some(Recovery::WorkspaceSkipped {
+            count: 1,
+            backed_up: true
+        })
+    );
+    assert_eq!(
+        loaded.also,
+        vec![Recovery::WorkspaceRepaired {
+            count: 1,
+            backed_up: true
+        }],
+        "one repaired tab was kept, not two"
+    );
 }
