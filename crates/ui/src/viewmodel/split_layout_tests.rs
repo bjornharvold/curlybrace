@@ -69,7 +69,7 @@ fn ratio_is_clamped() {
 #[test]
 fn the_ratio_never_squeezes_a_pane_below_its_minimum() {
     // Just wide enough for two panes of the narrowest width that works at this height (470 at
-    // 400 high, and the 2 pt ring of each pane on each side): the divider cannot move at all.
+    // 400 high): the divider cannot move at all.
     let narrow = vec2(2.0 * 470.0 + DIVIDER, 400.0);
     assert_eq!(
         layout(narrow, Orientation::SideBySide, 0.25),

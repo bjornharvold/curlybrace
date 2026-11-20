@@ -76,6 +76,23 @@ fn record(ctx: &Context, id: Id) {
     ctx.data_mut(|d| d.insert_temp(Id::new(MODALS), (pass, seen)));
 }
 
+/// Counts a `PaneShown` the split view emitted (a test hook, debug builds only).
+pub fn count_pane_shown(ctx: &Context) {
+    #[cfg(debug_assertions)]
+    ctx.data_mut(|d| {
+        *d.get_temp_mut_or_default::<u32>(Id::new("curlybrace.split.pane_shown")) += 1
+    });
+    #[cfg(not(debug_assertions))]
+    let _ = ctx;
+}
+
+/// How many `PaneShown` the split view has emitted so far (see [`count_pane_shown`]).
+#[doc(hidden)]
+pub fn pane_shown_emitted(ctx: &Context) -> u32 {
+    ctx.data(|d| d.get_temp(Id::new("curlybrace.split.pane_shown")))
+        .unwrap_or(0)
+}
+
 /// The modal ids that were drawn twice in the pass so far (a test hook: a correct frame has none;
 /// a release build records nothing and returns none).
 #[doc(hidden)]

@@ -5,9 +5,10 @@ use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, Workspace};
 use super::tab_actions::TabAction;
+use super::tabs::TabId;
 use crate::I18n;
 use crate::theme::ROW_GAP;
-use crate::viewmodel::tab_title::labels;
+use crate::viewmodel::tab_title::{TabLabel, labels};
 use crate::views::split_panes::{SplitButtons, request_pane_focus};
 use crate::views::split_shortcuts::split_shortcuts;
 use crate::views::tab_shortcuts::tab_shortcuts;
@@ -48,7 +49,7 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
         return;
     }
     let shown = labels(state, i18n);
-    show_strip_with(ui, state, &shown, i18n, out);
+    draw_strip(ui, state, &shown, i18n, out);
 }
 
 /// [`show_strip`] with the labels already built (the split view builds them once for the strip
@@ -56,16 +57,24 @@ pub(super) fn show_strip(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: 
 pub(super) fn show_strip_with(
     ui: &mut egui::Ui,
     state: &AppState,
-    shown: &[(
-        crate::app::tabs::TabId,
-        crate::viewmodel::tab_title::TabLabel,
-    )],
+    shown: &[(TabId, TabLabel)],
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
     if state.tabs.order.len() < 2 || state.visible_tabs().len() < 2 {
         return;
     }
+    draw_strip(ui, state, shown, i18n, out);
+}
+
+/// The strip itself, once the caller has checked there is more than one tab to show.
+fn draw_strip(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    shown: &[(TabId, TabLabel)],
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
     let view = StripView {
         labels: shown,
         active: state.active_tab(),

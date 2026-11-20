@@ -246,6 +246,10 @@ fn a_stale_one_pane_flag_does_not_leak_into_a_new_split() {
         .dispatch(curlybrace_ui::app::reducer::Input::Tabs(
             curlybrace_ui::app::tab_actions::TabAction::ToggleSplit,
         ));
+    // One pass only: the first pass of the first frame is what shows the stale flag.
+    page.harness
+        .ctx
+        .options_mut(|o| o.max_passes = std::num::NonZeroUsize::new(1).expect("one"));
     page.harness.step();
     assert!(
         page.harness
@@ -253,5 +257,23 @@ fn a_stale_one_pane_flag_does_not_leak_into_a_new_split() {
             .next()
             .is_some(),
         "the first frame of the new split shows the button"
+    );
+}
+
+#[test]
+fn an_empty_stale_partner_emits_no_pane_shown() {
+    // Nothing to read: the pane does not ask for a read, however many frames are drawn.
+    let mut page = browse_page((1400.0, 900.0), |s| {
+        split_two(s, Orientation::SideBySide);
+        let partner = s.tabs.split.as_ref().expect("a split").secondary;
+        if let Some(view) = s.parked_tabs.get_mut(&partner) {
+            *view = Default::default();
+            view.freshness = Freshness::Stale;
+        }
+    });
+    page.harness.run_steps(6);
+    assert_eq!(
+        curlybrace_ui::views::pane_scope::pane_shown_emitted(&page.harness.ctx),
+        0
     );
 }

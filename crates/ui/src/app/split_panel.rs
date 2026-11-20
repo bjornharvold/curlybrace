@@ -195,6 +195,7 @@ fn show_other(
     let tab = pane.tab;
     // It is on screen now: a stale pane reads again what it shows (a dormant one does not).
     if is_stale_and_reachable(state, tab) {
+        crate::views::pane_scope::count_pane_shown(ui.ctx());
         out.push(tabs_event(TabAction::PaneShown(tab)));
     }
     let mut events = Vec::new();

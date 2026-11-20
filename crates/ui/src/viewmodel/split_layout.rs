@@ -98,7 +98,6 @@ fn within_room(ratio: f32, room: f32, min: f32) -> f32 {
 /// The ratio for two panes side by side in `central`, when both fit.
 fn side(central: Vec2, ratio: f32) -> Option<f32> {
     let room = central.x - DIVIDER;
-    // What the page gets of a pane is less its ring on every side.
     let min = min_width_at(central.y)?;
     (room / 2.0 >= min).then(|| within_room(ratio, room, min))
 }
