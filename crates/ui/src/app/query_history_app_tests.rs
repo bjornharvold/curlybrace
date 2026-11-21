@@ -73,29 +73,39 @@ fn a_blank_bar_is_not_recorded() {
     assert!(recorded(&state).is_empty());
 }
 
-/// A run is on record and a page after the first is showing, so Previous and Next are allowed.
-fn paged() -> AppState {
+/// A query was run from the bar, unedited since, and its page is on screen with a page after it
+/// (`skip` 0) or before it (`skip` 50). What Previous and Next send is then what the bar says,
+/// with only its skip box moved on: exactly the find a recording in `issue_find` would take for
+/// a run.
+fn after_a_run(skip: u64) -> AppState {
     let mut state = run_typed(browsing(), "{\"a\":1}");
+    assert_eq!(recorded(&state).len(), 1, "the run is on record");
+    let mut query = submit_find(&state.find).unwrap();
+    query.skip = skip;
     state.page = Some(curlybrace_core::store::Page {
         docs: Vec::new(),
-        skip: 100,
+        skip,
         has_more: true,
     });
-    state.page_query = curlybrace_core::store::Query {
-        skip: 100,
-        ..Default::default()
-    };
-    state.find.text.filter = "{\"changed\":1}".into();
+    state.page_query = query;
     state
 }
 
 #[test]
-fn previous_next_and_clear_do_not_record() {
-    for action in [FindAction::Next, FindAction::Prev, FindAction::Clear] {
-        let (next, commands) = act(paged(), action);
-        assert!(!commands.is_empty(), "the action sent a find");
-        assert_eq!(recorded(&next).len(), 1, "still the one run");
-    }
+fn next_and_previous_do_not_record_a_find_of_a_page() {
+    let (next, commands) = act(after_a_run(0), FindAction::Next);
+    assert!(!commands.is_empty(), "Next sent a find");
+    assert_eq!(recorded(&next).len(), 1, "still the one run, not a page 2");
+    let (prev, commands) = act(after_a_run(50), FindAction::Prev);
+    assert!(!commands.is_empty(), "Previous sent a find");
+    assert_eq!(recorded(&prev).len(), 1, "still the one run, not a page 1");
+}
+
+#[test]
+fn clear_does_not_record() {
+    let (cleared, commands) = act(after_a_run(0), FindAction::Clear);
+    assert!(!commands.is_empty(), "Clear sent a find");
+    assert_eq!(recorded(&cleared).len(), 1);
 }
 
 #[test]
@@ -200,22 +210,22 @@ fn remembering_off_keeps_the_favourites() {
 
 /// The channel ends the app talks to the runtime through: dropped, a send would fail and raise
 /// the "runtime gone" banner these tests look at.
-type Keep = (
+pub(super) type Keep = (
     tokio::sync::mpsc::UnboundedSender<curlybrace_core::runtime::Event>,
     tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Command>,
 );
 
-fn history_app(dir: &tempfile::TempDir) -> (CurlybraceApp, Keep) {
+pub(super) fn history_app(dir: &tempfile::TempDir) -> (CurlybraceApp, Keep) {
     let (app, events, commands) = app_in(dir, Vec::new());
     let app = app.with_query_history_path(Ok(dir.path().join("query_history.json")));
     (app, (events, commands))
 }
 
-fn file(dir: &tempfile::TempDir) -> std::path::PathBuf {
+pub(super) fn file(dir: &tempfile::TempDir) -> std::path::PathBuf {
     dir.path().join("query_history.json")
 }
 
-fn browsing_app(dir: &tempfile::TempDir) -> (CurlybraceApp, Keep) {
+pub(super) fn browsing_app(dir: &tempfile::TempDir) -> (CurlybraceApp, Keep) {
     let (mut app, keep) = history_app(dir);
     let state = std::mem::take(app.state_mut());
     let browse = browsing();
@@ -227,7 +237,7 @@ fn browsing_app(dir: &tempfile::TempDir) -> (CurlybraceApp, Keep) {
     (app, keep)
 }
 
-fn dispatch_run(app: &mut CurlybraceApp, filter: &str) {
+pub(super) fn dispatch_run(app: &mut CurlybraceApp, filter: &str) {
     app.state_mut().find.text.filter = filter.into();
     let query = submit_find(&app.state().find).unwrap();
     app.dispatch(Input::Find(FindAction::Run(query)));
@@ -308,29 +318,21 @@ fn a_corrupt_file_is_backed_up_with_a_recovery_banner() {
 }
 
 #[test]
-fn a_newer_file_is_left_alone_and_a_run_says_it_was_not_saved() {
-    let dir = tempfile::tempdir().unwrap();
-    let text = r#"{"version": 99, "history": [], "favourites": []}"#;
-    std::fs::write(file(&dir), text).unwrap();
-    let (mut app, _keep) = browsing_app(&dir);
-    app.state_mut().banner = None;
-    dispatch_run(&mut app, "{\"a\":1}");
-    assert_eq!(std::fs::read_to_string(file(&dir)).unwrap(), text);
-    assert_eq!(
-        app.state().banner,
-        Some(Banner::QueryHistoryPersist(HistorySaveError::NewerVersion))
-    );
-}
-
-#[test]
 fn a_blocked_guard_keeps_the_original_and_shows_one_banner() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(file(&dir), "[]").unwrap();
+    std::fs::write(
+        file(&dir),
+        r#"{"version": 1, "history": [], "favourites": []}"#,
+    )
+    .unwrap();
     let (mut app, _keep) = browsing_app(&dir);
     app.state_mut().query_history.guard = PersistGuard::blocked();
     app.state_mut().banner = None;
     dispatch_run(&mut app, "{\"a\":1}");
-    assert_eq!(std::fs::read_to_string(file(&dir)).unwrap(), "[]");
+    assert_eq!(
+        std::fs::read_to_string(file(&dir)).unwrap(),
+        r#"{"version": 1, "history": [], "favourites": []}"#
+    );
     assert_eq!(
         app.state().banner,
         Some(Banner::QueryHistoryPersist(HistorySaveError::Blocked))

@@ -58,6 +58,7 @@ impl AppState {
             || self.copies.is_some()
             || self.forget_confirm.is_some()
             || self.tools.dialog().is_some()
+            || self.query_history.ui.dialog.is_some()
             || self.code_export.dialog.is_some()
             || self.aggregate.run.dialog.is_some()
             || self.aggregate.saved.dialog.is_some()

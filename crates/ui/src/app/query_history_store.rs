@@ -99,6 +99,9 @@ pub enum HistorySaveError {
     NewerVersion,
     /// Another window changed the file since this one read or wrote it.
     ChangedOnDisk,
+    /// A change was made again on top of what another window wrote and was refused there (a
+    /// name that window took, a full list): the person saw it succeed, so this says it did not.
+    ReplayDropped,
     Persist(PersistError),
 }
 
@@ -110,6 +113,7 @@ impl HistorySaveError {
             Self::TooLarge => "persist.query_history_too_large",
             Self::NewerVersion => "persist.query_history_newer",
             Self::ChangedOnDisk => "persist.query_history_changed",
+            Self::ReplayDropped => "persist.query_history_replay_dropped",
             Self::Persist(PersistError::ConfigDirUnknown) => "persist.query_history_no_folder",
             Self::Persist(_) => "persist.query_history_write_failed",
         }
@@ -125,18 +129,22 @@ pub struct Written {
 }
 
 /// The store with the oldest history dropped until it serialises under [`MAX_FILE_BYTES`], and
-/// its bytes. Favourites are never dropped: when they alone do not fit, `TooLarge`.
+/// its bytes. A store that fits is measured once (the bytes are the ones `saved` writes). One
+/// that does not has the excess dropped in one pass by the size each entry takes, then is
+/// measured again: the estimate can fall a little short, so this repeats, but a few rounds at
+/// most, never a copy and a measurement per entry. Favourites are never dropped: when they alone
+/// do not fit, `TooLarge`.
 fn fitted(store: &QueryHistory) -> Result<(QueryHistory, Vec<u8>), HistorySaveError> {
+    let mut bytes = serialised(store).map_err(HistorySaveError::Persist)?;
     let mut current = store.clone();
-    loop {
-        let bytes = serialised(&current).map_err(HistorySaveError::Persist)?;
-        if bytes.len() <= MAX_FILE_BYTES {
-            return Ok((current, bytes));
-        }
+    while bytes.len() > MAX_FILE_BYTES {
+        let excess = bytes.len() - MAX_FILE_BYTES;
         current = current
-            .oldest_history_dropped()
+            .oldest_history_dropped_by(excess)
             .ok_or(HistorySaveError::TooLarge)?;
+        bytes = serialised(&current).map_err(HistorySaveError::Persist)?;
     }
+    Ok((current, bytes))
 }
 
 /// The file's bytes, or nothing when there is no file.
@@ -216,8 +224,10 @@ pub fn reloaded(path: &Path) -> Reload {
     }
 }
 
-/// Deletes the backup copies of the file (they hold the text of queries) and the temp file a
-/// crashed write left behind. Every copy is tried; the first failure is reported.
+/// Deletes the backup copies of the file (they can hold the text of queries). Temp files are not
+/// touched: one may be another window's write in progress, and `atomic_write` sweeps the ones a
+/// crash left behind once they are ten minutes old. Every copy is tried; the first failure is
+/// reported.
 pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(PersistError::InvalidPath);
@@ -233,8 +243,7 @@ pub fn remove_backups(path: &Path) -> Result<(), PersistError> {
         let file = entry.file_name().to_string_lossy().into_owned();
         let is_backup = ["corrupt", "unreadable"]
             .iter()
-            .any(|tag| file.starts_with(&format!("{name}.{tag}-")))
-            || file.starts_with(&format!(".{name}.tmp-"));
+            .any(|tag| file.starts_with(&format!("{name}.{tag}-")));
         if is_backup {
             if let Err(e) = std::fs::remove_file(entry.path()) {
                 failed.get_or_insert(e.kind());

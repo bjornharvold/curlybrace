@@ -230,6 +230,67 @@ fn a_save_never_fails_for_size_it_drops_the_oldest_history_first() {
     assert_eq!(started.settings, written.store);
 }
 
+/// `namespaces` collections of 100 small recent queries each, built through the file format (a
+/// store this big would take minutes to build by recording one query at a time).
+fn crowded(namespaces: usize) -> QueryHistory {
+    let groups: Vec<serde_json::Value> = (0..namespaces)
+        .map(|ns| {
+            let entries: Vec<serde_json::Value> = (0..100)
+                .map(|i| {
+                    let filter = format!(
+                        "{{\"customer.email\": \"person{ns}-{i}@example.com\", \"status\": \"active\", \"n\": {i}}}"
+                    );
+                    serde_json::json!({"text": {"filter": filter}, "ran_unix": ns * 100 + i})
+                })
+                .collect();
+            serde_json::json!({"connection": Uuid::from_u128(1), "db": "shop",
+                "collection": format!("c{ns}"), "entries": entries})
+        })
+        .collect();
+    serde_json::from_value(serde_json::json!({"version": 1, "history": groups, "favourites": []}))
+        .unwrap()
+}
+
+#[test]
+fn a_big_store_with_one_more_big_query_is_made_to_fit_without_a_copy_per_entry() {
+    let ten = serde_json::to_vec_pretty(&crowded(10)).unwrap().len();
+    let store = crowded((MAX_FILE_BYTES - 160_000) / (ten / 10));
+    let before = serde_json::to_vec_pretty(&store).unwrap().len();
+    assert!(
+        before < MAX_FILE_BYTES && before > MAX_FILE_BYTES - 200_000,
+        "{before}"
+    );
+    let big = text(&"y".repeat(MAX_ENTRY_BYTES - 64));
+    let store = store
+        .recorded(Uuid::from_u128(1), "shop", "big", big, 1_000_000)
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = path_in(&dir);
+    let started = std::time::Instant::now();
+    let written = saved(
+        &path,
+        &PersistGuard::default(),
+        DiskStamp::default(),
+        &store,
+    )
+    .unwrap();
+    let took = started.elapsed();
+    assert!(
+        took < std::time::Duration::from_secs(10),
+        "made to fit in {took:?}: dropping one entry at a time is too slow"
+    );
+    assert!(std::fs::metadata(&path).unwrap().len() as usize <= MAX_FILE_BYTES);
+    assert!(written.store.history_len() < store.history_len());
+    assert_eq!(
+        written
+            .store
+            .history(Uuid::from_u128(1), "shop", "big")
+            .len(),
+        1,
+        "the newest query is the one that is kept"
+    );
+}
+
 #[test]
 fn favourites_that_cannot_fit_are_refused_not_dropped() {
     let dir = tempfile::tempdir().unwrap();
@@ -260,7 +321,7 @@ fn favourites_that_cannot_fit_are_refused_not_dropped() {
 }
 
 #[test]
-fn backup_copies_and_temp_leftovers_are_removed_and_nothing_else() {
+fn backup_copies_are_removed_and_a_write_in_progress_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();
     let path = path_in(&dir);
     for name in [
@@ -286,6 +347,7 @@ fn backup_copies_and_temp_leftovers_are_removed_and_nothing_else() {
     assert_eq!(
         left,
         [
+            ".query_history.json.tmp-3",
             "connections.json",
             "query_history.json",
             "workspace.json.corrupt-1"
@@ -308,6 +370,7 @@ fn every_refusal_and_recovery_has_a_message_key() {
         HistorySaveError::TooLarge,
         HistorySaveError::NewerVersion,
         HistorySaveError::ChangedOnDisk,
+        HistorySaveError::ReplayDropped,
         HistorySaveError::Persist(PersistError::ConfigDirUnknown),
         HistorySaveError::Persist(PersistError::Write(std::io::ErrorKind::Other)),
     ] {

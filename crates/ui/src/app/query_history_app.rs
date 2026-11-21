@@ -5,7 +5,7 @@
 //!
 //! The history holds the text of queries, which can contain personal values: nothing here logs a
 //! query, a name or a namespace, only error kinds.
-use super::persistence::{self, PersistGuard};
+use super::persistence::{self, PersistGuard, Recovery};
 use super::query_history_store::{self as store, HistorySaveError, Reload};
 use super::state::{AppState, Banner};
 use super::{ConfigPath, CurlybraceApp, connection_ops};
@@ -31,6 +31,9 @@ pub(super) enum Op {
         now: i64,
     },
     Star {
+        /// Chosen when the dialog is confirmed, so the favourite has the same id when the change
+        /// is made again on top of another window's file.
+        id: Uuid,
         connection: Uuid,
         db: String,
         collection: String,
@@ -87,13 +90,22 @@ impl Op {
                 now,
             } => store.recorded(*connection, db, collection, (**text).clone(), *now),
             Self::Star {
+                id,
                 connection,
                 db,
                 collection,
                 name,
                 text,
                 now,
-            } => store.starred(*connection, db, collection, name, (**text).clone(), *now),
+            } => store.starred_with_id(
+                *id,
+                *connection,
+                db,
+                collection,
+                name,
+                (**text).clone(),
+                *now,
+            ),
             Self::Rename {
                 connection,
                 id,
@@ -125,12 +137,77 @@ pub struct QueryHistoryState {
     pub seen: super::pipelines_store::DiskStamp,
     /// The History popup: its search, dialog and last error.
     pub ui: HistoryUi,
-    /// Changes applied to `store` and not yet on disk, oldest first.
+    /// Changes applied to `store` and not yet on disk, oldest first. At most
+    /// [`MAX_PENDING_RECORDS`] of them are recordings (the history itself is all in `store`);
+    /// the changes to favourites are never dropped.
     pending: Vec<Op>,
+    /// Counts the changes made, so a step that made none can be told from one that did.
+    revision: u64,
+    /// The last write failed: nothing is tried again until the history or the file changed.
+    stalled: Option<Stall>,
+    /// The file could not be read at launch (damaged, or from a newer version): what the
+    /// person's "Remember queries" setting was is not known, so nothing is recorded until they
+    /// turn it on.
+    paused: bool,
+    /// A change made again on top of another window's file was refused there.
+    replay_dropped: bool,
+    /// The failure of this streak was logged.
+    logged: bool,
     /// The backup copies of the file are to be deleted (they hold query text).
     purge_backups: bool,
     /// A failed write was announced; no second banner until a write works.
     failing: bool,
+}
+
+/// The most recordings kept waiting for the file after a failed write.
+const MAX_PENDING_RECORDS: usize = 32;
+
+/// What the failed write saw: the number of changes made and the size and time of the file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stall {
+    revision: u64,
+    file: Option<(u64, Option<std::time::SystemTime>)>,
+}
+
+fn file_signature(path: &std::path::Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()))
+}
+
+impl QueryHistoryState {
+    /// Whether finds that are run are recorded: the setting is on and the file was readable.
+    pub fn recording(&self) -> bool {
+        self.store.remembering() && !self.paused
+    }
+
+    /// How many changes wait for the file, and how many of them are recordings.
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub fn pending_records(&self) -> usize {
+        self.pending
+            .iter()
+            .filter(|op| matches!(op, Op::Record { .. }))
+            .count()
+    }
+
+    fn queued(&mut self, op: Op) {
+        self.pending.push(op);
+        self.revision += 1;
+        while self.pending_records() > MAX_PENDING_RECORDS {
+            match self
+                .pending
+                .iter()
+                .position(|o| matches!(o, Op::Record { .. }))
+            {
+                Some(oldest) => {
+                    self.pending.remove(oldest);
+                }
+                None => break,
+            }
+        }
+    }
 }
 
 impl AppState {
@@ -145,8 +222,13 @@ impl AppState {
             persistence::back_up_limited(p, tag, Some(store::MAX_FILE_BYTES as u64 + 1))
         };
         let started = store::load(&path, &backup);
+        let unreadable = matches!(
+            started.recovery,
+            Some(Recovery::QueryHistory { .. } | Recovery::QueryHistoryNewer)
+        );
         let state = Self {
             query_history: Box::new(QueryHistoryState {
+                paused: unreadable,
                 store: started.settings,
                 path: Some(path),
                 guard: started.guard,
@@ -168,7 +250,7 @@ impl AppState {
         let next = op.apply(&self.query_history.store)?;
         if next != self.query_history.store {
             self.query_history.store = next;
-            self.query_history.pending.push(op);
+            self.query_history.queued(op);
         }
         Ok(())
     }
@@ -176,8 +258,9 @@ impl AppState {
     /// Writes the history when a step changed it (the one hook of the dispatch loop). A step that
     /// changed nothing costs a length check. The file is checked for another window's write
     /// first; when it changed, its history is taken and this window's changes are made again on
-    /// top, once. A failure is logged by kind, shown once in a banner and retried with the next
-    /// change.
+    /// top, once. After a failure nothing is tried again until the history changed or the file
+    /// did (a step that changed neither would only fail the same way, at the cost of a
+    /// serialisation and a read); the failure is logged once and shown once in a banner.
     pub fn query_history_flush(&mut self) {
         self.query_history_backups_purged();
         if self.query_history.pending.is_empty() {
@@ -187,9 +270,22 @@ impl AppState {
             self.query_history.pending.clear();
             return;
         };
+        if let Some(stall) = &self.query_history.stalled {
+            let same = stall.revision == self.query_history.revision
+                && stall.file == file_signature(&path);
+            if same {
+                return;
+            }
+        }
         match self.query_history_written(&path) {
-            Ok(()) => self.query_history.failing = false,
-            Err(e) => self.query_history_failed(&e),
+            Ok(()) => {
+                let qh = &mut *self.query_history;
+                (qh.failing, qh.logged, qh.stalled) = (false, false, None);
+                if std::mem::take(&mut qh.replay_dropped) {
+                    self.query_history_announced(&HistorySaveError::ReplayDropped);
+                }
+            }
+            Err(e) => self.query_history_failed(&e, &path),
         }
     }
 
@@ -218,12 +314,20 @@ impl AppState {
         let qh = &mut *self.query_history;
         match store::reloaded(path) {
             Reload::Usable(base, seen) => {
+                // A file that is gone says nothing about the switch: this window's stays.
+                let base = match seen == super::pipelines_store::DiskStamp::default() {
+                    true => base.with_remembering(qh.store.remembering()),
+                    false => base,
+                };
+                let mut dropped = false;
                 qh.store = qh.pending.iter().fold(base, |store, op| {
                     op.apply(&store).unwrap_or_else(|e| {
-                        log::debug!("query history change not repeated: {}", e.error_variant());
+                        log::warn!("query history change not repeated: {}", e.error_variant());
+                        dropped = true;
                         store
                     })
                 });
+                qh.replay_dropped |= dropped;
                 qh.seen = seen;
                 Ok(())
             }
@@ -241,8 +345,20 @@ impl AppState {
         }
     }
 
-    fn query_history_failed(&mut self, error: &HistorySaveError) {
-        log::warn!("could not save the query history: {error:?}");
+    /// A write failed: no retry until something changes, one log line and one banner per streak.
+    fn query_history_failed(&mut self, error: &HistorySaveError, path: &std::path::Path) {
+        let qh = &mut *self.query_history;
+        qh.stalled = Some(Stall {
+            revision: qh.revision,
+            file: file_signature(path),
+        });
+        self.query_history_announced(error);
+    }
+
+    fn query_history_announced(&mut self, error: &HistorySaveError) {
+        if !std::mem::replace(&mut self.query_history.logged, true) {
+            log::warn!("could not save the query history: {error:?}");
+        }
         if !self.query_history.failing && self.banner.is_none() {
             self.query_history.failing = true;
             self.banner = Some(Banner::QueryHistoryPersist(error.clone()));
@@ -260,7 +376,7 @@ impl AppState {
         };
         self.query_history.purge_backups = false;
         if let Err(e) = store::remove_backups(&path) {
-            self.query_history_failed(&HistorySaveError::Persist(e));
+            self.query_history_announced(&HistorySaveError::Persist(e));
         }
     }
 }
@@ -351,7 +467,7 @@ pub(super) fn bar_of(text: &FindText) -> FindBarState {
 /// bar no longer parses to `query` (it was edited while a guard check held the find back) the
 /// text is not what was sent, so nothing is recorded.
 pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
-    if !state.query_history.store.remembering() {
+    if !state.query_history.recording() {
         return state;
     }
     let (Some(connection), Some(ns)) = (state.active, state.selected_ns().cloned()) else {
@@ -374,11 +490,17 @@ pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
 }
 
 /// `ToolsAction::SetRememberQueries`: the switch set. Off erases the history at once, in memory
-/// and in the file, and deletes the backup copies of the file; favourites stay. When saving is
-/// off (a newer file, a failed backup) the switch applies for this run and the banner says the
-/// file is not updated.
+/// and in the file, and deletes the backup copies of the file; favourites stay. On after the file
+/// could not be read at launch starts the history again from an empty one (the file is replaced
+/// at the next write; its backup copy was made at launch). When saving is off (a newer file, a
+/// failed backup) the switch applies for this run and the banner says the file is not updated.
 pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
     state.query_history_apply_infallible(Op::Remember(on));
+    // A person's choice, whatever the file said: and written even when the setting looks the same
+    // as what is in memory (the file may not say it).
+    if std::mem::take(&mut state.query_history.paused) || state.query_history.pending.is_empty() {
+        state.query_history.queued(Op::Remember(on));
+    }
     if !on {
         state.query_history.purge_backups = true;
     }
@@ -389,6 +511,23 @@ pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
 pub(super) fn target(state: &AppState) -> Option<(Uuid, String, String)> {
     let ns = state.selected_ns()?;
     Some((state.active?, ns.db.clone(), ns.collection.clone()))
+}
+
+/// Whether the open dialog was opened for another collection than the one selected now, or for
+/// one that is no longer selected at all.
+pub(super) fn stale_dialog(state: &AppState) -> bool {
+    let ui = &state.query_history.ui;
+    ui.dialog.is_some() && ui.target != target(state)
+}
+
+/// `ui` with `dialog` open for `target`.
+fn opened(ui: HistoryUi, target: (Uuid, String, String), dialog: Option<Dialog>) -> HistoryUi {
+    HistoryUi {
+        target: dialog.as_ref().map(|_| target),
+        dialog,
+        error: None,
+        ..ui
+    }
 }
 
 fn with_ui(mut state: AppState, ui: HistoryUi) -> AppState {
@@ -423,6 +562,7 @@ pub(super) fn on_action(state: AppState, action: HistoryAction) -> super::reduce
             state,
             HistoryUi {
                 dialog: None,
+                target: None,
                 error: None,
                 ..ui
             },
@@ -454,56 +594,47 @@ pub(super) fn on_action(state: AppState, action: HistoryAction) -> super::reduce
                 .map(|f| f.text.clone());
             loaded(state, text)
         }
-        (HistoryAction::StarAsked(i), Some((c, db, coll))) => {
-            let text = store.history(c, &db, &coll).get(i).map(|e| e.text.clone());
+        (HistoryAction::StarAsked(i), Some(t)) => {
+            let text = store
+                .history(t.0, &t.1, &t.2)
+                .get(i)
+                .map(|e| e.text.clone());
             let dialog = text.map(|text| Dialog::Star {
                 text: Box::new(text),
                 name: String::new(),
             });
-            with_ui(
+            with_ui(state, opened(ui, t, dialog))
+        }
+        (HistoryAction::RenameAsked(id), Some(t)) => {
+            let dialog =
+                store
+                    .favourites(t.0)
+                    .iter()
+                    .find(|f| f.id == id)
+                    .map(|f| Dialog::Rename {
+                        id,
+                        name: f.name.clone(),
+                    });
+            with_ui(state, opened(ui, t, dialog))
+        }
+        (HistoryAction::DeleteAsked(id), Some(t)) => {
+            with_ui(state, opened(ui, t, Some(Dialog::Delete { id })))
+        }
+        (HistoryAction::ClearAsked, Some(t)) => with_ui(state, opened(ui, t, Some(Dialog::Clear))),
+        (HistoryAction::Confirmed, current) => match (&ui.target, current) {
+            (Some(opened_for), Some(now)) if *opened_for == now => confirmed(state, ui, now),
+            // The collection changed (or went) since the dialog was opened: it asks nothing of
+            // the new one, and is closed.
+            _ => with_ui(
                 state,
                 HistoryUi {
-                    dialog,
+                    dialog: None,
+                    target: None,
                     error: None,
                     ..ui
                 },
-            )
-        }
-        (HistoryAction::RenameAsked(id), Some((c, ..))) => {
-            let dialog = store
-                .favourites(c)
-                .iter()
-                .find(|f| f.id == id)
-                .map(|f| Dialog::Rename {
-                    id,
-                    name: f.name.clone(),
-                });
-            with_ui(
-                state,
-                HistoryUi {
-                    dialog,
-                    error: None,
-                    ..ui
-                },
-            )
-        }
-        (HistoryAction::DeleteAsked(id), Some(_)) => with_ui(
-            state,
-            HistoryUi {
-                dialog: Some(Dialog::Delete { id }),
-                error: None,
-                ..ui
-            },
-        ),
-        (HistoryAction::ClearAsked, Some(_)) => with_ui(
-            state,
-            HistoryUi {
-                dialog: Some(Dialog::Clear),
-                error: None,
-                ..ui
-            },
-        ),
-        (HistoryAction::Confirmed, Some(target)) => confirmed(state, ui, target),
+            ),
+        },
         // A request with no connection or collection behind it (a late click): nothing.
         _ => state,
     };
@@ -522,6 +653,7 @@ fn confirmed(
     };
     let op = match dialog {
         Dialog::Star { text, name } => Op::Star {
+            id: Uuid::new_v4(),
             connection,
             db,
             collection,
@@ -545,6 +677,7 @@ fn confirmed(
     let ui = match error {
         None => HistoryUi {
             dialog: None,
+            target: None,
             error: None,
             ..ui
         },
@@ -567,3 +700,7 @@ mod action_tests;
 #[cfg(test)]
 #[path = "query_history_log_tests.rs"]
 mod log_tests;
+
+#[cfg(test)]
+#[path = "query_history_review_tests.rs"]
+mod review_tests;

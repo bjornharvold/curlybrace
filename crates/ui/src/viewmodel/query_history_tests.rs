@@ -179,6 +179,7 @@ fn debug_output_never_shows_text_or_names() {
             text: Box::new(text("SECRET")),
             name: "SECRET".into(),
         }),
+        target: Some((Uuid::nil(), "SECRET".into(), "SECRET".into())),
         error: None,
     };
     let shown = format!(

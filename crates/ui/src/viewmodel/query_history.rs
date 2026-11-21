@@ -81,6 +81,9 @@ impl std::fmt::Debug for Dialog {
 pub struct HistoryUi {
     pub search: String,
     pub dialog: Option<Dialog>,
+    /// The connection, database and collection the open dialog was opened for: what it acts on,
+    /// whatever is selected when it is confirmed.
+    pub target: Option<(Uuid, String, String)>,
     /// The `history.error.*` key of the last failed confirm; cleared when the dialog changes.
     pub error: Option<&'static str>,
 }

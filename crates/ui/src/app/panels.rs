@@ -314,10 +314,7 @@ pub fn show_modals(
         show_tools_settings(
             ctx,
             &state.tools,
-            (
-                state.restore.restore,
-                state.query_history.store.remembering(),
-            ),
+            (state.restore.restore, state.query_history.recording()),
             i18n,
         )
         .into_iter()

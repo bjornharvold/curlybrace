@@ -8,6 +8,7 @@ use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
 use crate::I18n;
 use crate::app::AggregateAction;
+use crate::viewmodel::query_history::HistoryAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::aggregate::{flush_typing, show_aggregate};
@@ -60,12 +61,19 @@ pub(super) fn show_history_dialog_once(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
-    let Some((connection, db, collection)) = super::query_history_app::target(state) else {
+    let history = &state.query_history;
+    let Some((connection, db, collection)) = &history.ui.target else {
         return;
     };
-    let history = &state.query_history;
-    let target = (connection, db.as_str(), collection.as_str());
-    let action = show_history_dialog(ctx, &history.ui, (&history.store, target), i18n);
+    let action = match super::query_history_app::stale_dialog(state) {
+        // Opened for a collection that is not the one selected now (or no longer is): closed,
+        // not hidden, so it cannot come back over another collection.
+        true => Some(HistoryAction::DialogCancelled),
+        false => {
+            let target = (*connection, db.as_str(), collection.as_str());
+            show_history_dialog(ctx, &history.ui, (&history.store, target), i18n)
+        }
+    };
     out.extend(action.map(|action| UiEvent::Input(Input::Find(FindAction::History(action)))));
 }
 

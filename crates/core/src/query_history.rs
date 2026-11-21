@@ -341,6 +341,30 @@ impl QueryHistory {
         text: FindText,
         now_unix: i64,
     ) -> Result<Self, SavedError> {
+        self.starred_with_id(
+            Uuid::new_v4(),
+            connection,
+            db,
+            collection,
+            name,
+            text,
+            now_unix,
+        )
+    }
+
+    /// [`Self::starred`] under a given id, so making the same change again on top of another
+    /// store (after another window wrote the file) gives the favourite the id the person saw.
+    #[allow(clippy::too_many_arguments)]
+    pub fn starred_with_id(
+        &self,
+        id: Uuid,
+        connection: Uuid,
+        db: &str,
+        collection: &str,
+        name: &str,
+        text: FindText,
+        now_unix: i64,
+    ) -> Result<Self, SavedError> {
         let name = validate_name(name)?;
         if text.bytes() > MAX_ENTRY_BYTES {
             return Err(SavedError::TooLarge);
@@ -352,7 +376,7 @@ impl QueryHistory {
             return Err(SavedError::TooMany);
         }
         let favourite = Favourite {
-            id: Uuid::new_v4(),
+            id,
             name,
             db: db.to_string(),
             collection: collection.to_string(),
@@ -454,17 +478,57 @@ impl QueryHistory {
         }
     }
 
-    /// The store without its single oldest history entry (any namespace), to make room in a
-    /// file; `None` when there is no history left. Favourites are never dropped.
+    /// The store without its single oldest history entry (any namespace); `None` when there is
+    /// no history left. Favourites are never dropped.
     pub fn oldest_history_dropped(&self) -> Option<Self> {
-        let (key, _) = self
+        self.oldest_history_dropped_by(1)
+    }
+
+    /// The store without its oldest history entries (any namespace) until at least `bytes` of
+    /// file were freed, by what each entry takes pretty-printed, in one pass: making room in a
+    /// big file never costs a copy and a measurement per entry. `None` when there is no history.
+    /// Favourites are never dropped.
+    pub fn oldest_history_dropped_by(&self, bytes: usize) -> Option<Self> {
+        // (ran_unix, position from the oldest end, key, index in its list, size)
+        let mut entries: Vec<(i64, usize, &NsKey, usize, usize)> = Vec::new();
+        for (key, list) in &self.history {
+            for (index, entry) in list.iter().enumerate() {
+                // The indentation the entry has inside the file is not in its own print.
+                let size = serde_json::to_vec_pretty(entry).map_or(0, |b| b.len()) + 64;
+                entries.push((entry.ran_unix, list.len() - 1 - index, key, index, size));
+            }
+        }
+        if entries.is_empty() {
+            return None;
+        }
+        entries.sort_by_key(|(ran, from_end, ..)| (*ran, *from_end));
+        let mut freed = 0usize;
+        let mut dropped: std::collections::HashSet<(&NsKey, usize)> = Default::default();
+        for (_, _, key, index, size) in entries {
+            if freed >= bytes {
+                break;
+            }
+            freed = freed.saturating_add(size);
+            dropped.insert((key, index));
+        }
+        let history = self
             .history
             .iter()
-            .filter_map(|(key, list)| list.last().map(|e| (key, e.ran_unix)))
-            .min_by_key(|(_, ran)| *ran)?;
-        let mut list = self.history.get(key)?.clone();
-        list.pop();
-        Some(self.with_history(key.0, &key.1, &key.2, list))
+            .map(|(key, list)| {
+                let kept: Vec<Entry> = list
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| !dropped.contains(&(key, *index)))
+                    .map(|(_, entry)| entry.clone())
+                    .collect();
+                (key.clone(), kept)
+            })
+            .filter(|(_, list)| !list.is_empty())
+            .collect();
+        Some(Self {
+            history,
+            ..self.clone()
+        })
     }
 
     fn name_taken(
@@ -514,3 +578,7 @@ impl QueryHistory {
 #[cfg(test)]
 #[path = "query_history_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "query_history_fit_tests.rs"]
+mod fit_tests;
