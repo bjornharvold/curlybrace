@@ -1691,7 +1691,7 @@
     "explain_backed_up": "The index check setting file was not readable, so the index check is on again. A backup copy was kept next to it; changing the setting will replace the original file.",
     "explain_backup_failed": "The index check setting file was not readable and a backup copy could not be made. The index check is on, and changes to the setting are not saved so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
-    "query_history_backed_up": "The saved queries file was not readable, so the query history and favourites start empty. A backup copy was kept next to it, and is deleted when you later switch Remember queries off. Nothing is recorded until you switch Remember queries on in the settings.",
+    "query_history_backed_up": "The saved queries file was not readable, so the query history and favourites start empty. A backup copy was kept next to it, and is deleted when you later switch Remember queries off. Nothing is recorded until you switch Remember queries on in the settings; until then the file says it is off.",
     "query_history_backup_failed": "The saved queries file was not readable and a backup copy could not be made. Queries are not saved so nothing is overwritten, and nothing is recorded until you switch Remember queries on in the settings.",
     "query_history_blocked": "Queries are not being saved, so the unreadable saved queries file is not overwritten.",
     "query_history_changed": "Another window changed the saved queries. Try again.",

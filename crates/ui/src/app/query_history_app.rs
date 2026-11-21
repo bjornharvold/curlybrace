@@ -170,6 +170,7 @@ const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 /// when it failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Stall {
+    error: HistorySaveError,
     at: std::time::Instant,
     revision: u64,
     file: Option<(u64, Option<std::time::SystemTime>)>,
@@ -307,8 +308,9 @@ impl AppState {
     fn query_history_try(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
         let qh = &mut *self.query_history;
         // While paused the person has not said they want queries kept: what is written says off.
+        // (Only the flag: a store that was repaired by another window's file is not this one.)
         if qh.paused {
-            qh.store = qh.store.with_remembering(false);
+            qh.store = qh.store.flag_set(false);
         }
         let written = store::saved(path, &qh.guard, qh.seen, &qh.store)?;
         qh.store = written.store;
@@ -324,11 +326,14 @@ impl AppState {
         let qh = &mut *self.query_history;
         match store::reloaded(path) {
             Reload::Usable(base, seen) => {
-                // A file that is gone says nothing about the switch: this window's stays.
-                let base = match seen == super::pipelines_store::DiskStamp::default() {
+                let gone = seen == super::pipelines_store::DiskStamp::default();
+                // A file that is gone says nothing about the switch: this window's stays. One
+                // that is there says what the switch is (and the person's choice is known).
+                let base = match gone {
                     true => base.with_remembering(qh.store.remembering()),
                     false => base,
                 };
+                qh.paused &= gone;
                 let mut dropped = false;
                 qh.store = qh.pending.iter().fold(base, |store, op| {
                     op.apply(&store).unwrap_or_else(|e| {
@@ -359,6 +364,7 @@ impl AppState {
     fn query_history_failed(&mut self, error: &HistorySaveError, path: &std::path::Path) {
         let qh = &mut *self.query_history;
         qh.stalled = Some(Stall {
+            error: error.clone(),
             at: std::time::Instant::now(),
             revision: qh.revision,
             file: file_signature(path),
@@ -382,7 +388,13 @@ impl AppState {
         &mut self,
         now: std::time::Instant,
     ) -> Option<std::time::Duration> {
-        let at = self.query_history.stalled.as_ref()?.at;
+        let stall = self.query_history.stalled.as_ref()?;
+        // A file from a newer version stays that way until it is replaced: only its changing
+        // (checked by the flush) is a reason to look again.
+        if stall.error == HistorySaveError::NewerVersion {
+            return None;
+        }
+        let at = stall.at;
         let waited = now.saturating_duration_since(at);
         if waited < RETRY_AFTER {
             return Some(RETRY_AFTER - waited);
@@ -467,21 +479,6 @@ impl CurlybraceApp {
 }
 
 impl AppState {
-    /// Recording is switched on after the file could not be read at launch: when the file now
-    /// holds a valid history (another window repaired it) that is the base and nothing of it is
-    /// lost; when it is still the damaged one the history starts empty and the file is replaced.
-    fn query_history_resumed(&mut self) {
-        let Some(path) = self.query_history.path.clone() else {
-            return;
-        };
-        if let store::Reload::Usable(found, seen) = store::reloaded(&path) {
-            if seen != super::pipelines_store::DiskStamp::default() {
-                self.query_history.store = found;
-                self.query_history.seen = seen;
-            }
-        }
-    }
-
     /// [`Self::query_history_apply`] for a change that cannot be refused.
     fn query_history_apply_infallible(&mut self, op: Op) {
         if let Err(e) = self.query_history_apply(op) {
@@ -549,15 +546,14 @@ pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
     state
 }
 
-/// `ToolsAction::SetRememberQueries`: the switch set. Off erases the history at once, in memory
-/// and in the file, and deletes the backup copies of the file; favourites stay. On after the file
-/// could not be read at launch starts the history again from an empty one (the file is replaced
-/// at the next write; its backup copy was made at launch). When saving is off (a newer file, a
-/// failed backup) the switch applies for this run and the banner says the file is not updated.
+/// `ToolsAction::SetRememberQueries`: the switch set, and the person's choice whatever the file
+/// said at launch (it ends a pause). Off erases the history at once, in memory and in the file,
+/// and deletes the backup copies of the file; favourites stay. On records from now: when another
+/// window repaired the file meanwhile, the change is made again on top of that file and its
+/// history is kept. When saving is off (a newer file, a failed backup) the switch applies for
+/// this run and the banner says the file is not updated.
 pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
-    if std::mem::take(&mut state.query_history.paused) && on {
-        state.query_history_resumed();
-    }
+    state.query_history.paused = false;
     state.query_history_apply_infallible(Op::Remember(on));
     // A person's choice, whatever the file said: written even when the setting looks the same as
     // what is in memory (the file may not say it).

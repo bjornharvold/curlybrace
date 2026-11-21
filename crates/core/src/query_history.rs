@@ -369,9 +369,17 @@ impl QueryHistory {
         if text.bytes() > MAX_ENTRY_BYTES {
             return Err(SavedError::TooLarge);
         }
-        // A repeated id would make the next load refuse the whole file.
-        if self.favourites(connection).iter().any(|f| f.id == id) {
-            return Err(SavedError::NameTaken);
+        // A repeated id would make the next load refuse the whole file. The same favourite again
+        // (the change landed before and is made once more) is already there: nothing to do.
+        if let Some(there) = self.favourites(connection).iter().find(|f| f.id == id) {
+            let same = there.db == db
+                && there.collection == collection
+                && same_name(&there.name, &name)
+                && there.text == text;
+            return match same {
+                true => Ok(self.clone()),
+                false => Err(SavedError::NameTaken),
+            };
         }
         if self.name_taken(connection, db, collection, &name, None) {
             return Err(SavedError::NameTaken);
@@ -443,6 +451,15 @@ impl QueryHistory {
     /// Whether finds that are run are recorded (the "Remember queries" switch).
     pub fn remembering(&self) -> bool {
         self.remember
+    }
+
+    /// The switch's flag set without touching the history: for a store that has none to lose
+    /// and must say off in the file (a paused history).
+    pub fn flag_set(&self, on: bool) -> Self {
+        Self {
+            remember: on,
+            ..self.clone()
+        }
     }
 
     /// The switch set. Off erases the history at once (it is the person's typed text);

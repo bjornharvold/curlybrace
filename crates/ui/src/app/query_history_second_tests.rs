@@ -192,6 +192,99 @@ fn switching_on_after_another_window_repaired_the_file_keeps_what_it_holds() {
     assert!(written.remembering());
 }
 
+/// Two windows start on a damaged file (both paused); the second switches on and records two
+/// finds; then the first, still paused, has a favourite change to write.
+fn two_paused_windows_one_switched_on(
+    dir: &tempfile::TempDir,
+) -> (CurlybraceApp, super::tests::Keep) {
+    std::fs::write(file(dir), "{ nope").unwrap();
+    let (a, ka) = browsing_app(dir);
+    let (mut b, _kb) = browsing_app(dir);
+    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    dispatch_run(&mut b, "{\"b\":1}");
+    dispatch_run(&mut b, "{\"b\":2}");
+    assert_eq!(on_disk(dir).history_len(), 2);
+    (a, ka)
+}
+
+fn assert_b_survived(dir: &tempfile::TempDir) {
+    let written = on_disk(dir);
+    assert_eq!(
+        written.history_len(),
+        2,
+        "the other window's history is kept"
+    );
+    assert!(written.remembering(), "and so is its switch");
+    assert_eq!(
+        written.favourites(EMBEDDED_SESSION).len(),
+        1,
+        "plus the favourite"
+    );
+}
+
+#[test]
+fn a_paused_window_never_erases_or_switches_off_what_another_window_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = two_paused_windows_one_switched_on(&dir);
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(3), "fav"))
+        .unwrap();
+    a.dispatch(Input::DismissBanner);
+    assert_b_survived(&dir);
+    assert!(
+        a.state().query_history.recording(),
+        "the switch is known now"
+    );
+}
+
+#[test]
+fn the_exit_flush_of_a_paused_window_does_not_either() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = two_paused_windows_one_switched_on(&dir);
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(3), "fav"))
+        .unwrap();
+    a.save_workspace_now();
+    assert_b_survived(&dir);
+}
+
+#[test]
+fn a_file_from_a_newer_version_is_not_retried_on_a_timer() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        file(&dir),
+        "{\"version\": 99, \"history\": [], \"favourites\": []}",
+    )
+    .unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(3), "fav"))
+        .unwrap();
+    a.dispatch(Input::DismissBanner);
+    let later = Instant::now() + Duration::from_secs(3600);
+    assert_eq!(a.state_mut().query_history_tick(later), None);
+}
+
+#[test]
+fn a_change_that_already_landed_is_made_again_without_a_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let (mut b, _kb) = browsing_app(&dir);
+    let id = Uuid::from_u128(5);
+    b.state_mut()
+        .query_history_apply(star_op(id, "same"))
+        .unwrap();
+    b.dispatch(Input::DismissBanner);
+    // The first window made the very same change (as if its write landed but said it failed).
+    a.state_mut()
+        .query_history_apply(star_op(id, "same"))
+        .unwrap();
+    a.state_mut().banner = None;
+    a.dispatch(Input::DismissBanner);
+    assert_eq!(a.state().banner, None, "no notice");
+    assert_eq!(on_disk(&dir).favourites(EMBEDDED_SESSION).len(), 1);
+}
+
 #[test]
 fn switching_on_while_the_file_is_still_damaged_starts_fresh() {
     let dir = tempfile::tempdir().unwrap();

@@ -86,6 +86,26 @@ fn an_id_that_is_already_a_favourite_is_refused() {
 }
 
 #[test]
+fn the_same_favourite_again_is_already_there() {
+    let id = Uuid::from_u128(9);
+    let c = conn_of(0);
+    let s = QueryHistory::default()
+        .starred_with_id(id, c, "shop", "c0", "one", text("a"), 1)
+        .unwrap();
+    assert_eq!(
+        s.starred_with_id(id, c, "shop", "c0", " ONE ", text("a"), 5),
+        Ok(s.clone())
+    );
+}
+
+#[test]
+fn the_flag_alone_can_be_set_without_erasing() {
+    let s = many(5);
+    assert_eq!(s.flag_set(false).history_len(), 5);
+    assert!(!s.flag_set(false).remembering());
+}
+
+#[test]
 fn switching_on_keeps_the_history_that_is_there() {
     let s = many(5).with_remembering(true);
     assert_eq!(s.history_len(), 5);
