@@ -10,7 +10,7 @@ use super::query_history_store::{self as store, HistorySaveError, Reload};
 use super::state::{AppState, Banner};
 use super::{ConfigPath, CurlybraceApp, connection_ops};
 use crate::viewmodel::aggregate_options::OptionsForm;
-use crate::viewmodel::query_history::{Dialog, HistoryAction, HistoryUi, error_key};
+use crate::viewmodel::query_history::HistoryUi;
 use crate::viewmodel::{FindBarState, submit_find};
 use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::QueryText;
@@ -157,6 +157,11 @@ pub struct QueryHistoryState {
     logged: bool,
     /// The backup copies of the file are to be deleted (they hold query text).
     purge_backups: bool,
+    /// When the deletion of the backup copies is tried again after it failed.
+    purge_retry_at: Option<std::time::Instant>,
+    /// The failure to delete them was shown (once per streak; a successful write of the file does
+    /// not end it, only the deletion does).
+    purge_announced: bool,
     /// A failed write was announced; no second banner until a write works.
     failing: bool,
 }
@@ -285,7 +290,7 @@ impl AppState {
     /// did (a step that changed neither would only fail the same way, at the cost of a
     /// serialisation and a read); the failure is logged once and shown once in a banner.
     pub fn query_history_flush(&mut self) {
-        self.query_history_backups_purged();
+        self.query_history_backups_purged(std::time::Instant::now());
         if self.query_history.pending.is_empty() {
             return;
         }
@@ -314,7 +319,8 @@ impl AppState {
                 let over = self.query_history.failing
                     && matches!(
                         &self.banner,
-                        Some(Banner::QueryHistoryPersist(e)) if *e != HistorySaveError::ReplayDropped
+                        Some(Banner::QueryHistoryPersist(e))
+                            if !matches!(e, HistorySaveError::ReplayDropped | HistorySaveError::BackupsNotDeleted)
                     );
                 if over {
                     self.banner = None;
@@ -332,7 +338,7 @@ impl AppState {
     /// A change to a connection that changes nothing (a delete of one that never had a query, a
     /// duplicate of one with no favourites) needs no write when the file is as this window last
     /// saw it and there is nothing in this window's store: no file is created for a history that
-    /// was never used, and a damaged one is left to be reported again. Asked before the first
+    /// was never used, and an unreadable one is left to be reported again. Asked before the first
     /// attempt only: after following another window's file an empty result must be written.
     fn query_history_needless(&self, path: &std::path::Path) -> bool {
         let qh = &*self.query_history;
@@ -340,7 +346,14 @@ impl AppState {
             .pending
             .iter()
             .all(|op| matches!(op, Op::ForgetConnection(_) | Op::CopyConnection { .. }));
-        only_connections && qh.store.is_empty() && file_signature_stamp(path) == Some(qh.seen)
+        let stamp = file_signature_stamp(path);
+        // No file at all: nothing to scrub. A file that is there is always rewritten (a delete
+        // must take the connection's queries out of it, whatever this window's store holds
+        // after the delete) except a damaged one this window could not read: there is nothing
+        // it can scrub, and the notice should come back at the next launch.
+        let nothing_to_scrub = stamp == Some(super::pipelines_store::DiskStamp::default())
+            || (qh.paused && stamp == Some(qh.seen));
+        only_connections && qh.store.is_empty() && nothing_to_scrub
     }
 
     fn query_history_written(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
@@ -439,6 +452,15 @@ impl AppState {
         &mut self,
         now: std::time::Instant,
     ) -> Option<std::time::Duration> {
+        let purge = self.query_history_purge_tick(now);
+        let stall = self.query_history_stall_tick(now);
+        match (purge, stall) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn query_history_stall_tick(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
         let stall = self.query_history.stalled.as_ref()?;
         // A file from a newer version stays that way until it is replaced: only its changing
         // (checked by the flush) is a reason to look again.
@@ -465,25 +487,54 @@ impl AppState {
         if !std::mem::replace(&mut self.query_history.logged, true) {
             log::warn!("could not save the query history: {error:?}");
         }
-        if !self.query_history.failing && self.banner.is_none() {
+        let slot_free = self.banner.is_none()
+            || matches!(
+                self.banner,
+                Some(Banner::Recovery(Recovery::QueryHistoryResumed))
+            );
+        if !self.query_history.failing && slot_free {
             self.query_history.failing = true;
             self.banner = Some(Banner::QueryHistoryPersist(error.clone()));
         }
     }
 
-    /// Deletes the backup copies of the file once the switch was turned off: they hold the text
-    /// it erased.
-    fn query_history_backups_purged(&mut self) {
-        let (true, Some(path)) = (
-            self.query_history.purge_backups,
-            self.query_history.path.clone(),
-        ) else {
+    /// Deletes the backup copies of the file once the switch was turned off: they can hold the
+    /// text it erased. Kept wanted until it works, and tried again after [`RETRY_AFTER`]; the
+    /// person is told once, apart from the write of the file (whose success does not end this).
+    fn query_history_backups_purged(&mut self, now: std::time::Instant) {
+        let qh = &mut *self.query_history;
+        let (true, Some(path)) = (qh.purge_backups, qh.path.clone()) else {
             return;
         };
-        self.query_history.purge_backups = false;
-        if let Err(e) = store::remove_backups(&path) {
-            self.query_history_announced(&HistorySaveError::Persist(e));
+        if qh.purge_retry_at.is_some_and(|at| now < at) {
+            return;
         }
+        match store::remove_backups(&path) {
+            Ok(()) => {
+                (qh.purge_backups, qh.purge_retry_at, qh.purge_announced) = (false, None, false);
+            }
+            Err(e) => {
+                qh.purge_retry_at = Some(now + RETRY_AFTER);
+                if !std::mem::replace(&mut qh.purge_announced, true) {
+                    log::warn!("could not delete the query history backups: {:?}", e);
+                    let notice = HistorySaveError::BackupsNotDeleted;
+                    self.query_history_noticed(&notice);
+                }
+            }
+        }
+    }
+
+    /// The deletion of the backups is tried again when it is due; how long until it is, while
+    /// one is wanted.
+    fn query_history_purge_tick(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
+        if !self.query_history.purge_backups {
+            return None;
+        }
+        self.query_history_backups_purged(now);
+        let at = self.query_history.purge_retry_at?;
+        self.query_history
+            .purge_backups
+            .then(|| at.saturating_duration_since(now))
     }
 }
 
@@ -533,6 +584,9 @@ impl AppState {
     /// The pause ended (the person switched on, or another window's valid file was taken as the
     /// base): the notice that said nothing is recorded is no longer true.
     fn query_history_pause_ended(&mut self) {
+        let unreadable = |r: &Recovery| matches!(r, Recovery::QueryHistory { .. });
+        let told = matches!(&self.banner, Some(Banner::Recovery(r)) if unreadable(r))
+            || self.pending_recovery.iter().any(unreadable);
         let stale = matches!(
             self.banner,
             Some(Banner::Recovery(
@@ -549,6 +603,11 @@ impl AppState {
                 Recovery::QueryHistory { .. } | Recovery::QueryHistoryNewer
             )
         });
+        // The person was told the file could not be read and the history started empty: say
+        // once that recording is on again (a failure announced later takes the slot).
+        if told {
+            *self = std::mem::take(self).with_recovery_notice(Recovery::QueryHistoryResumed);
+        }
     }
 
     /// Applies `op` to this window's store when it can, and queues it either way: a change to a
@@ -652,187 +711,9 @@ pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
     state
 }
 
-/// The active connection and the selected collection, which the popup's lists belong to.
-pub(super) fn target(state: &AppState) -> Option<(Uuid, String, String)> {
-    let ns = state.selected_ns()?;
-    Some((state.active?, ns.db.clone(), ns.collection.clone()))
-}
-
-/// Whether the open dialog was opened for another collection than the one selected now, or for
-/// one that is no longer selected at all.
-pub(super) fn stale_dialog(state: &AppState) -> bool {
-    let ui = &state.query_history.ui;
-    ui.dialog.is_some() && ui.target != target(state)
-}
-
-/// `ui` with `dialog` open for `target`.
-fn opened(ui: HistoryUi, target: (Uuid, String, String), dialog: Option<Dialog>) -> HistoryUi {
-    HistoryUi {
-        target: dialog.as_ref().map(|_| target),
-        dialog,
-        error: None,
-        ..ui
-    }
-}
-
-fn with_ui(mut state: AppState, ui: HistoryUi) -> AppState {
-    state.query_history.ui = ui;
-    state
-}
-
-/// The find bar of `state` replaced by what a stored query holds. Nothing is sent: the person
-/// presses Run, and running an edited bar records a new entry, never a change to the stored one.
-fn loaded(state: AppState, text: Option<FindText>) -> AppState {
-    match text {
-        Some(text) => {
-            let state = AppState {
-                find: bar_of(&text),
-                ..state
-            };
-            with_ui(state, HistoryUi::default())
-        }
-        None => state,
-    }
-}
-
-/// The History popup's own actions (`FindAction::History`): searching, loading a query into the
-/// find bar, and the favourite dialogs. Sends no command.
-pub(super) fn on_action(state: AppState, action: HistoryAction) -> super::reducer::Out {
-    let ui = state.query_history.ui.clone();
-    let target = target(&state);
-    let store = &state.query_history.store;
-    let next = match (action, target) {
-        (HistoryAction::Search(search), _) => with_ui(state, HistoryUi { search, ..ui }),
-        (HistoryAction::DialogCancelled, _) => with_ui(
-            state,
-            HistoryUi {
-                dialog: None,
-                target: None,
-                error: None,
-                ..ui
-            },
-        ),
-        (HistoryAction::NameEdited(name), _) => {
-            let dialog = match ui.dialog.clone() {
-                Some(Dialog::Star { text, .. }) => Some(Dialog::Star { text, name }),
-                Some(Dialog::Rename { id, .. }) => Some(Dialog::Rename { id, name }),
-                other => other,
-            };
-            with_ui(
-                state,
-                HistoryUi {
-                    dialog,
-                    error: None,
-                    ..ui
-                },
-            )
-        }
-        (HistoryAction::LoadRecent(i), Some((c, db, coll))) => {
-            let text = store.history(c, &db, &coll).get(i).map(|e| e.text.clone());
-            loaded(state, text)
-        }
-        (HistoryAction::LoadFavourite(id), Some((c, ..))) => {
-            let text = store
-                .favourites(c)
-                .iter()
-                .find(|f| f.id == id)
-                .map(|f| f.text.clone());
-            loaded(state, text)
-        }
-        (HistoryAction::StarAsked(i), Some(t)) => {
-            let text = store
-                .history(t.0, &t.1, &t.2)
-                .get(i)
-                .map(|e| e.text.clone());
-            let dialog = text.map(|text| Dialog::Star {
-                text: Box::new(text),
-                name: String::new(),
-            });
-            with_ui(state, opened(ui, t, dialog))
-        }
-        (HistoryAction::RenameAsked(id), Some(t)) => {
-            let dialog =
-                store
-                    .favourites(t.0)
-                    .iter()
-                    .find(|f| f.id == id)
-                    .map(|f| Dialog::Rename {
-                        id,
-                        name: f.name.clone(),
-                    });
-            with_ui(state, opened(ui, t, dialog))
-        }
-        (HistoryAction::DeleteAsked(id), Some(t)) => {
-            with_ui(state, opened(ui, t, Some(Dialog::Delete { id })))
-        }
-        (HistoryAction::ClearAsked, Some(t)) => with_ui(state, opened(ui, t, Some(Dialog::Clear))),
-        (HistoryAction::Confirmed, current) => match (&ui.target, current) {
-            (Some(opened_for), Some(now)) if *opened_for == now => confirmed(state, ui, now),
-            // The collection changed (or went) since the dialog was opened: it asks nothing of
-            // the new one, and is closed.
-            _ => with_ui(
-                state,
-                HistoryUi {
-                    dialog: None,
-                    target: None,
-                    error: None,
-                    ..ui
-                },
-            ),
-        },
-        // A request with no connection or collection behind it (a late click): nothing.
-        _ => state,
-    };
-    (next, Vec::new())
-}
-
-/// The open dialog confirmed: the change is made, and the dialog closes when it was accepted. A
-/// refusal (a taken name, a full list) stays in the dialog as a message.
-fn confirmed(
-    mut state: AppState,
-    ui: HistoryUi,
-    (connection, db, collection): (Uuid, String, String),
-) -> AppState {
-    let Some(dialog) = ui.dialog.clone() else {
-        return state;
-    };
-    let op = match dialog {
-        Dialog::Star { text, name } => Op::Star {
-            id: Uuid::new_v4(),
-            connection,
-            db,
-            collection,
-            name,
-            text,
-            now: curlybrace_core::clock::now_secs(),
-        },
-        Dialog::Rename { id, name } => Op::Rename {
-            connection,
-            id,
-            name,
-        },
-        Dialog::Delete { id } => Op::Unstar { connection, id },
-        Dialog::Clear => Op::ClearNamespace {
-            connection,
-            db,
-            collection,
-        },
-    };
-    let error = state.query_history_apply(op).err().map(error_key);
-    let ui = match error {
-        None => HistoryUi {
-            dialog: None,
-            target: None,
-            error: None,
-            ..ui
-        },
-        Some(key) => HistoryUi {
-            error: Some(key),
-            ..ui
-        },
-    };
-    with_ui(state, ui)
-}
+#[path = "query_history_actions.rs"]
+mod actions;
+pub(in crate::app) use actions::{on_action, stale_dialog, target};
 
 #[cfg(test)]
 #[path = "query_history_app_tests.rs"]

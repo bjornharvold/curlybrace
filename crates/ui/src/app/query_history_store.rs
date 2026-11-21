@@ -102,6 +102,9 @@ pub enum HistorySaveError {
     /// A change was made again on top of what another window wrote and was refused there (a
     /// name that window took, a full list): the person saw it succeed, so this says it did not.
     ReplayDropped,
+    /// The switch is off but some backup copies of the file (they can hold typed queries) could
+    /// not be deleted.
+    BackupsNotDeleted,
     Persist(PersistError),
 }
 
@@ -114,6 +117,7 @@ impl HistorySaveError {
             Self::NewerVersion => "persist.query_history_newer",
             Self::ChangedOnDisk => "persist.query_history_changed",
             Self::ReplayDropped => "persist.query_history_replay_dropped",
+            Self::BackupsNotDeleted => "persist.query_history_backups_not_deleted",
             Self::Persist(PersistError::ConfigDirUnknown) => "persist.query_history_no_folder",
             Self::Persist(_) => "persist.query_history_write_failed",
         }

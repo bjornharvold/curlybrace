@@ -73,7 +73,8 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Workspace { .. }
         | Recovery::WorkspaceNewer
         | Recovery::QueryHistory { .. }
-        | Recovery::QueryHistoryNewer => i18n.t(key),
+        | Recovery::QueryHistoryNewer
+        | Recovery::QueryHistoryResumed => i18n.t(key),
     }
 }
 
@@ -202,6 +203,8 @@ mod tests {
             Banner::Recovery(Recovery::QueryHistory { backed_up: true }),
             Banner::Recovery(Recovery::QueryHistory { backed_up: false }),
             Banner::Recovery(Recovery::QueryHistoryNewer),
+            Banner::Recovery(Recovery::QueryHistoryResumed),
+            Banner::QueryHistoryPersist(HistorySaveError::BackupsNotDeleted),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

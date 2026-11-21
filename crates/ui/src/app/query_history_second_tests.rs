@@ -383,7 +383,11 @@ fn the_pause_notice_goes_when_another_windows_file_ends_the_pause() {
         .unwrap();
     a.dispatch(Input::ForgetCancelled);
     assert!(a.state().query_history.recording());
-    assert_eq!(a.state().banner, None, "the stale notice is gone");
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistoryResumed)),
+        "the stale notice is replaced"
+    );
 }
 
 #[test]
@@ -399,7 +403,11 @@ fn a_pause_notice_waiting_behind_another_banner_goes_when_switching_on() {
     ));
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
     a.dispatch(Input::DismissBanner);
-    assert_eq!(a.state().banner, None, "the waiting notice was dropped");
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistoryResumed)),
+        "the waiting notice became the short one"
+    );
 }
 
 fn big_favourite(i: u128) -> Op {
@@ -541,7 +549,10 @@ fn switching_on_ends_the_pause_notice_too() {
     let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
     let mut a = a.with_query_history_path(Ok(file(&dir)));
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
-    assert_eq!(a.state().banner, None);
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistoryResumed))
+    );
 }
 
 #[test]
@@ -552,4 +563,92 @@ fn switching_on_while_the_file_is_still_damaged_starts_fresh() {
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
     dispatch_run(&mut a, "{\"mine\":1}");
     assert_eq!(on_disk(&dir).history_len(), 1);
+}
+
+#[test]
+fn deleting_the_only_connection_with_queries_scrubs_them_from_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    a.state_mut()
+        .query_history_apply(record_op(id, "{\"ssn\":\"SECRET123\"}"))
+        .unwrap();
+    a.state_mut()
+        .query_history_apply(star_for(id, "fav"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert!(
+        std::fs::read_to_string(file(&dir))
+            .unwrap()
+            .contains("SECRET123")
+    );
+    a.dispatch_connection(ConnectionAction::Delete(id));
+    assert!(a.state().connection(id).is_none());
+    let raw = std::fs::read_to_string(file(&dir)).unwrap();
+    assert!(!raw.contains("SECRET123"), "left on disk: {raw}");
+}
+
+#[test]
+fn history_hidden_in_a_file_with_the_switch_off_is_scrubbed_when_its_connection_is_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let body = format!(
+        "{{\"version\":1,\"remember\":false,\"favourites\":[],\"history\":[{{\"connection\":\"{id}\",\"db\":\"app\",\"collection\":\"people\",\"entries\":[{{\"text\":{{\"filter\":\"HIDDEN\"}},\"ran_unix\":1}}]}}]}}"
+    );
+    std::fs::write(file(&dir), body).unwrap();
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    assert!(a.state().banner.is_none());
+    a.dispatch_connection(ConnectionAction::Delete(id));
+    let raw = std::fs::read_to_string(file(&dir)).unwrap();
+    assert!(!raw.contains("HIDDEN"), "left on disk: {raw}");
+}
+
+/// A "backup" `remove_file` cannot remove: a folder with something in it.
+fn stubborn_backup(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let bad = dir.path().join("query_history.json.corrupt-1");
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::write(bad.join("x"), "SECRET").unwrap();
+    bad
+}
+
+#[test]
+fn a_backup_that_cannot_be_deleted_is_told_and_the_notice_outlives_the_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(bad.exists());
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(
+            HistorySaveError::BackupsNotDeleted
+        )),
+        "the file was written, and the failure to delete is still shown"
+    );
+    assert!(on_disk(&dir).history_len() == 0);
+}
+
+#[test]
+fn the_deletion_of_backups_is_tried_again_until_it_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(bad.exists());
+    let soon = a.state_mut().query_history_tick(Instant::now());
+    assert!(soon.is_some(), "a retry is waiting");
+    assert!(bad.exists(), "not yet");
+    // The cause goes (the folder is replaced by a plain file, which can be deleted).
+    std::fs::remove_dir_all(&bad).unwrap();
+    std::fs::write(&bad, "SECRET").unwrap();
+    a.state_mut()
+        .query_history_tick(Instant::now() + Duration::from_secs(31));
+    assert!(!bad.exists(), "deleted on the retry");
+    assert_eq!(
+        a.state_mut()
+            .query_history_tick(Instant::now() + Duration::from_secs(31)),
+        None
+    );
 }
