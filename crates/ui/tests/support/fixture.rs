@@ -249,6 +249,34 @@ impl Fixture {
         state.explain.automatic = false;
     }
 
+    /// The app keeps its query history in `path` from now on (an app of a test has no path by
+    /// default, so no test touches the real config directory).
+    pub fn use_query_history(&mut self, path: &Path) {
+        let state = self.harness.state_mut().state_mut();
+        *state = std::mem::take(state).with_query_history_path(Ok(path.to_path_buf()));
+    }
+
+    /// Quits the app and launches a new one on the same files, saved connections and server,
+    /// reading its query history from `path`: what closing the window and opening it again does.
+    /// The new app is not connected yet.
+    pub fn relaunch_with_history(&mut self, path: &Path) {
+        let saved = self.harness.state().state().conn.connections.clone();
+        let (harness, _) = launch(
+            &self.rt,
+            &self._dir,
+            self.secrets.clone(),
+            saved,
+            None,
+            None,
+        );
+        self.harness = harness;
+        self.use_query_history(path);
+        let state = self.harness.state_mut().state_mut();
+        // The flow is about what is loaded and run: the guard and the verdict would add reads.
+        state.explain.guard = false;
+        state.explain.automatic = false;
+    }
+
     /// Clicks the label `text` (exactly one node must match).
     pub fn click_text(&mut self, text: &str) {
         self.harness.get_by_label(text).click();

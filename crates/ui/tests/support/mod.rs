@@ -24,6 +24,7 @@ pub mod export_flow;
 pub mod find_options_shots;
 pub mod fixture;
 pub mod guard_shots;
+pub mod history_shots;
 pub mod indexes_shots;
 pub mod options_shots;
 pub mod production_shots;

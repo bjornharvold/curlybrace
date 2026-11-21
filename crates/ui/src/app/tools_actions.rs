@@ -10,10 +10,16 @@ pub(super) fn on_action(mut state: AppState, action: ToolsAction) -> Out {
         let state = super::workspace_settings_actions::restore_set(state, on);
         return (state, Vec::new());
     }
+    if let ToolsAction::SetRememberQueries(on) = action {
+        return (
+            super::query_history_app::remember_set(state, on),
+            Vec::new(),
+        );
+    }
     let tools = std::mem::take(&mut state.tools);
     let next = match action {
         // Taken above: the switch belongs to the saved session, not to the tool paths.
-        ToolsAction::SetRestore(_) => tools,
+        ToolsAction::SetRestore(_) | ToolsAction::SetRememberQueries(_) => tools,
         ToolsAction::ChooseGlobal { kind, choice } => tools.choose_global(kind, choice),
         ToolsAction::ChooseOverride {
             connection,

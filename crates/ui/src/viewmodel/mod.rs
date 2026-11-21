@@ -54,6 +54,7 @@ pub mod queries;
 pub mod queries_chart;
 pub mod queries_last_run;
 pub mod queries_status;
+pub mod query_history;
 pub mod shell;
 pub mod shell_check;
 pub mod shell_complete;

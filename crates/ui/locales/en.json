@@ -320,7 +320,7 @@
         "too_large": "This pipeline is too large to save (the limit is {max} MB of stage text).",
         "too_many": "This connection already has {max} saved pipelines. Delete one first.",
         "unreadable_on_disk": "Another window left a saved pipelines file that cannot be read. A backup copy was kept next to it and the file was not changed. Nothing was saved: saving again replaces it with the pipelines in this window.",
-        "unsupported":"pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
+        "unsupported": "pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
       },
       "modified": "Modified",
       "name_label": "Pipeline name",
@@ -1395,6 +1395,65 @@
     "message": "Remove the saved SSH host key for {host}:{port}? You will be asked to trust the host's key again on the next connection.",
     "title": "Forget SSH host"
   },
+  "history": {
+    "button": "History",
+    "button_hint": "Recent and favourite queries of this collection. Loading one fills the query bar and does not run it.",
+    "button_icon": "↺",
+    "button_no_collection": "Select a collection to see its history.",
+    "clear": "Clear history",
+    "delete": "Delete",
+    "delete_n": "Delete favourite {name}",
+    "dialog": {
+      "clear_confirm": "Clear",
+      "clear_message": "Remove every recent query of this collection? Favourites are kept.",
+      "clear_title": "Clear history",
+      "delete_confirm": "Delete",
+      "delete_message": "Delete the favourite {name}? Recent queries are not changed.",
+      "delete_title": "Delete favourite",
+      "name_label": "Name",
+      "rename_confirm": "Rename",
+      "rename_title": "Rename favourite",
+      "star_confirm": "Save",
+      "star_title": "Save as favourite"
+    },
+    "empty": {
+      "favourites": "No favourites for this collection yet. Use Save as favourite on a recent query.",
+      "recent": "Nothing has been run in this collection yet.",
+      "recent_off": "Remember queries is off, so nothing is recorded. Turn it on in the settings."
+    },
+    "error": {
+      "empty_name": "Enter a name.",
+      "favourites_too_large": "Too many saved queries to store: delete some favourites first.",
+      "invalid_name": "A name cannot contain line breaks or other control characters.",
+      "name_taken": "A favourite with this name already exists for this collection.",
+      "name_too_long": "A name can have at most 80 characters.",
+      "too_large": "This query is too large to save as a favourite.",
+      "too_many": "A connection can keep at most 100 favourites. Delete one first.",
+      "unusable": "This query cannot be saved."
+    },
+    "matches_many": "{n} matches",
+    "matches_none": "No matches",
+    "matches_one": "1 match",
+    "privacy": "Queries are stored as typed on this computer and may contain personal values.",
+    "rename": "Rename",
+    "rename_n": "Rename favourite {name}",
+    "row": {
+      "load": "Load query {text}",
+      "load_favourite": "Load favourite {name}: {text}",
+      "no_filter": "(no filter)"
+    },
+    "search": "Search queries",
+    "search_hint": "Name or query text",
+    "section": {
+      "favourites": "Favourites",
+      "recent": "Recent"
+    },
+    "setting": "Remember queries",
+    "setting_hint": "Keeps the queries you run so you can load them again. Queries are stored as typed on this computer and may contain personal values. Turning this off erases the recent queries and deletes the backup copies of the file; favourites are kept.",
+    "star": "Save as favourite",
+    "star_n": "Save query {text} as favourite",
+    "title": "History"
+  },
   "hostkey": {
     "fingerprint": "SHA256 fingerprint",
     "for_connection": "For connection {name}",
@@ -1633,6 +1692,17 @@
     "explain_backed_up": "The index check setting file was not readable, so the index check is on again. A backup copy was kept next to it; changing the setting will replace the original file.",
     "explain_backup_failed": "The index check setting file was not readable and a backup copy could not be made. The index check is on, and changes to the setting are not saved so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
+    "query_history_backed_up": "The saved queries file was not readable, so the query history and favourites start empty. A backup copy was kept next to it, and is deleted when you later switch Remember queries off. Nothing is recorded until you switch Remember queries on in the settings; until then the file says it is off.",
+    "query_history_backup_failed": "The saved queries file was not readable and a backup copy could not be made. Queries are not saved so nothing is overwritten, and nothing is recorded until you switch Remember queries on in the settings.",
+    "query_history_backups_not_deleted": "Remember queries is off, but some backup copies of the saved queries file could not be deleted. They may hold queries you typed: delete the query_history.json.corrupt-* and query_history.json.unreadable-* files next to your connections file.",
+    "query_history_blocked": "Queries are not being saved, so the unreadable saved queries file is not overwritten.",
+    "query_history_changed": "Another window changed the saved queries. Try again.",
+    "query_history_copy_refused": "The new connection got no saved queries: your favourites are too large to store together. Delete some and duplicate again.",
+    "query_history_newer": "The saved queries file was written by a newer version of Curlybrace and was left untouched. Queries are not saved, and nothing is recorded until you switch Remember queries on in the settings.",
+    "query_history_no_folder": "There is no settings folder, so queries cannot be saved.",
+    "query_history_replay_dropped": "Another window changed the saved queries at the same time, and one of your changes to the favourites could not be kept. Check your favourites.",
+    "query_history_too_large": "Your favourite queries are too large to save together. Delete some and try again.",
+    "query_history_write_failed": "Could not save your queries. They will not be there next time unless saving works again.",
     "read_failed": "Could not read the saved connections file.",
     "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only). No connection was dropped; a backup copy of the original file was kept.",
     "repaired_backup_failed": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",

@@ -20,12 +20,24 @@ fn show_restore_switch(ui: &mut egui::Ui, restore: bool, i18n: &I18n) -> Option<
         .then_some(ToolsAction::SetRestore(checked))
 }
 
+/// The "Remember queries" box. The label is its accessible name; the hint says that queries are
+/// kept as typed, may contain personal values and that turning it off erases them, as the hover
+/// text and the accessible description.
+fn show_remember_switch(ui: &mut egui::Ui, remember: bool, i18n: &I18n) -> Option<ToolsAction> {
+    let mut checked = remember;
+    let response = ui.checkbox(&mut checked, i18n.t("history.setting"));
+    let response = super::findbar::described(ui, response, i18n.t("history.setting_hint"));
+    response
+        .changed()
+        .then_some(ToolsAction::SetRememberQueries(checked))
+}
+
 /// Draws the dialog while it is open and returns what was done, in order. Close and Escape close it; a click outside does not, so a
 /// stray click never loses a half-typed path.
 pub fn show_tools_settings(
     ctx: &egui::Context,
     tools: &ToolsState,
-    restore: bool,
+    (restore, remember_queries): (bool, bool),
     i18n: &I18n,
 ) -> Vec<ToolsAction> {
     let Some(dialog) = tools.dialog() else {
@@ -52,6 +64,8 @@ pub fn show_tools_settings(
             }
             ui.separator();
             actions.extend(show_restore_switch(ui, restore, i18n));
+            actions.extend(show_remember_switch(ui, remember_queries, i18n));
+            ui.weak(i18n.t("history.privacy"));
             ui.separator();
             closed = filled_button(ui, i18n.t("common.close")).clicked();
         });

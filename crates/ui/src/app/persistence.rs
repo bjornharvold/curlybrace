@@ -131,6 +131,12 @@ pub enum Recovery {
         count: usize,
         backed_up: bool,
     },
+    /// The query history file was not usable; history and favourites start empty.
+    QueryHistory {
+        backed_up: bool,
+    },
+    /// The query history file was written by a newer version: left as it is, saving is off.
+    QueryHistoryNewer,
 }
 
 impl Recovery {
@@ -190,6 +196,9 @@ impl Recovery {
             Self::WorkspaceSkipped {
                 backed_up: false, ..
             } => "persist.workspace_skipped_backup_failed",
+            Self::QueryHistory { backed_up: true } => "persist.query_history_backed_up",
+            Self::QueryHistory { backed_up: false } => "persist.query_history_backup_failed",
+            Self::QueryHistoryNewer => "persist.query_history_newer",
         }
     }
 }

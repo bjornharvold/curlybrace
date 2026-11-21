@@ -68,9 +68,24 @@ between databases, and see how your indexes are used, without an account, a tria
   last page stays on screen. The automatic index check and the scan warning judge the query with its
   options. Bulk update and delete, and copying the whole result of the query, are off while a
   collation shaped the page (they match by the filter alone), with the reason shown; hand-picked
-  documents are not affected. **Copy as code** carries the options (see below). Query history
-  ([#72](https://github.com/bjornharvold/curlybrace/issues/72)) does not exist yet, so the options
-  are kept with the query while you work and in the code you copy, and are not stored.
+  documents are not affected. **Copy as code** carries the options (see below).
+- **Query history and favourites** ([#72](https://github.com/bjornharvold/curlybrace/issues/72)):
+  the **History** button (the circular arrow beside Find and Clear) lists the favourites and the
+  recent queries of the collection you are looking at, with a search over names and query text.
+  Every find you send from the bar is remembered (100 per connection and collection, a repeat moves
+  to the front); paging, **Clear** and tabs reopened at launch are not. Picking a query fills the
+  whole bar (filter, sort, projection, skip, limit and the Query options) and **does not run it**:
+  you press Find, and an edited query is a new entry, never a change to the stored one. **Save as
+  favourite** gives a recent query a name (1 to 80 characters, unique per collection of the
+  connection, up to 100 per connection); **Rename** and **Delete** are on the favourite, and
+  **Clear history** (asks first) empties the collection's recent list and keeps the favourites.
+  A connection that is deleted takes its history and favourites with it; a duplicate gets the
+  favourites, not the history. **Remember queries** in the gear's settings (on by default) switches
+  recording off: the recent queries are erased at once, in the file and in its backup copies, and
+  favourites are kept. Queries are stored **as typed** and can contain personal values, so
+  `query_history.json` sits next to `connections.json`, readable only by you, and no query text, name or
+  namespace is ever logged. A file that cannot be read is backed up and the history starts empty
+  (the app tells you); a file from a newer version is left alone and nothing is saved.
 
 **Edit safely**
 - Insert, edit, clone and delete documents. Edits use canonical extended JSON, so `Int32` and
@@ -432,7 +447,7 @@ contribute.
 - **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
 - **Query and analysis:** schema analysis
-  ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)),
+  ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)),
   visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
 - **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data

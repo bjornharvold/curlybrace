@@ -29,3 +29,17 @@ fn ui_test_harnesses_never_use_the_real_snapshot_dir() {
     assert_ne!(Some(snapshots.clone()), default_snapshot_dir());
     assert!(snapshots.starts_with(dir.path()));
 }
+
+/// Query history holds the text of queries: a test harness must never write it into the
+/// developer's real config directory. The app has no history path until a test gives it one
+/// (the launch gives it the real one), and the harnesses never do.
+#[test]
+fn ui_test_harnesses_start_with_no_query_history_path() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .build()
+        .unwrap();
+    let _enter = rt.enter();
+    let (app, _dir) = support::shots::build_app(Vec::new(), None);
+    assert_eq!(app.state().query_history.path, None);
+}

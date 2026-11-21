@@ -8,6 +8,7 @@ use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
 use crate::I18n;
 use crate::app::AggregateAction;
+use crate::viewmodel::query_history::HistoryAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::aggregate::{flush_typing, show_aggregate};
@@ -18,11 +19,13 @@ use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
 };
 use crate::views::findbar::{
-    FindAction, show_automatic_verdict, show_findbar_with, show_guard_setting,
+    FindAction, show_automatic_verdict, show_findbar_history, show_guard_setting,
 };
 use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::indexes::show_indexes;
+use crate::views::query_history::HistoryPanel;
+use crate::views::query_history_dialogs::show_history_dialog;
 use crate::views::verdict_badge::{
     VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
 };
@@ -48,6 +51,30 @@ pub(super) fn show_code_dialog_once(
             .into_iter()
             .map(|action| UiEvent::Input(Input::Aggregate(AggregateAction::Code(action)))),
     );
+}
+
+/// The History popup's dialogs belong to the app like the Copy as code dialog: drawn once per
+/// frame, outside the panes of a split view.
+pub(super) fn show_history_dialog_once(
+    ctx: &egui::Context,
+    state: &AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let history = &state.query_history;
+    let Some((connection, db, collection)) = &history.ui.target else {
+        return;
+    };
+    let action = match super::query_history_app::stale_dialog(state) {
+        // Opened for a collection that is not the one selected now (or no longer is): closed,
+        // not hidden, so it cannot come back over another collection.
+        true => Some(HistoryAction::DialogCancelled),
+        false => {
+            let target = (*connection, db.as_str(), collection.as_str());
+            show_history_dialog(ctx, &history.ui, (&history.store, target), i18n)
+        }
+    };
+    out.extend(action.map(|action| UiEvent::Input(Input::Find(FindAction::History(action)))));
 }
 
 /// The page of the tab in the foreground, under the strip: what a pane of the split view draws.
@@ -89,9 +116,27 @@ pub(super) fn show_pane(
     let (has_prev, has_next) = state.paging();
     let hints = &state.aggregate.options_ui.hint;
     let salt = ("findbar", state.active_tab());
+    // Without a settings folder there is no file to keep queries in: no History button.
+    let target = super::query_history_app::target(state);
+    let history = &state.query_history;
+    let panel = history.path.is_some().then(|| HistoryPanel {
+        ui: &history.ui,
+        listing: target.map(|(connection, db, collection)| {
+            Box::new(move || {
+                crate::viewmodel::query_history::listing(
+                    &history.store,
+                    (connection, &db, &collection),
+                    &history.ui.search,
+                )
+            }) as Box<dyn Fn() -> _>
+        }),
+        now: now_secs,
+        remembering: history.recording(),
+    });
     let actions = ui
         .push_id(salt, |ui| {
-            show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n)
+            let paging = (has_prev, has_next);
+            show_findbar_history(ui, &mut state.find, paging, (hints, panel.as_ref()), i18n)
         })
         .inner;
     out.extend(

@@ -51,6 +51,7 @@ mod pipeline_run;
 mod pipeline_shape;
 pub mod profile;
 pub mod query;
+pub mod query_history;
 pub mod query_options;
 pub mod read_only_store;
 #[cfg(test)]

@@ -6,11 +6,13 @@ use super::code_export_entry::{find_blocked, show_copy_code_icon};
 use super::findbar_cell::{field_cell, field_row_height};
 use super::findbar_more::{MoreOutcome, show_more_fields, show_more_toggle};
 use super::findbar_options::{SectionOutcome, show_options_section};
+use super::query_history::{HistoryPanel, show_history_button};
 use crate::I18n;
 use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::aggregate_hint_list::HintListUi;
 use crate::viewmodel::findbar_more::more_open;
 use crate::viewmodel::findbar_options::{more_set_count, options_open, options_set_count};
+use crate::viewmodel::query_history::HistoryAction;
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
@@ -24,6 +26,11 @@ const FILTER_MIN_WIDTH: f32 = 220.0;
 /// The width of the buttons after the Filter until a frame has measured it (about 475 with the
 /// icon-only Copy as code button; the Filter keeps one row with them at the 1000-wide window).
 const TRAILING_GUESS: f32 = 475.0;
+/// What the History icon adds to the guess, with the gap before it, when the bar has one.
+const HISTORY_GUESS: f32 = 40.0;
+/// With the History icon in the row the Filter may be this narrow beside the buttons: the
+/// 1000-wide window keeps one row for it (a narrower Filter, not a taller header).
+const FILTER_MIN_WITH_HISTORY: f32 = 180.0;
 /// Room left between the Filter and the buttons' measured width, so rounding never wraps the
 /// last button.
 const ROW_SLACK: f32 = 1.0;
@@ -48,8 +55,20 @@ pub fn show_findbar(
 pub fn show_findbar_with(
     ui: &mut egui::Ui,
     state: &mut FindBarState,
-    (has_prev, has_next): (bool, bool),
+    paging: (bool, bool),
     hints: &HintListUi,
+    i18n: &I18n,
+) -> Vec<FindAction> {
+    show_findbar_history(ui, state, paging, (hints, None), i18n)
+}
+
+/// [`show_findbar_with`] with the History button in the button row when `history` is given (the
+/// browse panel); the popup's actions come back as `FindAction::History`.
+pub fn show_findbar_history(
+    ui: &mut egui::Ui,
+    state: &mut FindBarState,
+    (has_prev, has_next): (bool, bool),
+    (hints, history): (&HintListUi, Option<&HistoryPanel<'_>>),
     i18n: &I18n,
 ) -> Vec<FindAction> {
     *state = state.more_settled().options_settled();
@@ -66,6 +85,7 @@ pub fn show_findbar_with(
         &mut state.text.filter,
         (has_prev, has_next),
         (more, blocked.as_deref(), options_off.as_deref()),
+        history,
         i18n,
     );
     let (more_out, section) = match more.open {
@@ -83,6 +103,7 @@ pub fn show_findbar_with(
         .then_some(FindAction::HintListWanted)
         .into_iter()
         .chain(section.retry_hints.then_some(FindAction::HintListRetry))
+        .chain(row.history.iter().cloned().map(FindAction::History))
         .collect();
     apply_section(state, section, row.toggled, more_out.toggled);
     if let Some(intent) = pick_intent(row.button, enter) {
@@ -181,6 +202,7 @@ struct RowOutcome {
     enter: bool,
     button: Option<FindIntent>,
     toggled: bool,
+    history: Vec<HistoryAction>,
 }
 
 /// The Filter, as wide as the row allows beside the buttons, then Find / Clear / Previous /
@@ -191,6 +213,7 @@ fn query_row(
     filter: &mut String,
     (has_prev, has_next): (bool, bool),
     (more, code_blocked, find_off): (MoreToggle, Option<&str>, Option<&str>),
+    history: Option<&HistoryPanel<'_>>,
     i18n: &I18n,
 ) -> RowOutcome {
     let memory = ui.id().with("findbar_trailing_width");
@@ -201,12 +224,19 @@ fn query_row(
     let row_height = field_row_height(ui);
     ui.horizontal_wrapped(|ui| {
         ui.set_row_height(row_height);
-        let width = filter_width(ui.available_width(), trailing.unwrap_or(TRAILING_GUESS));
+        let guess = TRAILING_GUESS + history.map_or(0.0, |_| HISTORY_GUESS);
+        let min = history.map_or(FILTER_MIN_WIDTH, |_| FILTER_MIN_WITH_HISTORY);
+        let width = filter_width(ui.available_width(), trailing.unwrap_or(guess), min);
         let enter = field_cell(ui, width, row_height, |ui| {
             sized_field(ui, width, KEY_FILTER, filter, i18n)
         });
-        let (button, buttons_width) =
-            buttons(ui, (has_prev, has_next), (code_blocked, find_off), i18n);
+        let (button, buttons_width, history) = buttons(
+            ui,
+            (has_prev, has_next),
+            (code_blocked, find_off),
+            history,
+            i18n,
+        );
         let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
         let measured = buttons_width + toggle.rect.width() + ui.spacing().item_spacing.x;
         if trailing.is_none_or(|known| (known - measured).abs() > 0.5) {
@@ -217,19 +247,16 @@ fn query_row(
             enter,
             button,
             toggled: toggle.clicked(),
+            history,
         }
     })
     .inner
 }
 
 /// The Filter's width: what the buttons leave, or the whole row when that is too narrow.
-fn filter_width(available: f32, trailing: f32) -> f32 {
+fn filter_width(available: f32, trailing: f32, min: f32) -> f32 {
     let beside = available - trailing - ROW_SLACK;
-    if beside >= FILTER_MIN_WIDTH {
-        beside
-    } else {
-        available
-    }
+    if beside >= min { beside } else { available }
 }
 
 /// An outlined single-line box `width` wide whose label floats on the border (and is its
@@ -267,19 +294,29 @@ fn find_button(ui: &mut egui::Ui, off: Option<&str>, i18n: &I18n) -> egui::Respo
     response
 }
 
-/// Find, Clear, the `</>` Copy as code icon (off with the parse error as its reason), Previous
-/// and Next in the current row; the intent clicked and the width they took with the gap before each.
+/// Find, Clear, History when the bar has one, the `</>` Copy as code icon (off with the parse
+/// error as its reason), Previous and Next in the current row; the intent clicked, the width
+/// they took with the gap before each, and what was done in the History popup.
 fn buttons(
     ui: &mut egui::Ui,
     (has_prev, has_next): (bool, bool),
     (code_blocked, find_off): (Option<&str>, Option<&str>),
+    history: Option<&HistoryPanel<'_>>,
     i18n: &I18n,
-) -> (Option<FindIntent>, f32) {
+) -> (Option<FindIntent>, f32, Vec<HistoryAction>) {
     let gap = ui.spacing().item_spacing.x;
     let mut intent = None;
     let mut width = 0.0;
     let run = find_button(ui, find_off, i18n);
     let clear = tonal_button(ui, i18n.t("findbar.clear"));
+    let history = match history {
+        Some(panel) => {
+            let (button, actions) = show_history_button(ui, panel, i18n);
+            width += button.rect.width() + gap;
+            actions
+        }
+        None => Vec::new(),
+    };
     let code = show_copy_code_icon(ui, code_blocked, i18n);
     let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
     let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
@@ -300,7 +337,7 @@ fn buttons(
             intent = Some(clicked);
         }
     }
-    (intent, width)
+    (intent, width, history)
 }
 
 #[cfg(test)]
