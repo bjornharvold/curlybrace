@@ -769,3 +769,7 @@ mod review_tests;
 #[cfg(test)]
 #[path = "query_history_second_tests.rs"]
 mod second_tests;
+
+#[cfg(test)]
+#[path = "query_history_notice_tests.rs"]
+mod notice_tests;

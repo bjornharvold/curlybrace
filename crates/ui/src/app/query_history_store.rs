@@ -33,18 +33,12 @@ pub struct HistoryStartup {
     pub seen: DiskStamp,
 }
 
-/// Whether the file on disk is, right now, one written by a newer version. Reads at most as much
-/// as a file of ours may be (a bigger one is not a readable file of any version).
+/// Whether the file on disk is, right now, one written by a newer version, whatever its size
+/// (as `load` and `saved` decide it). Read in full, so it is asked only when it matters.
 pub fn file_is_newer(path: &Path) -> bool {
-    use std::io::Read;
     #[cfg(test)]
     NEWER_CHECKS.with(|n| n.set(n.get() + 1));
-    let Ok(file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut bytes = Vec::new();
-    let read = file.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes);
-    read.is_ok() && bytes.len() <= MAX_FILE_BYTES && is_newer(&bytes)
+    std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes))
 }
 
 #[cfg(test)]
