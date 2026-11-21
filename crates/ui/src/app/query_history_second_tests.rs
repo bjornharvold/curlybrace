@@ -740,6 +740,102 @@ fn a_connection_change_with_a_newer_version_file_is_not_a_failure() {
 }
 
 #[test]
+fn a_newer_file_replaced_by_a_readable_one_is_scrubbed_on_a_connection_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        file(&dir),
+        "{\"version\": 99, \"history\": [], \"favourites\": []}",
+    )
+    .unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    // The newer file goes away and another window writes a readable one with X's queries.
+    let theirs = QueryHistory::default()
+        .recorded(id, "app", "people", text("{\"ssn\":\"SECRET456\"}"), 1)
+        .unwrap();
+    query_history_store::save(&file(&dir), &theirs).unwrap();
+    a.dispatch_connection(ConnectionAction::Delete(id));
+    let raw = std::fs::read_to_string(file(&dir)).unwrap();
+    assert!(!raw.contains("SECRET456"), "left on disk: {raw}");
+}
+
+fn big_favourites_store(ids: &[(Uuid, usize)]) -> QueryHistory {
+    ids.iter().fold(QueryHistory::default(), |s, (id, count)| {
+        (0..*count).fold(s, |s, i| {
+            s.starred(
+                *id,
+                "app",
+                "people",
+                &format!("f{i}"),
+                text(&format!("{i}{}", "x".repeat(250 * 1024))),
+                1,
+            )
+            .unwrap()
+        })
+    })
+}
+
+#[test]
+fn a_duplicate_whose_favourites_cannot_all_be_kept_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    a.state_mut().query_history.store =
+        big_favourites_store(&[(cfg.id, 3), (Uuid::from_u128(77), 15)]);
+    a.state_mut().banner = None;
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::TooLarge))
+    );
+    let copy = a
+        .state()
+        .conn
+        .connections
+        .iter()
+        .find(|c| c.id != cfg.id)
+        .expect("the copy")
+        .id;
+    assert!(a.state().query_history.store.favourites(copy).is_empty());
+}
+
+#[test]
+fn a_write_failure_after_the_pause_ended_is_announced() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
+    let mut a = a.with_query_history_path(Ok(file(&dir)));
+    let (mut b, _kb) = browsing_app(&dir);
+    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    // The folder stops taking writes after the other window wrote: this window follows its
+    // file (the pause ends) and then fails to write.
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = dir.path().join("probe");
+    let writable = std::fs::write(&probe, "x").is_ok();
+    if writable {
+        let _ = std::fs::remove_file(&probe);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        return; // permissions are not enforced (root): the failure cannot be produced
+    }
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    let banner = a.state().banner.clone();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(a.state().query_history.recording(), "the pause ended");
+    assert!(
+        matches!(
+            banner,
+            Some(Banner::QueryHistoryPersist(HistorySaveError::Persist(_)))
+        ),
+        "the write failure is shown, not the old notice: {banner:?}"
+    );
+}
+
+#[test]
 fn the_backups_notice_names_both_kinds_of_backup_file() {
     let text = I18n::english().t("persist.query_history_backups_not_deleted");
     assert!(text.contains("query_history.json.corrupt-"), "{text}");

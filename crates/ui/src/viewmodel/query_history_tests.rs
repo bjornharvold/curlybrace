@@ -121,6 +121,11 @@ fn a_long_filter_is_cut_with_an_ellipsis_and_a_short_one_is_not() {
     assert_eq!(line.chars().count(), ROW_CHARS + 1);
     assert!(line.ends_with('\u{2026}'));
     assert!(line.starts_with("{ \"a\": \"xxx"));
+    // No space is left in front of the ellipsis.
+    let words = text(&format!("{} {}", "a".repeat(ROW_CHARS - 1), "b".repeat(50)));
+    let cut = one_line(&words, "none");
+    assert!(!cut.ends_with(" \u{2026}"), "{cut:?}");
+    assert!(cut.ends_with("a\u{2026}"), "{cut:?}");
     // Whitespace is folded before the cut, so the room is for text.
     let spaced = text(&format!("{}x", " ".repeat(10_000)));
     assert_eq!(one_line(&spaced, "none"), "x");
@@ -180,6 +185,7 @@ fn every_refusal_has_a_message_key() {
         SavedError::TooLarge,
         SavedError::Unsupported,
         SavedError::InvalidOptions,
+        SavedError::FavouritesTooLarge,
     ] {
         assert!(error_key(e).starts_with("history.error."));
     }

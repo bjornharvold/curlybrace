@@ -357,7 +357,8 @@ impl AppState {
         // it can scrub, and the notice should come back at the next launch.
         let nothing_to_scrub = stamp == Some(super::pipelines_store::DiskStamp::default())
             || (qh.paused && stamp == Some(qh.seen))
-            || qh.newer_file;
+            // Decided now, not at launch: the newer file may have been replaced since.
+            || (qh.newer_file && store::file_is_newer(path));
         only_connections && qh.store.is_empty() && nothing_to_scrub
     }
 
@@ -641,7 +642,18 @@ impl AppState {
             Ok(next) => self.query_history.store = next,
             Err(e) => log::debug!("query history change refused: {}", e.error_variant()),
         }
+        // A duplicate whose favourites could not all be kept says so (it made none).
+        let copy_refused = match &op {
+            Op::CopyConnection { from, to } => {
+                let store = &self.query_history.store;
+                !store.favourites(*from).is_empty() && store.favourites(*to).is_empty()
+            }
+            _ => false,
+        };
         self.query_history.queued(op);
+        if copy_refused {
+            self.query_history_noticed(&HistorySaveError::TooLarge);
+        }
     }
 }
 

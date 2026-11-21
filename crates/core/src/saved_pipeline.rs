@@ -72,6 +72,8 @@ pub enum SavedError {
     Unsupported,
     /// An option the loader would refuse (see `PipelineOptions::validated`).
     InvalidOptions,
+    /// All the saved queries of a store together would not fit in their file (query history).
+    FavouritesTooLarge,
 }
 
 impl SavedError {
@@ -86,6 +88,7 @@ impl SavedError {
             Self::TooLarge => "too_large",
             Self::Unsupported => "unsupported",
             Self::InvalidOptions => "invalid_options",
+            Self::FavouritesTooLarge => "favourites_too_large",
         }
     }
 }

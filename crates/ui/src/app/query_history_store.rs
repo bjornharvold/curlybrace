@@ -33,6 +33,11 @@ pub struct HistoryStartup {
     pub seen: DiskStamp,
 }
 
+/// Whether the file on disk is, right now, one written by a newer version.
+pub fn file_is_newer(path: &Path) -> bool {
+    std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes))
+}
+
 /// Reads the file once (see `settings_file::load` for the rules).
 pub fn load(path: &Path, backup: BackupFn<'_>) -> HistoryStartup {
     let read = std::fs::read(path);

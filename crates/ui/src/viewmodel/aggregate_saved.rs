@@ -113,7 +113,7 @@ pub fn saved_error_key(error: SavedError) -> &'static str {
         SavedError::NameTooLong => "aggregate.saved.error.name_too_long",
         SavedError::NameTaken => "aggregate.saved.error.name_taken",
         SavedError::TooMany => "aggregate.saved.error.too_many",
-        SavedError::TooLarge => "aggregate.saved.error.too_large",
+        SavedError::TooLarge | SavedError::FavouritesTooLarge => "aggregate.saved.error.too_large",
         SavedError::Unsupported => "aggregate.saved.error.unsupported",
         SavedError::InvalidOptions => "aggregate.saved.error.invalid_options",
     }

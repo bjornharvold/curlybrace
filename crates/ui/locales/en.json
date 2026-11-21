@@ -1423,6 +1423,7 @@
     },
     "error": {
       "empty_name": "Enter a name.",
+      "favourites_too_large": "Too many saved queries to store: delete some favourites first.",
       "invalid_name": "A name cannot contain line breaks or other control characters.",
       "name_taken": "A favourite with this name already exists for this collection.",
       "name_too_long": "A name can have at most 80 characters.",

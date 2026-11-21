@@ -246,6 +246,14 @@ impl TryFrom<Wire> for QueryHistory {
     }
 }
 
+/// What a favourite takes in the file: its pretty print plus the indentation it has there (four
+/// levels of two spaces and the two of its own fields, on every line) and the comma.
+fn printed_size(favourite: &Favourite) -> usize {
+    let print = serde_json::to_vec_pretty(favourite).unwrap_or_default();
+    let lines = print.iter().filter(|b| **b == b'\n').count() + 1;
+    print.len() + lines * 10 + 4
+}
+
 fn checked_entries(entries: &[Entry]) -> Result<(), SavedError> {
     if entries.len() > MAX_HISTORY_PER_NAMESPACE {
         return Err(SavedError::TooMany);
@@ -390,9 +398,6 @@ impl QueryHistory {
         if self.favourites(connection).len() >= MAX_FAVOURITES_PER_CONNECTION {
             return Err(SavedError::TooMany);
         }
-        if self.favourites_too_big_with(&text) {
-            return Err(SavedError::TooLarge);
-        }
         let favourite = Favourite {
             id,
             name,
@@ -401,6 +406,9 @@ impl QueryHistory {
             text,
             saved_unix: now_unix,
         };
+        if self.favourites_too_big_with(std::slice::from_ref(&favourite)) {
+            return Err(SavedError::FavouritesTooLarge);
+        }
         let list = std::iter::once(favourite)
             .chain(self.favourites(connection).iter().cloned())
             .collect();
@@ -469,17 +477,13 @@ impl QueryHistory {
     /// the file would not be written at all: the favourite is refused instead. Measured exactly
     /// only when the text alone could come near the bound (JSON text takes at most six times
     /// its length).
-    fn favourites_too_big_with(&self, text: &FindText) -> bool {
-        let all = || self.favourites.values().flatten();
-        let raw: usize = all().map(|f| f.text.bytes()).sum::<usize>() + text.bytes();
-        if raw.saturating_mul(6) <= FAVOURITES_BYTES {
+    fn favourites_too_big_with(&self, extra: &[Favourite]) -> bool {
+        let all = || self.favourites.values().flatten().chain(extra);
+        let (raw, count) = all().fold((0usize, 0usize), |(r, c), f| (r + f.text.bytes(), c + 1));
+        if raw.saturating_mul(6).saturating_add(count * 1024) <= FAVOURITES_BYTES {
             return false;
         }
-        let printed: usize = all()
-            .map(|f| serde_json::to_vec_pretty(f).map_or(0, |b| b.len() + 16))
-            .sum();
-        let new = serde_json::to_vec_pretty(text).map_or(0, |b| b.len() + 512);
-        printed + new > FAVOURITES_BYTES
+        all().map(printed_size).sum::<usize>() > FAVOURITES_BYTES
     }
 
     /// The switch's flag set without touching the history: for a store that has none to lose
@@ -526,9 +530,13 @@ impl QueryHistory {
 
     /// For a duplicated connection: `to` starts with the favourites of `from`, never its
     /// history. Unchanged when `from` has none.
+    ///
+    /// When the copies could not be written together with everything else (see
+    /// [`FAVOURITES_BYTES`]) none are made; the caller says so.
     pub fn with_connection_copied(&self, from: Uuid, to: Uuid) -> Self {
         match self.favourites(from) {
             [] => self.clone(),
+            list if self.favourites_too_big_with(list) => self.clone(),
             list => self.with_favourites(to, list.to_vec()),
         }
     }

@@ -105,6 +105,7 @@ pub fn error_key(error: SavedError) -> &'static str {
         SavedError::NameTaken => "history.error.name_taken",
         SavedError::TooMany => "history.error.too_many",
         SavedError::TooLarge => "history.error.too_large",
+        SavedError::FavouritesTooLarge => "history.error.favourites_too_large",
         SavedError::Unsupported | SavedError::InvalidOptions => "history.error.unusable",
     }
 }
@@ -206,6 +207,8 @@ pub fn one_line(text: &FindText, no_filter: &str) -> String {
         }
         for c in word.chars() {
             if kept >= ROW_CHARS {
+                // No space before the ellipsis.
+                line.truncate(line.trim_end().len());
                 line.push('\u{2026}');
                 return line;
             }

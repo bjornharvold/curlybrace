@@ -88,10 +88,75 @@ fn favourites_are_refused_before_they_could_not_be_written_together() {
         }
     }
     let (at, error) = refused.expect("a limit is reached");
-    assert_eq!(error, SavedError::TooLarge);
+    assert_eq!(
+        error,
+        SavedError::FavouritesTooLarge,
+        "the total, not one query"
+    );
     assert!((15..=21).contains(&at), "after about 4.5 MiB: {at}");
     let printed = serde_json::to_vec_pretty(&s).unwrap().len();
     assert!(printed <= 5 * 1024 * 1024, "{printed} bytes fit the file");
+}
+
+#[test]
+fn the_size_bound_is_tight_for_many_mid_sized_favourites_across_connections() {
+    let mut s = QueryHistory::default();
+    let mut refused = false;
+    'fill: for conn in 0..3 {
+        for i in 0..100 {
+            let body = text(&format!("{i}{}", "x".repeat(24 * 1024)));
+            match s.starred(conn_of(conn), "shop", "c0", &format!("f{i}"), body, 1) {
+                Ok(next) => s = next,
+                Err(e) => {
+                    assert_eq!(e, SavedError::FavouritesTooLarge);
+                    refused = true;
+                    break 'fill;
+                }
+            }
+        }
+    }
+    assert!(refused);
+    let printed = serde_json::to_vec_pretty(&s).unwrap().len();
+    // Exact: the estimate counts the indentation, so only the few bytes of the groups' own
+    // framing can be over the bound.
+    assert!(
+        printed <= FAVOURITES_BYTES + 5_000,
+        "{printed} against {FAVOURITES_BYTES}"
+    );
+    assert!(
+        printed + 60_000 >= FAVOURITES_BYTES,
+        "and the bound is not loose: {printed} of {FAVOURITES_BYTES}"
+    );
+}
+
+fn with_big_favourites(conn: usize, count: usize) -> impl Fn(QueryHistory) -> QueryHistory {
+    move |s| {
+        (0..count).fold(s, |s, i| {
+            let body = text(&format!("{conn}-{i}{}", "x".repeat(250 * 1024)));
+            s.starred(conn_of(conn), "shop", "c0", &format!("f{i}"), body, 1)
+                .unwrap()
+        })
+    }
+}
+
+#[test]
+fn a_copy_that_would_not_fit_with_everything_else_copies_nothing() {
+    let s = with_big_favourites(1, 15)(with_big_favourites(0, 3)(QueryHistory::default()));
+    assert!(s.favourites(conn_of(0)).len() == 3 && s.favourites(conn_of(1)).len() == 15);
+    let copied = s.with_connection_copied(conn_of(0), conn_of(2));
+    assert!(copied.favourites(conn_of(2)).is_empty());
+    assert_eq!(copied, s, "nothing changed");
+    // Small ones are copied as ever.
+    let small = QueryHistory::default()
+        .starred(conn_of(0), "shop", "c0", "one", text("a"), 1)
+        .unwrap();
+    assert_eq!(
+        small
+            .with_connection_copied(conn_of(0), conn_of(2))
+            .favourites(conn_of(2))
+            .len(),
+        1
+    );
 }
 
 #[test]
