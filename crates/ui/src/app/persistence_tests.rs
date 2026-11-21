@@ -423,3 +423,54 @@ fn error_keys_are_distinct() {
     keys.dedup();
     assert_eq!(keys.len(), 6);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_planted_link_at_the_old_temp_name_is_never_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim");
+    std::fs::write(&victim, b"keep").unwrap();
+    let path = dir.path().join("f.json");
+    let planted = dir
+        .path()
+        .join(format!(".f.json.tmp-{}", std::process::id()));
+    std::os::unix::fs::symlink(&victim, &planted).unwrap();
+    atomic_write(&path, b"new").unwrap();
+    assert_eq!(
+        std::fs::read(&victim).unwrap(),
+        b"keep",
+        "the link was not written through"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn a_write_sweeps_old_orphan_temp_files_of_its_own_target_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("f.json");
+    let old = dir.path().join(".f.json.tmp-1-2-3");
+    let fresh = dir.path().join(".f.json.tmp-9-9-9");
+    let other = dir.path().join(".g.json.tmp-1-2-3");
+    for file in [&old, &fresh, &other] {
+        std::fs::write(file, b"x").unwrap();
+    }
+    let aged = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for file in [&old, &other] {
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(aged)
+            .unwrap();
+    }
+    atomic_write(&path, b"new").unwrap();
+    assert!(!old.exists(), "an orphan a crash left is gone");
+    assert!(fresh.exists(), "a temp file in use is never touched");
+    assert!(other.exists(), "and neither is another file's");
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+}

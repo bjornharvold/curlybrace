@@ -21,7 +21,7 @@ const PREFIXES: [&str; 11] = [
 const EXTRA_KEYS: [&str; 2] = ["sidebar.compare_database_to", "sidebar.compare_to"];
 
 /// Literals that look like a key under a tracked prefix but are something else (file names).
-const NOT_KEYS: [&str; 1] = ["connections.json"];
+const NOT_KEYS: [&str; 2] = ["connections.json", "workspace.json"];
 
 fn leaves(prefix: &str, value: &Value, out: &mut BTreeSet<String>) {
     match value {

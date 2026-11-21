@@ -1252,6 +1252,7 @@ dependencies = [
  "log",
  "mongodb",
  "rfd",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

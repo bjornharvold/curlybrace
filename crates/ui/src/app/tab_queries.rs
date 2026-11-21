@@ -103,6 +103,24 @@ impl AppState {
             .is_some_and(|tab| self.tabs.dormant.contains(&tab))
     }
 
+    /// The tab being looked at was reopened from the saved session and has not run yet.
+    pub fn active_tab_restored(&self) -> bool {
+        self.active_tab()
+            .is_some_and(|tab| self.tabs.restored.contains(&tab))
+    }
+
+    /// The tab being looked at was reopened without its query text (it was too long to save).
+    pub fn active_tab_text_dropped(&self) -> bool {
+        self.active_tab()
+            .is_some_and(|tab| self.tabs.text_dropped.contains(&tab))
+    }
+
+    /// The tab being looked at was reopened with its saved query options dropped (not valid).
+    pub fn active_tab_options_dropped(&self) -> bool {
+        self.active_tab()
+            .is_some_and(|tab| self.tabs.options_dropped.contains(&tab))
+    }
+
     /// What `tab` shows, wherever its fields live.
     pub fn glance(&self, tab: TabId) -> Option<TabGlance> {
         let session = self.tabs.owner.get(&tab).copied()?;

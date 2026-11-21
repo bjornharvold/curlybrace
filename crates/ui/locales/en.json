@@ -1648,6 +1648,18 @@
     "tools_write_failed": "Could not save the tool paths. The change applies until you close the app.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
+    "workspace_backed_up": "The saved tabs file was not readable, so no tabs were reopened. A backup copy was kept next to it, and the file now holds the tabs you have open.",
+    "workspace_backup_failed": "The saved tabs file was not readable and a backup copy could not be made. Tabs are not saved so nothing is overwritten.",
+    "workspace_blocked": "Saving your open tabs is turned off, so changing this setting does not change the saved tabs file.",
+    "workspace_newer": "The saved tabs file was written by a newer version of Curlybrace and was left untouched. No tabs were reopened and none are saved.",
+    "workspace_overflow_backed_up": "{n} saved tab(s) were over the most the tabs file holds and were left out. A backup copy of the original file was kept.",
+    "workspace_overflow_backup_failed": "{n} saved tab(s) were over the most the tabs file holds and were left out, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
+    "workspace_overflow_trimmed": "{n} older saved tab(s) did not fit in the tabs file and were dropped.",
+    "workspace_repaired_backed_up": "Some saved tabs had query options that were not valid. Their options were dropped and their text kept. A backup copy of the original file was kept.",
+    "workspace_repaired_backup_failed": "Some saved tabs had query options that were not valid. Their options were dropped and their text kept, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
+    "workspace_skipped_backed_up": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped. A backup copy of the original file was kept.",
+    "workspace_skipped_backup_failed": "{n} saved tab(s) pointed at a connection or collection that no longer exists and were skipped, and a backup copy could not be made. Tabs are not saved so nothing is lost.",
+    "workspace_write_failed": "Could not save your open tabs. They will not be reopened next time unless saving works again.",
     "write_failed": "Could not write the saved connections file."
   },
   "query": {
@@ -1911,6 +1923,14 @@
     "new_tab_disabled": "New tab (needs a connection)",
     "open_in_new_tab": "Open in new tab",
     "reopen_closed": "Reopen closed tab",
+    "restore": {
+      "options_dropped": "This tab's query options were not valid, so they were not restored.",
+      "overflow": "{n} saved tab(s) did not fit under the tab limit. They reopen as you close tabs.",
+      "setting": "Reopen tabs at launch",
+      "setting_hint": "Open tabs and the query text in them are saved on this computer and come back, without running anything, after you connect. Turning this off erases the saved text now.",
+      "text_dropped": "This tab's query text could not be saved (it was too long, or the saved tabs file was full), so it was not restored.",
+      "waiting": "Restored from your last session. Nothing has run yet; run the query to load documents."
+    },
     "split": {
       "divider": "Resize panes",
       "divider_value": "{percent}%",

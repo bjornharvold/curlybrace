@@ -348,3 +348,139 @@ fn lost_and_reconnected_tabs_stay_dormant_until_run() {
     assert_eq!(server.finds_on(THINGS), things_before + 1, "Run read once");
     assert_eq!(server.finds_on(WORDS), words_before, "and only its own tab");
 }
+
+/// The collection names of the `tab`s of the session, in strip order.
+fn collections(f: &Fixture) -> Vec<String> {
+    let s = f.harness.state().state();
+    s.tabs_of(session(f))
+        .into_iter()
+        .filter_map(|tab| s.tab_ns(tab))
+        .map(|ns| ns.collection)
+        .collect()
+}
+
+/// A workspace file in its own folder, and the folder that keeps it alive.
+fn workspace() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = dir.path().join("workspace.json");
+    (dir, path)
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn restore_after_relaunch_reopens_tabs_and_text() {
+    let mut f = fixture!();
+    let (_keep, path) = workspace();
+    f.use_workspace(&path);
+    browse(&mut f, WORDS);
+    let words = active(&f);
+    let filter = f.labels.t("findbar.filter");
+    fill(&mut f, &filter, r#"{"name": "abc"}"#);
+    click_key(&mut f, "findbar.run");
+    wait_docs(&mut f, 1);
+    open_in_new_tab(&mut f, THINGS);
+    wait_docs(&mut f, 2);
+    let _ = words;
+    f.relaunch(&path);
+    // Before the person connects: nothing open, nothing in the strip, tabs waiting.
+    {
+        let s = f.harness.state().state();
+        assert!(s.open.is_empty() && s.visible_tabs().is_empty());
+        assert_eq!(s.restore.dormant.len(), 1);
+    }
+    connect(&mut f);
+    assert_eq!(collections(&f), [WORDS, THINGS]);
+    let s = f.harness.state().state();
+    assert_eq!(
+        s.selected_ns().map(|n| n.collection.as_str()),
+        Some(THINGS),
+        "the tab that was in front is in front again"
+    );
+    let restored_words = s.tabs_of(session(&f))[0];
+    for tab in s.tabs_of(session(&f)) {
+        assert_eq!(s.freshness_of(tab), Freshness::Dormant);
+    }
+    tab(&mut f, TabAction::Activate(restored_words));
+    let s = f.harness.state().state();
+    assert_eq!(s.find.text.filter, r#"{"name": "abc"}"#, "its text is back");
+    assert!(s.page.is_none(), "and nothing was read for it");
+    tab(&mut f, TabAction::Run(restored_words));
+    wait_docs(&mut f, 1);
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn restore_sends_no_find_before_run() {
+    let mut f = fixture!();
+    let (_keep, path) = workspace();
+    f.use_workspace(&path);
+    browse(&mut f, WORDS);
+    open_in_new_tab(&mut f, THINGS);
+    wait_docs(&mut f, 2);
+    // From here the server logs every operation, to prove which finds it was asked for.
+    let server = Server::of(&f);
+    server.profile_everything();
+    let (words_before, things_before) = (server.finds_on(WORDS), server.finds_on(THINGS));
+    f.relaunch(&path);
+    connect(&mut f);
+    // Show every restored tab: a dormant tab sends nothing when it is shown.
+    for tab_id in f.harness.state().state().tabs_of(session(&f)) {
+        tab(&mut f, TabAction::Activate(tab_id));
+    }
+    settle(&mut f.harness);
+    assert_eq!(server.finds_on(WORDS), words_before, "a restored tab read");
+    assert_eq!(
+        server.finds_on(THINGS),
+        things_before,
+        "a restored tab read"
+    );
+    // Run is the one thing that reads, and it reads once.
+    let words_tab = f.harness.state().state().tabs_of(session(&f))[0];
+    tab(&mut f, TabAction::Run(words_tab));
+    wait_docs(&mut f, 3);
+    assert_eq!(server.finds_on(WORDS), words_before + 1, "Run read once");
+    assert_eq!(
+        server.finds_on(THINGS),
+        things_before,
+        "and only its own tab"
+    );
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn restore_never_runs_a_write() {
+    use curlybrace_ui::app::AggregateAction;
+    use curlybrace_ui::viewmodel::CollectionTab;
+    let mut f = fixture!();
+    let (_keep, path) = workspace();
+    f.use_workspace(&path);
+    browse(&mut f, WORDS);
+    let target = "cb_restore_target";
+    let state = f.harness.state_mut();
+    state.dispatch(Input::Tab(CollectionTab::Aggregate));
+    state.dispatch(Input::Aggregate(AggregateAction::AddStage("$match".into())));
+    state.dispatch(Input::Aggregate(AggregateAction::AddStage("$out".into())));
+    let out = format!(r#"{{"$out": "{target}"}}"#);
+    state.dispatch(Input::Aggregate(AggregateAction::Edit(1, out)));
+    settle(&mut f.harness);
+    let server = Server::of(&f);
+    let exists = |server: &Server| {
+        let db = server.client.database(&server.db);
+        let names = server
+            .handle
+            .block_on(async { db.list_collection_names().await })
+            .expect("list the collections");
+        names.iter().any(|n| n == target)
+    };
+    assert!(!exists(&server), "typing the draft wrote nothing");
+    f.relaunch(&path);
+    connect(&mut f);
+    settle(&mut f.harness);
+    let s = f.harness.state().state();
+    assert_eq!(s.aggregate.stages.len(), 2, "the draft is back");
+    assert!(
+        s.aggregate.stages[1].text.contains(target),
+        "with its $out stage"
+    );
+    assert!(!exists(&server), "connecting and showing it wrote nothing");
+}

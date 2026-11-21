@@ -292,14 +292,25 @@ fn neighbour_of(state: &AppState, tab: TabId) -> Option<TabId> {
 }
 
 fn close(state: AppState, tab: TabId) -> Out {
+    // A tab that is not there (closed meanwhile) changes nothing, and frees no slot.
+    let Some(owner) = state.tabs.owner.get(&tab).copied() else {
+        return (state, Vec::new());
+    };
     let focus = (state.active_tab() == Some(tab))
         .then(|| neighbour_of(&state, tab))
         .flatten();
+    let visible_before = state.visible_tabs().len();
     let state = close_one(state, tab);
-    match focus {
+    let (mut state, commands) = match focus {
         Some(next) => activate(state, next),
         None => (state, Vec::new()),
+    };
+    // The slot this tab leaves lets a saved tab that did not fit reopen.
+    // Only when the strip really lost a tab: closing a session's only tab empties it instead.
+    if state.visible_tabs().len() < visible_before {
+        super::workspace_restore::refill(&mut state, Some(owner));
     }
+    (state, commands)
 }
 
 /// Closes every tab of `keep`'s connection other than `keep` (or only those after it), then shows

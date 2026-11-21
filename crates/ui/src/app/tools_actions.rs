@@ -6,8 +6,14 @@ use super::tools_state::ToolsAction;
 /// Applies the action to the tool paths. Never sends a runtime command: the checks it asks for
 /// wait in the state's queue for the app layer to start.
 pub(super) fn on_action(mut state: AppState, action: ToolsAction) -> Out {
+    if let ToolsAction::SetRestore(on) = action {
+        let state = super::workspace_settings_actions::restore_set(state, on);
+        return (state, Vec::new());
+    }
     let tools = std::mem::take(&mut state.tools);
     let next = match action {
+        // Taken above: the switch belongs to the saved session, not to the tool paths.
+        ToolsAction::SetRestore(_) => tools,
         ToolsAction::ChooseGlobal { kind, choice } => tools.choose_global(kind, choice),
         ToolsAction::ChooseOverride {
             connection,

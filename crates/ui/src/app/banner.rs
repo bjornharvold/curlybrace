@@ -1,5 +1,5 @@
 //! Localized banner text. Pure so it can be tested without egui.
-use super::persistence::Recovery;
+use super::persistence::{PersistError, Recovery};
 use super::session::session_display_name;
 use super::state::{AppState, Banner};
 use crate::I18n;
@@ -13,6 +13,10 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ToolsPersist(e) => (i18n.t(e.tools_i18n_key()), None),
+        Banner::WorkspacePersist(PersistError::Blocked) => {
+            (i18n.t("persist.workspace_blocked"), None)
+        }
+        Banner::WorkspacePersist(_) => (i18n.t("persist.workspace_write_failed"), None),
         Banner::PipelinesCleanup => (i18n.t("aggregate.saved.cleanup_failed"), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
@@ -42,9 +46,13 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
 fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
     let key = recovery.i18n_key();
     match recovery {
-        Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => {
-            i18n.t_with(key, &[("n", &count.to_string())])
-        }
+        Recovery::Skipped { count, .. }
+        | Recovery::Repaired { count, .. }
+        | Recovery::WorkspaceSkipped { count, .. }
+        | Recovery::WorkspaceOverflow { count, .. }
+        | Recovery::WorkspaceRepaired { count, .. }
+        | Recovery::WorkspaceTrimmed { count }
+        | Recovery::WorkspaceWaiting { count } => i18n.t_with(key, &[("n", &count.to_string())]),
         Recovery::SkippedAndRepaired {
             skipped, repaired, ..
         } => i18n.t_with(
@@ -60,7 +68,9 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Explain { .. }
         | Recovery::Tools { .. }
         | Recovery::Pipelines { .. }
-        | Recovery::PipelinesNewer => i18n.t(key),
+        | Recovery::PipelinesNewer
+        | Recovery::Workspace { .. }
+        | Recovery::WorkspaceNewer => i18n.t(key),
     }
 }
 
@@ -79,6 +89,7 @@ pub fn banner_level(banner: &Banner) -> BannerLevel {
         Banner::Failure { .. }
         | Banner::Persist(_)
         | Banner::ToolsPersist(_)
+        | Banner::WorkspacePersist(_)
         | Banner::PipelinesCleanup
         | Banner::ImportFailed(_)
         | Banner::ExportFailed(_) => BannerLevel::Error,
@@ -219,6 +230,37 @@ mod tests {
             Banner::Recovery(Recovery::Pipelines { backed_up: true }),
             Banner::Recovery(Recovery::Pipelines { backed_up: false }),
             Banner::Recovery(Recovery::PipelinesNewer),
+            Banner::WorkspacePersist(PersistError::Write(std::io::ErrorKind::Other)),
+            Banner::WorkspacePersist(PersistError::Blocked),
+            Banner::Recovery(Recovery::Workspace { backed_up: true }),
+            Banner::Recovery(Recovery::Workspace { backed_up: false }),
+            Banner::Recovery(Recovery::WorkspaceNewer),
+            Banner::Recovery(Recovery::WorkspaceSkipped {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceSkipped {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceOverflow {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceOverflow {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceRepaired {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::WorkspaceRepaired {
+                count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::WorkspaceTrimmed { count: 2 }),
+            Banner::Recovery(Recovery::WorkspaceWaiting { count: 2 }),
             Banner::NotConnected,
             Banner::CopyUnavailable,
             Banner::HostForgotten,

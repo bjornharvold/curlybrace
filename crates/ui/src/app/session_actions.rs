@@ -65,6 +65,15 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
 /// Connecting `id` withdraws the banner about it (and a banner nobody owns); a banner another
 /// session raised, and that session's forget offer, stay.
 fn cleared_for_connect(state: AppState, id: Uuid) -> AppState {
+    // The notice that saved tabs are waiting for room is about the whole app, not a connection.
+    if matches!(
+        state.banner,
+        Some(super::state::Banner::Recovery(
+            super::persistence::Recovery::WorkspaceWaiting { .. }
+        ))
+    ) {
+        return state;
+    }
     match state.banner_owner() {
         Some(owner) if owner != id => state,
         _ => state.without_banner(),
@@ -83,6 +92,8 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         .get(position + 1)
         .or_else(|| position.checked_sub(1).and_then(|p| state.open.get(p)))
         .copied();
+    // Its open tabs wait for its next connect: read before the focus moves to the neighbour.
+    let state = state.tabs_waiting(id);
     let epoch = state.epoch_counter + 1;
     // The closed session's running shell is cancelled before the Disconnect (which kills it in
     // the core as well), under the same rule as a lost connection.
@@ -93,7 +104,9 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
     };
     // A failure the closed session raised goes with it; other sessions' banners stay.
     let own_failure = focused.banner_owner() == Some(id);
-    let dropped = focused.session_dropped(id);
+    let mut dropped = focused.session_dropped(id);
+    // What waited for room on this connection no longer does.
+    dropped.waiting_notice_checked();
     let next = if own_failure {
         dropped.without_banner()
     } else {

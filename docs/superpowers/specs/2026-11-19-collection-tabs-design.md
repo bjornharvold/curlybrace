@@ -46,7 +46,7 @@ Why not one `Vec<Tab>` with `state.tabs[active].find` everywhere? Every one of t
 
 - `failed()` and `connection_lost`;
 - connect and reconnect (`session_actions::connect`, `aggregate_for_reopen`);
-- `session_dropped` (disconnect: the session's tabs go with it);
+- `session_dropped` (disconnect: the session's tabs go with it; the saved ones stay for restore: the connection's open tabs go back to the waiting group of `workspace.json` and reopen on its next connect, see section 6);
 - `session_cleared` (the runtime stopped);
 - `Mutated`, `IndexChanged` and `AdminChanged` (other tabs on the same namespace or database);
 - the `Sampler` status;
@@ -132,14 +132,21 @@ Why not one `Vec<Tab>` with `state.tabs[active].find` everywhere? Every one of t
   - the document editor's text (it is document data);
   - bulk, admin, run or index-builder dialogs;
   - passwords, passphrases, URIs and anything in `SecretStore`.
-- **Bounds:** at most `MAX_TABS` entries, and at most 256 KiB of text per tab. A tab over that is saved without its texts, and on restore it shows `tabs.restore.text_dropped`. The file as a whole is refused above 8 MiB.
+- **Bounds:** at most `MAX_TABS` (20) tabs are *open* at once, whatever restore does. The file itself may hold more: the open tabs plus the saved tabs that wait (for their connection, or for room under the limit), up to `MAX_SAVED_TABS` (200), and open and waiting tabs together are kept within it: when tabs opened later leave the waiting ones too little room, or when a connection's tabs go back to waiting, the tails of the longest waiting groups are dropped (never the tabs just open) and `persist.workspace_overflow_trimmed` says so, so a snapshot never has to cut. A file over 200 at load (hand edited, or from an older release) is cut by the same longest-group rule, counted in a notice with a backup (`persist.workspace_overflow_*`); a full file the app wrote itself loads back whole. At most 256 KiB of text and 200 stages per tab: a tab over that is saved without its texts, and on restore it shows `tabs.restore.text_dropped`. The file as a whole is refused above 8 MiB.
+- **Waiting tabs:** a saved tab that has not been reopened (its connection has not connected, it did not fit under the limit, or its connection was disconnected) stays in the file. Tabs that did not fit are announced once when their connection connects (`tabs.restore.overflow`, showing how many still wait, and withdrawn on its own when none of a connected session's tabs waits any more: they reopened, the connection was disconnected or deleted, or restore was turned off) and reopen, oldest first (the closed tab's own connection first), dormant, exactly one per single tab close (not Close others or Close to the right), always leaving at least one free slot so New tab and Undo close keep working. Disconnecting a connection moves its open tabs back to its waiting group, ahead of the ones already waiting (the working set, the front tab among it, comes back first; when the waiting tabs of all connections together are over their bound the tails of the longest groups are dropped, never the tabs just open, and `persist.workspace_overflow_trimmed` says so), so they reopen on the next connect; deleting the connection drops them. An entry of a connection the list failed to load is kept, unverified, and never dropped for it.
+- **The file's one hint slot:** the file holds one front tab (`active`) and one `split`. When a connection's tabs go back to waiting while it is in front, its front tab and split take that slot, replacing another connection's unapplied hint; a connection that goes while not in front leaves the slot alone. The connection that lost its hint reconnects with all its tabs, dormant, but none in front.
+- **Invalid options in a tab:** the file is backed up first (`repaired` tag), that tab loses its options and keeps its text and is flagged (`tabs.restore.options_dropped`), and a notice says so (`persist.workspace_repaired_*`).
+- **Known follow-up:** writing the file at exit (`workspace_flush`) does not fit open and waiting tabs to the bound first, so if a session becomes a saved connection without any change the fingerprint sees, the snapshot's final cut to 200 could drop tabs without a notice.
+- **Known follow-up:** the waiting tabs that are cut in memory while saving is turned off (a newer file, a failed backup) are cut from the in-memory groups only; the file is untouched, so a later launch that can save starts from what the file holds.
+- **Known follow-up:** the options-dropped note (`tabs.restore.options_dropped`) shows on the restored tab only; Duplicate and Reopen closed tab do not carry it.
+- **Connection list damaged:** when `connections.json` could not be read at all, no saved tab can be checked: none is reopened, the file is left as it is, the switch shows what the file says, and only turning it off (which erases the text and the backups) writes.
 - **Load errors** follow `settings_file::load_read`:
   - **missing:** nothing to restore;
   - **corrupt or unreadable:** backed up (tags `corrupt` / `unreadable`), with a recovery notice (`Recovery::Workspace { backed_up }`); if the backup failed, the guard blocks saving;
   - **written by a newer version:** left as it is and saving turned off (`Recovery::WorkspaceNewer`, like `PipelinesNewer`);
   - **bad entries:** an entry whose connection id is no longer saved, or whose namespace fails `curlybrace_core::copy::names::validate_namespace`, is skipped and counted in the notice.
 - **When it is written:**
-  - at once on a change of tab structure (open, close, reorder, namespace, sub-tab, view mode, split) and on Run;
+  - at once on a change of tab structure (open, close, reorder, namespace, sub-tab, view mode, split) and on a Run of the Documents find (the find the front tab sends); an Aggregate preview or run is not a separate trigger, so its stage text is written within 1 s of the last change like other typing;
   - typing is debounced by 1 s against the last written snapshot (a small value compared for equality);
   - and once more in `on_exit`.
   - A failed write is a banner (`persist.workspace_write_failed`), like the other settings files. The log line carries only the `PersistError`, which is an `io::ErrorKind` with no path text or content.

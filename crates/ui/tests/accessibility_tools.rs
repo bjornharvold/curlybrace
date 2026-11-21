@@ -22,6 +22,7 @@ fn tw(key: &str, params: &[(&str, &str)]) -> String {
 
 struct Run {
     tools: ToolsState,
+    restore: bool,
     actions: Vec<ToolsAction>,
 }
 
@@ -30,11 +31,16 @@ fn harness(tools: ToolsState) -> Harness<'static, Run> {
         .with_size(egui::vec2(900.0, 1100.0))
         .build_state(
             |ctx, run: &mut Run| {
-                run.actions
-                    .extend(show_tools_settings(ctx, &run.tools, &I18n::english()));
+                run.actions.extend(show_tools_settings(
+                    ctx,
+                    &run.tools,
+                    run.restore,
+                    &I18n::english(),
+                ));
             },
             Run {
                 tools,
+                restore: true,
                 actions: Vec::new(),
             },
         );
@@ -270,5 +276,43 @@ fn escape_drops_a_half_typed_path_instead_of_applying_it() {
             .any(|a| matches!(a, ToolsAction::ChooseGlobal { .. })),
         "a path the person backed out of must not be chosen: {:?}",
         harness.state().actions
+    );
+}
+
+#[test]
+fn switch_is_named_and_keyboard_operable() {
+    let mut harness = harness(opened());
+    let label = t("tabs.restore.setting");
+    let switch = harness.get_by_role_and_label(Role::CheckBox, &label);
+    assert_eq!(
+        switch.accesskit_node().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    let hint = t("tabs.restore.setting_hint");
+    assert_eq!(
+        switch.accesskit_node().description().as_deref(),
+        Some(hint.as_str()),
+        "the hint is its description"
+    );
+    switch.focus();
+    harness.run_steps(2);
+    harness.key_press(egui::Key::Space);
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().actions,
+        vec![ToolsAction::SetRestore(false)]
+    );
+}
+
+#[test]
+fn clicking_the_switch_reports_the_opposite_setting() {
+    let mut harness = harness(opened());
+    harness
+        .get_by_role_and_label(Role::CheckBox, &t("tabs.restore.setting"))
+        .click();
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().actions,
+        vec![ToolsAction::SetRestore(false)]
     );
 }

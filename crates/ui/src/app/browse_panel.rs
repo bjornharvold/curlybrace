@@ -99,6 +99,10 @@ pub(super) fn show_pane(
             .into_iter()
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
+    // A tab whose text the saved file could not take says so while it runs, too.
+    if state.active_tab_text_dropped() && !state.dormant_active() {
+        ui.weak(i18n.t("tabs.restore.text_dropped"));
+    }
     show_switches_and_verdict(ui, state, i18n, out);
     show_guard(ui, state, i18n, out);
     let target = DocTarget {
@@ -115,6 +119,8 @@ pub(super) fn show_pane(
         }
         let empty = if state.loading_page {
             "browser.loading"
+        } else if dormant && state.active_tab_restored() {
+            "tabs.restore.waiting"
         } else if dormant {
             "tabs.dormant_waiting"
         } else {
@@ -151,6 +157,12 @@ fn dormant_run(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<U
     if crate::views::tab_dormant::show_dormant_run(ui, i18n) {
         let run = state.active_tab().map(super::tab_actions::TabAction::Run);
         out.extend(run.map(|a| UiEvent::Input(Input::Tabs(a))));
+    }
+    if state.active_tab_text_dropped() {
+        ui.weak(i18n.t("tabs.restore.text_dropped"));
+    }
+    if state.active_tab_options_dropped() {
+        ui.weak(i18n.t("tabs.restore.options_dropped"));
     }
 }
 

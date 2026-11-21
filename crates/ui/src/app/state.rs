@@ -55,6 +55,8 @@ pub enum Banner {
     Persist(PersistError),
     /// The tool paths file could not be written; the change applies until the app closes.
     ToolsPersist(PersistError),
+    /// The open tabs could not be written to `workspace.json`.
+    WorkspacePersist(PersistError),
     /// A connection was deleted or duplicated and its saved pipelines could not be updated on
     /// disk (even after one retry). The list was updated in this window; the file is corrected
     /// by the next successful save.
@@ -344,6 +346,9 @@ pub struct AppState {
     /// The list of saved undo copies, while it is open.
     pub copies: Option<super::saved_copies::SavedCopies>,
     pub persist: PersistGuard,
+    /// The saved session: the tabs waiting for their connection and how `workspace.json` is
+    /// written. Boxed, like `shell`: `AppState` moves by value through every step.
+    pub restore: Box<super::workspace_restore::RestoreState>,
     pub banner: Option<Banner>,
     /// Startup notices waiting for the single banner slot, oldest first: each is shown, once,
     /// as soon as the banner showing now is gone (see `with_queued_recovery_shown`).
@@ -438,6 +443,15 @@ impl AppState {
 
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
     pub fn session_cleared(self) -> Self {
+        // The saved tabs of the sessions that end here wait for the next connect.
+        let mut ended = self.all_tabs_waiting().sessions_ended();
+        // Nothing is connected now, so nothing waits for room; a notice about the saved tabs
+        // goes to the queue, because the failure that ended the sessions takes the banner.
+        ended.waiting_notice_checked();
+        ended.recovery_banner_queued()
+    }
+
+    fn sessions_ended(self) -> Self {
         Self {
             sidebar: SidebarState::default(),
             selection: SidebarSelection::default(),

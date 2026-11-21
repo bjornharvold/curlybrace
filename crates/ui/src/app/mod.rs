@@ -75,6 +75,7 @@ pub mod reducer;
 mod reducer_dispatch;
 mod reducer_lost;
 pub mod request_numbers;
+mod runtime_settings;
 pub mod sampling_settings;
 pub mod session;
 mod session_actions;
@@ -104,6 +105,13 @@ mod tools_actions;
 mod tools_app;
 pub mod tools_state;
 mod verdict_create;
+pub use runtime_settings::runtime_config;
+mod workspace_app;
+mod workspace_file;
+mod workspace_read;
+mod workspace_restore;
+mod workspace_settings_actions;
+mod workspace_snapshot;
 pub mod write_guard;
 
 use crate::I18n;
@@ -116,9 +124,8 @@ use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
-    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle, TryRecvError,
-    default_history_path, default_known_hosts_path, default_snapshot_dir,
-    spawn_runtime_with_config,
+    Command, Event, Repaint, RuntimeHandle, TryRecvError, default_history_path,
+    default_known_hosts_path, default_snapshot_dir, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
 use eframe::egui;
@@ -136,36 +143,8 @@ use state::{AppState, Banner, ConnStatus};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
-use std::time::Duration;
 use tool_probe::ProbeAnswer;
 use tool_settings::default_tools_path;
-
-/// Slack on top of the prompt timeout so a user who answers just in time still connects
-/// (the runtime's connect timeout bounds the whole connect, prompt included).
-const CONNECT_SLACK: Duration = Duration::from_secs(30);
-
-/// Runtime settings for the app: interactive host-key prompt, a connect timeout that outlasts
-/// it, and the normal short bound for data commands. `history_path` is where index usage is
-/// recorded (`None` turns history off): the shipped app passes `default_history_path()`, anything
-/// else that spawns a runtime passes a throwaway location so it never writes to the user's real
-/// config directory. `snapshot_dir` is where the undo copies of bulk writes are kept (`None`
-/// turns undo off): the shipped app passes `default_snapshot_dir()`, with the same rule.
-pub fn runtime_config(
-    known_hosts_path: Option<PathBuf>,
-    history_path: Option<PathBuf>,
-    snapshot_dir: Option<PathBuf>,
-    prompt: Arc<InteractivePrompt>,
-) -> RuntimeConfig {
-    RuntimeConfig {
-        command_timeout: COMMAND_TIMEOUT,
-        connect_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
-        known_hosts_path,
-        host_key_prompt: prompt,
-        history_path,
-        snapshot_dir,
-        ..RuntimeConfig::default()
-    }
-}
 
 pub struct CurlybraceApp {
     state: AppState,
@@ -294,6 +273,7 @@ impl CurlybraceApp {
             .with_explain_path(default_explain_path())
             .with_tools_path(default_tools_path())
             .with_pipelines_path(default_pipelines_path())
+            .with_workspace_path(workspace_file::default_workspace_path())
     }
 
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
@@ -861,6 +841,7 @@ impl CurlybraceApp {
         }
         self.ensure_picker();
         self.flush_clipboard(ctx);
+        self.save_workspace_if_changed(ctx, std::time::Instant::now());
     }
 }
 
@@ -871,6 +852,7 @@ impl eframe::App for CurlybraceApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.prompt = std::mem::take(&mut self.prompt).rejected_all();
+        self.save_workspace_now();
     }
 }
 

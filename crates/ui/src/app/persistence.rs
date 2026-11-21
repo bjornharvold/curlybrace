@@ -99,6 +99,38 @@ pub enum Recovery {
     /// The saved pipelines file was written by a newer version: it is left as it is, the store
     /// starts empty and saving is turned off.
     PipelinesNewer,
+    /// The saved tabs file was not usable; no tabs are reopened.
+    Workspace {
+        backed_up: bool,
+    },
+    /// The saved tabs file was written by a newer version: left as it is, saving is turned off.
+    WorkspaceNewer,
+    /// More saved tabs than the file may hold: the ones past the bound were left out.
+    WorkspaceOverflow {
+        count: usize,
+        backed_up: bool,
+    },
+    /// Options of some saved tabs were not valid and were dropped from those tabs (they keep
+    /// their text); the original file was backed up first.
+    WorkspaceRepaired {
+        count: usize,
+        backed_up: bool,
+    },
+    /// Older waiting tabs did not fit in the file when open tabs went back to waiting, and were
+    /// dropped.
+    WorkspaceTrimmed {
+        count: usize,
+    },
+    /// Saved tabs of a connection that connected did not fit under the tab limit: they wait and
+    /// reopen as tabs are closed.
+    WorkspaceWaiting {
+        count: usize,
+    },
+    /// Saved tabs of a connection or collection that is gone were skipped.
+    WorkspaceSkipped {
+        count: usize,
+        backed_up: bool,
+    },
 }
 
 impl Recovery {
@@ -135,6 +167,29 @@ impl Recovery {
             Self::Pipelines { backed_up: true } => "aggregate.saved.recovered_backed_up",
             Self::Pipelines { backed_up: false } => "aggregate.saved.recovered_backup_failed",
             Self::PipelinesNewer => "aggregate.saved.error.unsupported",
+            Self::Workspace { backed_up: true } => "persist.workspace_backed_up",
+            Self::Workspace { backed_up: false } => "persist.workspace_backup_failed",
+            Self::WorkspaceNewer => "persist.workspace_newer",
+            Self::WorkspaceOverflow {
+                backed_up: true, ..
+            } => "persist.workspace_overflow_backed_up",
+            Self::WorkspaceOverflow {
+                backed_up: false, ..
+            } => "persist.workspace_overflow_backup_failed",
+            Self::WorkspaceRepaired {
+                backed_up: true, ..
+            } => "persist.workspace_repaired_backed_up",
+            Self::WorkspaceRepaired {
+                backed_up: false, ..
+            } => "persist.workspace_repaired_backup_failed",
+            Self::WorkspaceTrimmed { .. } => "persist.workspace_overflow_trimmed",
+            Self::WorkspaceWaiting { .. } => "tabs.restore.overflow",
+            Self::WorkspaceSkipped {
+                backed_up: true, ..
+            } => "persist.workspace_skipped_backed_up",
+            Self::WorkspaceSkipped {
+                backed_up: false, ..
+            } => "persist.workspace_skipped_backup_failed",
         }
     }
 }
@@ -345,8 +400,22 @@ pub fn save_connections(path: &Path, connections: &[ConnectionConfig]) -> Result
 /// Copies the file to a new `<name>.<tag>-<unix seconds>[-n]` sibling (0600) and never
 /// overwrites an existing backup. Fails when the file cannot be read.
 pub fn back_up(path: &Path, tag: &str) -> std::io::Result<PathBuf> {
-    use std::io::Write;
-    let bytes = std::fs::read(path)?;
+    back_up_limited(path, tag, None)
+}
+
+/// [`back_up`] reading at most `limit` bytes of the file (a file too big to be one of ours is
+/// kept cut at the limit rather than read whole).
+pub fn back_up_limited(path: &Path, tag: &str, limit: Option<u64>) -> std::io::Result<PathBuf> {
+    use std::io::{Read, Write};
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path)?;
+    match limit {
+        Some(limit) => file.take(limit).read_to_end(&mut bytes)?,
+        None => {
+            let mut file = file;
+            file.read_to_end(&mut bytes)?
+        }
+    };
     let (dir, name) = split_path(path)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path"))?;
     let stamp = std::time::SystemTime::now()
@@ -391,29 +460,78 @@ fn private_options() -> std::fs::OpenOptions {
     options
 }
 
-/// Writes `bytes` to a 0600 temp file in the same directory, syncs it and renames it over
-/// `path`. The temp file is removed on failure.
+/// Writes `bytes` to a new 0600 temp file in the same directory, syncs it and renames it over
+/// `path`. The temp file is created exclusively under a name nobody else can have picked, so a
+/// planted file or link at that name is never opened or followed; it is removed on failure.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PersistError> {
     let write_err = |e: std::io::Error| PersistError::Write(e.kind());
     let (dir, name) = split_path(path)?;
     std::fs::create_dir_all(dir).map_err(write_err)?;
-    let tmp = dir.join(format!(
-        ".{}.tmp-{}",
-        name.to_string_lossy(),
-        std::process::id()
-    ));
-    let result = write_temp_then_rename(&tmp, path, bytes);
+    sweep_orphans(dir, &name.to_string_lossy());
+    let (tmp, file) = create_temp(dir, &name.to_string_lossy()).map_err(write_err)?;
+    let result = write_temp_then_rename(file, &tmp, path, bytes);
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result.map_err(write_err)
 }
 
-fn write_temp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// How old a temp file of a write must be (ten minutes) before it is taken for one a crash left
+/// behind.
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Deletes the temp files (`.<name>.tmp-*`) that earlier writes of `name` left behind. Only ones
+/// not touched for ten minutes: a write in progress, ours or another window's, is never in the way,
+/// and the file being written now does not exist yet.
+fn sweep_orphans(dir: &Path, name: &str) {
+    let prefix = format!(".{name}.tmp-");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= ORPHAN_AGE);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// A temp file that did not exist, created with mode 0600 from the start.
+fn create_temp(dir: &Path, name: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    for _ in 0..100 {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = dir.join(format!(".{name}.tmp-{}-{nanos}-{n}", std::process::id()));
+        let mut options = private_options();
+        options.create_new(true);
+        match options.open(&tmp) {
+            Ok(file) => return Ok((tmp, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
+}
+
+fn write_temp_then_rename(
+    mut file: std::fs::File,
+    tmp: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = private_options();
-    options.create(true).truncate(true);
-    let mut file = options.open(tmp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(tmp, path)
