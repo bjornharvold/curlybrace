@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/bjornharvold/curlybrace/compare/v0.18.0...v0.19.0) (2026-11-21)
+
+
+### Features
+
+* **query:** query history and saved queries in the find bar ([#72](https://github.com/bjornharvold/curlybrace/issues/72)) ([#200](https://github.com/bjornharvold/curlybrace/issues/200)) ([3fbf0f8](https://github.com/bjornharvold/curlybrace/commit/3fbf0f8a8a9f79c762abadf02b903705d72b4aa8))
+
 ## [0.18.0](https://github.com/bjornharvold/curlybrace/compare/v0.17.0...v0.18.0) (2026-11-21)
 
 
