@@ -277,22 +277,27 @@ impl AppState {
             self.query_history.pending.clear();
             return;
         };
+        // What the file was before this attempt: a failure is remembered against that, so a file
+        // replaced while the attempt ran is seen as changed by the next look.
+        let before = file_signature(&path);
         if let Some(stall) = &self.query_history.stalled {
-            let same = stall.revision == self.query_history.revision
-                && stall.file == file_signature(&path);
-            if same {
+            if stall.revision == self.query_history.revision && stall.file == before {
                 return;
             }
         }
+        let was_paused = self.query_history.paused;
         match self.query_history_written(&path) {
             Ok(()) => {
+                if was_paused && !self.query_history.paused {
+                    self.query_history_pause_ended();
+                }
                 let qh = &mut *self.query_history;
                 (qh.failing, qh.logged, qh.stalled) = (false, false, None);
                 if std::mem::take(&mut qh.replay_dropped) {
                     self.query_history_noticed(&HistorySaveError::ReplayDropped);
                 }
             }
-            Err(e) => self.query_history_failed(&e, &path),
+            Err(e) => self.query_history_failed(&e, before),
         }
     }
 
@@ -361,13 +366,17 @@ impl AppState {
     }
 
     /// A write failed: no retry until something changes, one log line and one banner per streak.
-    fn query_history_failed(&mut self, error: &HistorySaveError, path: &std::path::Path) {
+    fn query_history_failed(
+        &mut self,
+        error: &HistorySaveError,
+        file: Option<(u64, Option<std::time::SystemTime>)>,
+    ) {
         let qh = &mut *self.query_history;
         qh.stalled = Some(Stall {
             error: error.clone(),
             at: std::time::Instant::now(),
             revision: qh.revision,
-            file: file_signature(path),
+            file,
         });
         self.query_history_announced(error);
     }
@@ -456,7 +465,7 @@ impl CurlybraceApp {
             .collect();
         for id in removed {
             self.state
-                .query_history_apply_infallible(Op::ForgetConnection(id));
+                .query_history_apply_queued(Op::ForgetConnection(id));
         }
         self.state.query_history_flush();
     }
@@ -472,13 +481,39 @@ impl CurlybraceApp {
                 from: source,
                 to: id,
             };
-            self.state.query_history_apply_infallible(op);
+            self.state.query_history_apply_queued(op);
         }
         self.state.query_history_flush();
     }
 }
 
 impl AppState {
+    /// The pause ended (the person switched on, or another window's valid file was taken as the
+    /// base): the notice that said nothing is recorded is no longer true.
+    fn query_history_pause_ended(&mut self) {
+        let stale = matches!(
+            self.banner,
+            Some(Banner::Recovery(
+                Recovery::QueryHistory { .. } | Recovery::QueryHistoryNewer
+            ))
+        );
+        if stale {
+            self.banner = None;
+        }
+    }
+
+    /// Applies `op` to this window's store when it can, and queues it either way: a change to a
+    /// connection (deleted, duplicated) must reach the file even when this window's store knows
+    /// nothing of it (another window wrote it, or this one is paused), where the replay on the
+    /// file's own history makes it.
+    fn query_history_apply_queued(&mut self, op: Op) {
+        match op.apply(&self.query_history.store) {
+            Ok(next) => self.query_history.store = next,
+            Err(e) => log::debug!("query history change refused: {}", e.error_variant()),
+        }
+        self.query_history.queued(op);
+    }
+
     /// [`Self::query_history_apply`] for a change that cannot be refused.
     fn query_history_apply_infallible(&mut self, op: Op) {
         if let Err(e) = self.query_history_apply(op) {
@@ -553,7 +588,9 @@ pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
 /// history is kept. When saving is off (a newer file, a failed backup) the switch applies for
 /// this run and the banner says the file is not updated.
 pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
-    state.query_history.paused = false;
+    if std::mem::take(&mut state.query_history.paused) {
+        state.query_history_pause_ended();
+    }
     state.query_history_apply_infallible(Op::Remember(on));
     // A person's choice, whatever the file said: written even when the setting looks the same as
     // what is in memory (the file may not say it).

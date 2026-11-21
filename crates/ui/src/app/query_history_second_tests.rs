@@ -3,12 +3,13 @@
 //! after another window repaired the file.
 use super::Op;
 use super::tests::{browsing_app, dispatch_run, file};
-use crate::app::persistence::PersistGuard;
+use crate::app::persistence::{PersistGuard, Recovery};
 use crate::app::query_history_store::{self, HistorySaveError};
 use crate::app::reducer::Input;
 use crate::app::state::Banner;
 use crate::app::tools_state::ToolsAction;
 use crate::app::*;
+use crate::views::connections::ConnectionAction;
 use curlybrace_core::query_history::{FindText, QueryHistory};
 use curlybrace_core::runtime::EMBEDDED_SESSION;
 use std::time::{Duration, Instant};
@@ -283,6 +284,116 @@ fn a_change_that_already_landed_is_made_again_without_a_notice() {
     a.dispatch(Input::DismissBanner);
     assert_eq!(a.state().banner, None, "no notice");
     assert_eq!(on_disk(&dir).favourites(EMBEDDED_SESSION).len(), 1);
+}
+
+fn app_with_connection(
+    dir: &tempfile::TempDir,
+    cfg: &ConnectionConfig,
+) -> (CurlybraceApp, super::tests::Keep) {
+    let (app, events, commands) =
+        crate::app::pipelines_wiring_tests::app_in(dir, vec![cfg.clone()]);
+    let app = app.with_query_history_path(Ok(file(dir)));
+    (app, (events, commands))
+}
+
+fn record_op(connection: Uuid, filter: &str) -> Op {
+    Op::Record {
+        connection,
+        db: "app".into(),
+        collection: "people".into(),
+        text: Box::new(text(filter)),
+        now: 1,
+    }
+}
+
+fn star_for(connection: Uuid, name: &str) -> Op {
+    Op::Star {
+        id: Uuid::new_v4(),
+        connection,
+        db: "app".into(),
+        collection: "people".into(),
+        name: name.into(),
+        text: Box::new(text("{}")),
+        now: 1,
+    }
+}
+
+#[test]
+fn a_connection_deleted_in_a_stale_window_is_forgotten_in_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    let (mut b, _kb) = app_with_connection(&dir, &cfg);
+    b.state_mut()
+        .query_history_apply(record_op(id, "{\"q\":1}"))
+        .unwrap();
+    b.state_mut()
+        .query_history_apply(star_for(id, "fav"))
+        .unwrap();
+    b.dispatch(Input::ForgetCancelled);
+    assert_eq!(on_disk(&dir).history_len(), 1, "the other window recorded");
+    a.dispatch_connection(ConnectionAction::Delete(id));
+    let written = on_disk(&dir);
+    assert_eq!(
+        written.history_len(),
+        0,
+        "the deleted connection's queries are gone"
+    );
+    assert!(written.favourites(id).is_empty());
+}
+
+#[test]
+fn a_connection_duplicated_in_a_stale_window_gets_the_favourites_in_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    let (mut b, _kb) = app_with_connection(&dir, &cfg);
+    b.state_mut()
+        .query_history_apply(star_for(id, "fav"))
+        .unwrap();
+    b.dispatch(Input::ForgetCancelled);
+    a.dispatch_connection(ConnectionAction::Duplicate(id));
+    let copy = a
+        .state()
+        .conn
+        .connections
+        .iter()
+        .find(|c| c.id != id)
+        .expect("the copy")
+        .id;
+    assert_eq!(on_disk(&dir).favourites(copy).len(), 1);
+}
+
+#[test]
+fn the_pause_notice_goes_when_another_windows_file_ends_the_pause() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
+    let mut a = a.with_query_history_path(Ok(file(&dir)));
+    assert!(matches!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistory { .. }))
+    ));
+    let (mut b, _kb) = browsing_app(&dir);
+    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(3), "fav"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert!(a.state().query_history.recording());
+    assert_eq!(a.state().banner, None, "the stale notice is gone");
+}
+
+#[test]
+fn switching_on_ends_the_pause_notice_too() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
+    let mut a = a.with_query_history_path(Ok(file(&dir)));
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert_eq!(a.state().banner, None);
 }
 
 #[test]
