@@ -149,6 +149,8 @@ pub struct QueryHistoryState {
     /// person's "Remember queries" setting was is not known, so nothing is recorded until they
     /// turn it on.
     paused: bool,
+    /// The file is from a newer version: it is left as it is, so there is nothing to scrub in it.
+    newer_file: bool,
     /// A change made again on top of another window's file was refused there.
     replay_dropped: bool,
     /// Reads the file's signature; the real one when `None` (a test puts its own here).
@@ -258,6 +260,7 @@ impl AppState {
         let state = Self {
             query_history: Box::new(QueryHistoryState {
                 paused: unreadable,
+                newer_file: matches!(started.recovery, Some(Recovery::QueryHistoryNewer)),
                 store: started.settings,
                 path: Some(path),
                 guard: started.guard,
@@ -353,7 +356,8 @@ impl AppState {
         // after the delete) except a damaged one this window could not read: there is nothing
         // it can scrub, and the notice should come back at the next launch.
         let nothing_to_scrub = stamp == Some(super::pipelines_store::DiskStamp::default())
-            || (qh.paused && stamp == Some(qh.seen));
+            || (qh.paused && stamp == Some(qh.seen))
+            || qh.newer_file;
         only_connections && qh.store.is_empty() && nothing_to_scrub
     }
 
@@ -639,13 +643,6 @@ impl AppState {
         }
         self.query_history.queued(op);
     }
-
-    /// [`Self::query_history_apply`] for a change that cannot be refused.
-    fn query_history_apply_infallible(&mut self, op: Op) {
-        if let Err(e) = self.query_history_apply(op) {
-            log::debug!("query history change refused: {}", e.error_variant());
-        }
-    }
 }
 
 /// The typed text of the find bar and the options it applies, for the history. A form with a
@@ -717,12 +714,10 @@ pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
     if std::mem::take(&mut state.query_history.paused) {
         state.query_history_pause_ended();
     }
-    state.query_history_apply_infallible(Op::Remember(on));
-    // A person's choice, whatever the file said: written even when the setting looks the same as
-    // what is in memory (the file may not say it).
-    if state.query_history.pending.is_empty() {
-        state.query_history.queued(Op::Remember(on));
-    }
+    // A person's choice, whatever the file said: always queued, even when the setting looks the
+    // same as what is in memory (the file may not say it), so that a replay on top of another
+    // window's file makes it again.
+    state.query_history_apply_queued(Op::Remember(on));
     // Backups are deleted when the switch goes off, and only then: switching on cancels a
     // deletion still wanted (and its notice).
     match on {

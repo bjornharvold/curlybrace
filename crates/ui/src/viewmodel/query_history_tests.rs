@@ -115,6 +115,20 @@ fn a_row_shows_the_filter_on_one_line() {
 }
 
 #[test]
+fn a_long_filter_is_cut_with_an_ellipsis_and_a_short_one_is_not() {
+    let long = text(&format!("{{ \"a\": \"{}\" }}", "x".repeat(100_000)));
+    let line = one_line(&long, "none");
+    assert_eq!(line.chars().count(), ROW_CHARS + 1);
+    assert!(line.ends_with('\u{2026}'));
+    assert!(line.starts_with("{ \"a\": \"xxx"));
+    // Whitespace is folded before the cut, so the room is for text.
+    let spaced = text(&format!("{}x", " ".repeat(10_000)));
+    assert_eq!(one_line(&spaced, "none"), "x");
+    let exact = text(&"y".repeat(ROW_CHARS));
+    assert_eq!(one_line(&exact, "none").chars().count(), ROW_CHARS);
+}
+
+#[test]
 fn when_it_ran_uses_the_shared_age_phrases() {
     let i18n = I18n::english();
     assert_eq!(ran_phrase(1000, 1030, &i18n), "just now");

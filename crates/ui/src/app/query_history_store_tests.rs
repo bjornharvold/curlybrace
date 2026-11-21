@@ -294,20 +294,19 @@ fn a_big_store_with_one_more_big_query_is_made_to_fit_without_a_copy_per_entry()
 #[test]
 fn favourites_that_cannot_fit_are_refused_not_dropped() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = QueryHistory::default();
-    for i in 0..30 {
-        let body = "x".repeat(MAX_ENTRY_BYTES - 16);
-        store = store
-            .starred(
-                Uuid::from_u128(1),
-                "d",
-                "c",
-                &format!("n{i}"),
-                text(&body),
-                1,
-            )
-            .unwrap();
-    }
+    // Saving a favourite refuses what would not fit, so such a store can only come from a file
+    // or a merge of two windows' favourites: it is built through the file format.
+    let body = "x".repeat(MAX_ENTRY_BYTES - 16);
+    let favourites: Vec<serde_json::Value> = (0..30)
+        .map(|i| {
+            serde_json::json!({"id": Uuid::from_u128(100 + i), "name": format!("n{i}"),
+                "db": "d", "collection": "c", "text": {"filter": body}, "saved_unix": 1})
+        })
+        .collect();
+    let store: QueryHistory = serde_json::from_value(serde_json::json!({
+        "version": 1, "history": [],
+        "favourites": [{"connection": Uuid::from_u128(1), "items": favourites}]}))
+    .unwrap();
     assert_eq!(
         saved(
             &path_in(&dir),

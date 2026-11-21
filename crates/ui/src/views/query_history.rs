@@ -17,7 +17,9 @@ const LIST_HEIGHT_SHARE: f32 = 0.5;
 /// What the popup shows: the collection's lists, or nothing when no collection is selected.
 pub struct HistoryPanel<'a> {
     pub ui: &'a HistoryUi,
-    pub listing: Option<Listing<'a>>,
+    /// Builds the lists of the collection; asked only while the popup is open (a closed popup
+    /// costs nothing per frame). `None` when no collection is selected.
+    pub listing: Option<Box<dyn Fn() -> Listing<'a> + 'a>>,
     /// Unix seconds, for "5 min ago".
     pub now: i64,
     /// Whether finds that are run are recorded (the setting).
@@ -35,7 +37,7 @@ pub fn show_history_button(
 ) -> (egui::Response, Vec<HistoryAction>) {
     let name = i18n.t("history.button");
     let glyph = i18n.t("history.button_icon");
-    let Some(listing) = &panel.listing else {
+    let Some(make_listing) = &panel.listing else {
         let reason = i18n.t("history.button_no_collection");
         let off = gate(ui, false, |ui| compact_text_button(ui, glyph)).on_hover_ui(|ui| {
             ui.strong(&name);
@@ -57,9 +59,14 @@ pub fn show_history_button(
         // Typing in the search box and pressing the section headings must not close it: a pick
         // closes it explicitly.
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| popup(ui, panel, listing, i18n))
-        .map(|shown| shown.inner)
-        .unwrap_or_default();
+        .show(|ui| popup(ui, panel, &make_listing(), i18n))
+        .map(|shown| shown.inner);
+    // Closed: the search of the last time is forgotten, so the next opening starts clean.
+    let actions = match actions {
+        Some(actions) => actions,
+        None if !panel.ui.search.is_empty() => vec![HistoryAction::Search(String::new())],
+        None => Vec::new(),
+    };
     (button, actions)
 }
 

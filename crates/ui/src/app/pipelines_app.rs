@@ -146,7 +146,10 @@ impl CurlybraceApp {
                 .iter()
                 .fold(store.clone(), |store, id| store.without_connection(*id))
         });
-        // The query history follows the same rule: only a delete that reached the disk.
+        // The query history follows the same rule: only a delete that reached the disk. This is
+        // the one place the connection handlers of `mod.rs` reach for every per-connection store
+        // (Delete and DeleteFolder come here once each); `query_history_app_tests` fail when it
+        // is not called, and a second call would only repeat an idempotent change.
         self.forget_queries_of_removed(saved, before);
     }
 

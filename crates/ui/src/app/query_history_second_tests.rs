@@ -432,10 +432,12 @@ fn a_write_failure_after_the_pause_ended_is_announced_not_blocked_by_the_old_not
     }
     a.dispatch(Input::ForgetCancelled);
     assert!(a.state().query_history.recording(), "the pause ended");
+    // Favourites that would not fit together are refused on the replay and said so: that
+    // notice, not the old "nothing is recorded" one, holds the banner slot.
     assert_eq!(
         a.state().banner,
-        Some(Banner::QueryHistoryPersist(HistorySaveError::TooLarge)),
-        "the failure is shown, not the stale notice"
+        Some(Banner::QueryHistoryPersist(HistorySaveError::ReplayDropped)),
+        "the refusal is shown, not the stale notice"
     );
 }
 
@@ -700,6 +702,48 @@ fn a_window_that_follows_a_file_saying_on_drops_its_backup_notice_and_deletion()
         .query_history_tick(Instant::now() + Duration::from_secs(31));
     assert_eq!(wait, None);
     assert!(bad.exists(), "and nothing is deleted any more");
+}
+
+#[test]
+fn switching_on_is_made_again_on_top_of_another_windows_file_even_with_changes_waiting() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let (mut b, _kb) = browsing_app(&dir);
+    // The other window (paused too) writes the file with the switch off.
+    b.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "theirs"))
+        .unwrap();
+    b.dispatch(Input::ForgetCancelled);
+    assert!(!on_disk(&dir).remembering());
+    // This window has a change waiting (a connection removed), then the person switches on.
+    a.state_mut()
+        .query_history_apply_queued(Op::ForgetConnection(Uuid::from_u128(9)));
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert!(a.state().query_history.recording());
+    assert!(on_disk(&dir).remembering(), "the choice is in the file");
+}
+
+#[test]
+fn a_connection_change_with_a_newer_version_file_is_not_a_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let newer = "{\"version\": 99, \"history\": [], \"favourites\": []}";
+    std::fs::write(file(&dir), newer).unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    a.state_mut().banner = None;
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert_eq!(a.state().banner, None, "no red banner for a duplicate");
+    a.dispatch_connection(ConnectionAction::Delete(cfg.id));
+    assert_eq!(a.state().banner, None, "nor for a delete");
+    assert_eq!(std::fs::read_to_string(file(&dir)).unwrap(), newer);
+}
+
+#[test]
+fn the_backups_notice_names_both_kinds_of_backup_file() {
+    let text = I18n::english().t("persist.query_history_backups_not_deleted");
+    assert!(text.contains("query_history.json.corrupt-"), "{text}");
+    assert!(text.contains("query_history.json.unreadable-"), "{text}");
 }
 
 #[test]

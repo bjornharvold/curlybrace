@@ -192,13 +192,35 @@ fn text_matches(text: &FindText, needle: &str) -> bool {
 
 /// The one line a row shows for a query: the filter with its whitespace folded (a pretty-printed
 /// filter is one line here), or `no_filter` when only other fields are set.
+///
+/// A row never carries more than [`ROW_CHARS`] characters (what is shown, and the name a screen
+/// reader gets): a filter can be 256 KiB, and a row of that size is no use to anyone. The cut
+/// is marked with an ellipsis, and only as much of the filter is read as is kept.
 pub fn one_line(text: &FindText, no_filter: &str) -> String {
-    let folded = text.filter.split_whitespace().collect::<Vec<_>>().join(" ");
-    match folded.is_empty() {
+    let mut line = String::new();
+    let mut kept = 0;
+    for word in text.filter.split_whitespace() {
+        if kept > 0 {
+            line.push(' ');
+            kept += 1;
+        }
+        for c in word.chars() {
+            if kept >= ROW_CHARS {
+                line.push('\u{2026}');
+                return line;
+            }
+            line.push(c);
+            kept += 1;
+        }
+    }
+    match line.is_empty() {
         true => no_filter.to_string(),
-        false => folded,
+        false => line,
     }
 }
+
+/// The most characters of a query one row shows.
+pub const ROW_CHARS: usize = 200;
 
 /// How long ago a query ran, as a phrase ("5 min ago").
 pub fn ran_phrase(ran_unix: i64, now_unix: i64, i18n: &I18n) -> String {

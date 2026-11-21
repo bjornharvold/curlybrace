@@ -121,12 +121,14 @@ pub(super) fn show_pane(
     let history = &state.query_history;
     let panel = history.path.is_some().then(|| HistoryPanel {
         ui: &history.ui,
-        listing: target.as_ref().map(|(connection, db, collection)| {
-            crate::viewmodel::query_history::listing(
-                &history.store,
-                (*connection, db, collection),
-                &history.ui.search,
-            )
+        listing: target.map(|(connection, db, collection)| {
+            Box::new(move || {
+                crate::viewmodel::query_history::listing(
+                    &history.store,
+                    (connection, &db, &collection),
+                    &history.ui.search,
+                )
+            }) as Box<dyn Fn() -> _>
         }),
         now: now_secs,
         remembering: history.recording(),

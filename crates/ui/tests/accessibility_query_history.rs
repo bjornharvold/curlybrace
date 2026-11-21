@@ -116,25 +116,25 @@ fn open(state: Frame, size: (f32, f32)) -> Harness<'static, Frame> {
                     installed = true;
                 }
                 let hints = HintListUi::default().unavailable();
-                let panel = HistoryPanel {
-                    ui: &frame.history,
-                    listing: frame.collection.then(|| {
-                        listing(
-                            &frame.store,
-                            (CONN, "shop", "orders"),
-                            &frame.history.search,
-                        )
-                    }),
-                    now: NOW,
-                    remembering: frame.remembering,
+                let actions = {
+                    let panel = HistoryPanel {
+                        ui: &frame.history,
+                        listing: frame.collection.then(|| {
+                            let (store, search) = (&frame.store, &frame.history.search);
+                            Box::new(move || listing(store, (CONN, "shop", "orders"), search))
+                                as Box<dyn Fn() -> _>
+                        }),
+                        now: NOW,
+                        remembering: frame.remembering,
+                    };
+                    show_findbar_history(
+                        ui,
+                        &mut frame.bar,
+                        (false, false),
+                        (&hints, Some(&panel)),
+                        &I18n::english(),
+                    )
                 };
-                let actions = show_findbar_history(
-                    ui,
-                    &mut frame.bar,
-                    (false, false),
-                    (&hints, Some(&panel)),
-                    &I18n::english(),
-                );
                 for action in &actions {
                     if let FindAction::History(HistoryAction::Search(search)) = action {
                         frame.history.search = search.clone();
@@ -363,9 +363,9 @@ fn typing_in_the_search_keeps_the_popup_open_and_announces_the_match_count() {
 
 #[test]
 fn a_search_with_no_match_says_so() {
-    let mut state = frame(sample());
-    state.history.search = "zzz".into();
-    let harness = opened(state, STANDARD);
+    let mut harness = opened(frame(sample()), STANDARD);
+    harness.state_mut().history.search = "zzz".into();
+    harness.run_steps(3);
     harness.get_by_label(&t("history.matches_none"));
 }
 

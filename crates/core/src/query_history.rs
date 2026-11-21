@@ -20,6 +20,9 @@ pub const MAX_NAME_CHARS: usize = NAME_LIMIT;
 pub const MAX_HISTORY_PER_NAMESPACE: usize = 100;
 /// Most favourites one connection may keep.
 pub const MAX_FAVOURITES_PER_CONNECTION: usize = 100;
+/// Most the favourites of the whole store may take in the file (5 MiB, the file's own limit,
+/// less room for what else it holds).
+pub const FAVOURITES_BYTES: usize = 5 * 1024 * 1024 - 512 * 1024;
 /// Most text, in bytes, one query may hold (256 KiB); a longer one is not recorded.
 pub const MAX_ENTRY_BYTES: usize = 256 * 1024;
 
@@ -387,6 +390,9 @@ impl QueryHistory {
         if self.favourites(connection).len() >= MAX_FAVOURITES_PER_CONNECTION {
             return Err(SavedError::TooMany);
         }
+        if self.favourites_too_big_with(&text) {
+            return Err(SavedError::TooLarge);
+        }
         let favourite = Favourite {
             id,
             name,
@@ -456,6 +462,24 @@ impl QueryHistory {
     /// Whether finds that are run are recorded (the "Remember queries" switch).
     pub fn remembering(&self) -> bool {
         self.remember
+    }
+
+    /// Whether every favourite of the store, with one more of this `text`, would pass
+    /// [`FAVOURITES_BYTES`] as the file prints them. A save never trims favourites to fit, so
+    /// the file would not be written at all: the favourite is refused instead. Measured exactly
+    /// only when the text alone could come near the bound (JSON text takes at most six times
+    /// its length).
+    fn favourites_too_big_with(&self, text: &FindText) -> bool {
+        let all = || self.favourites.values().flatten();
+        let raw: usize = all().map(|f| f.text.bytes()).sum::<usize>() + text.bytes();
+        if raw.saturating_mul(6) <= FAVOURITES_BYTES {
+            return false;
+        }
+        let printed: usize = all()
+            .map(|f| serde_json::to_vec_pretty(f).map_or(0, |b| b.len() + 16))
+            .sum();
+        let new = serde_json::to_vec_pretty(text).map_or(0, |b| b.len() + 512);
+        printed + new > FAVOURITES_BYTES
     }
 
     /// The switch's flag set without touching the history: for a store that has none to lose

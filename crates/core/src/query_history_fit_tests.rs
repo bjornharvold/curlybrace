@@ -73,6 +73,38 @@ fn dropping_more_than_there_is_empties_the_history_and_keeps_favourites() {
 }
 
 #[test]
+fn favourites_are_refused_before_they_could_not_be_written_together() {
+    let c = conn_of(0);
+    let big = |i: usize| text(&format!("{i}{}", "x".repeat(250 * 1024)));
+    let mut s = QueryHistory::default();
+    let mut refused = None;
+    for i in 0..30 {
+        match s.starred(c, "shop", "c0", &format!("f{i}"), big(i), 1) {
+            Ok(next) => s = next,
+            Err(e) => {
+                refused = Some((i, e));
+                break;
+            }
+        }
+    }
+    let (at, error) = refused.expect("a limit is reached");
+    assert_eq!(error, SavedError::TooLarge);
+    assert!((15..=21).contains(&at), "after about 4.5 MiB: {at}");
+    let printed = serde_json::to_vec_pretty(&s).unwrap().len();
+    assert!(printed <= 5 * 1024 * 1024, "{printed} bytes fit the file");
+}
+
+#[test]
+fn many_small_favourites_are_not_measured_and_not_refused() {
+    let c = conn_of(0);
+    let s = (0..100).fold(QueryHistory::default(), |s, i| {
+        s.starred(c, "shop", "c0", &format!("f{i}"), text("{}"), 1)
+            .unwrap()
+    });
+    assert_eq!(s.favourites(c).len(), 100);
+}
+
+#[test]
 fn an_id_that_is_already_a_favourite_is_refused() {
     let id = Uuid::from_u128(9);
     let c = conn_of(0);
