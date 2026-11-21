@@ -369,6 +369,10 @@ impl QueryHistory {
         if text.bytes() > MAX_ENTRY_BYTES {
             return Err(SavedError::TooLarge);
         }
+        // A repeated id would make the next load refuse the whole file.
+        if self.favourites(connection).iter().any(|f| f.id == id) {
+            return Err(SavedError::NameTaken);
+        }
         if self.name_taken(connection, db, collection, &name, None) {
             return Err(SavedError::NameTaken);
         }
@@ -442,11 +446,16 @@ impl QueryHistory {
     }
 
     /// The switch set. Off erases the history at once (it is the person's typed text);
-    /// favourites stay because they were made on purpose. On starts from an empty history.
+    /// favourites stay because they were made on purpose. On keeps what is there (nothing, after
+    /// an off; or what another window wrote meanwhile) and records from now.
     pub fn with_remembering(&self, on: bool) -> Self {
+        let kept = match on {
+            true => self.clone(),
+            false => self.history_erased(),
+        };
         Self {
             remember: on,
-            ..self.history_erased()
+            ..kept
         }
     }
 

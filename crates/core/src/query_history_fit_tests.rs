@@ -73,6 +73,26 @@ fn dropping_more_than_there_is_empties_the_history_and_keeps_favourites() {
 }
 
 #[test]
+fn an_id_that_is_already_a_favourite_is_refused() {
+    let id = Uuid::from_u128(9);
+    let c = conn_of(0);
+    let s = QueryHistory::default()
+        .starred_with_id(id, c, "shop", "c0", "one", text("a"), 1)
+        .unwrap();
+    assert_eq!(
+        s.starred_with_id(id, c, "shop", "c1", "two", text("b"), 2),
+        Err(SavedError::NameTaken)
+    );
+}
+
+#[test]
+fn switching_on_keeps_the_history_that_is_there() {
+    let s = many(5).with_remembering(true);
+    assert_eq!(s.history_len(), 5);
+    assert_eq!(many(5).with_remembering(false).history_len(), 0);
+}
+
+#[test]
 fn a_favourite_can_be_saved_under_an_id_that_stays_the_same() {
     let id = Uuid::from_u128(4242);
     let c = conn_of(0);

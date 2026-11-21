@@ -166,11 +166,16 @@ impl CurlybraceApp {
         if let Some(wait) = self.state.workspace_step(now) {
             ctx.request_repaint_after(wait);
         }
+        // The query history's failed write is tried again on this same per-frame beat.
+        if let Some(wait) = self.state.query_history_tick(now) {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     /// Writes the tabs as they are, without waiting (the app is closing).
     pub fn save_workspace_now(&mut self) {
         self.state.workspace_flush();
+        self.state.query_history_flush_now();
     }
 }
 

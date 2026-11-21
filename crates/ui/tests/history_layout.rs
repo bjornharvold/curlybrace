@@ -145,6 +145,22 @@ fn without_a_settings_folder_there_is_no_history_button() {
 }
 
 #[test]
+fn a_paused_history_says_nothing_is_recorded_in_the_popup() {
+    let mut page = browse(SHOT_SIZE, |state| {
+        let path = support::history_shots::history_file();
+        std::fs::write(&path, "{ nope").unwrap();
+        browsing(curlybrace_ui::viewmodel::ViewMode::Table)(state);
+        *state = std::mem::take(state).with_query_history_path(Ok(path));
+    });
+    page.harness
+        .get_by_role_and_label(Role::Button, &t("history.button"))
+        .click();
+    page.harness.run_steps(4);
+    let off = t("history.empty.recent_off");
+    page.harness.get_by_label(&off);
+}
+
+#[test]
 fn the_popup_opens_inside_the_window_at_both_sizes() {
     for size in [SHOT_SIZE, (800.0, 500.0)] {
         let mut page = browse(size, history_page);

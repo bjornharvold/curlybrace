@@ -162,9 +162,15 @@ pub struct QueryHistoryState {
 /// The most recordings kept waiting for the file after a failed write.
 const MAX_PENDING_RECORDS: usize = 32;
 
-/// What the failed write saw: the number of changes made and the size and time of the file.
+/// How long a failed write waits before it is tried again with nothing having changed (the
+/// cause may be gone: a full disk freed, a folder made writable).
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What the failed write saw: the number of changes made, the size and time of the file and
+/// when it failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Stall {
+    at: std::time::Instant,
     revision: u64,
     file: Option<(u64, Option<std::time::SystemTime>)>,
 }
@@ -282,7 +288,7 @@ impl AppState {
                 let qh = &mut *self.query_history;
                 (qh.failing, qh.logged, qh.stalled) = (false, false, None);
                 if std::mem::take(&mut qh.replay_dropped) {
-                    self.query_history_announced(&HistorySaveError::ReplayDropped);
+                    self.query_history_noticed(&HistorySaveError::ReplayDropped);
                 }
             }
             Err(e) => self.query_history_failed(&e, &path),
@@ -300,6 +306,10 @@ impl AppState {
 
     fn query_history_try(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
         let qh = &mut *self.query_history;
+        // While paused the person has not said they want queries kept: what is written says off.
+        if qh.paused {
+            qh.store = qh.store.with_remembering(false);
+        }
         let written = store::saved(path, &qh.guard, qh.seen, &qh.store)?;
         qh.store = written.store;
         qh.seen = written.stamp;
@@ -349,10 +359,43 @@ impl AppState {
     fn query_history_failed(&mut self, error: &HistorySaveError, path: &std::path::Path) {
         let qh = &mut *self.query_history;
         qh.stalled = Some(Stall {
+            at: std::time::Instant::now(),
             revision: qh.revision,
             file: file_signature(path),
         });
         self.query_history_announced(error);
+    }
+
+    /// A notice that is not a failure streak: shown when the banner slot is free, and touching
+    /// none of the flags a streak uses (the next real failure is announced as usual).
+    fn query_history_noticed(&mut self, error: &HistorySaveError) {
+        log::warn!("query history notice: {error:?}");
+        if self.banner.is_none() {
+            self.banner = Some(Banner::QueryHistoryPersist(error.clone()));
+        }
+    }
+
+    /// The write is tried again once it has been failing for [`RETRY_AFTER`], with nothing
+    /// changed; gives how long to wait before looking again while one is waiting. Called every
+    /// frame; costs a comparison.
+    pub(super) fn query_history_tick(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Option<std::time::Duration> {
+        let at = self.query_history.stalled.as_ref()?.at;
+        let waited = now.saturating_duration_since(at);
+        if waited < RETRY_AFTER {
+            return Some(RETRY_AFTER - waited);
+        }
+        self.query_history.stalled = None;
+        self.query_history_flush();
+        self.query_history.stalled.as_ref().map(|_| RETRY_AFTER)
+    }
+
+    /// The app is closing: whatever waits is tried once more, whatever failed before.
+    pub(super) fn query_history_flush_now(&mut self) {
+        self.query_history.stalled = None;
+        self.query_history_flush();
     }
 
     fn query_history_announced(&mut self, error: &HistorySaveError) {
@@ -424,6 +467,21 @@ impl CurlybraceApp {
 }
 
 impl AppState {
+    /// Recording is switched on after the file could not be read at launch: when the file now
+    /// holds a valid history (another window repaired it) that is the base and nothing of it is
+    /// lost; when it is still the damaged one the history starts empty and the file is replaced.
+    fn query_history_resumed(&mut self) {
+        let Some(path) = self.query_history.path.clone() else {
+            return;
+        };
+        if let store::Reload::Usable(found, seen) = store::reloaded(&path) {
+            if seen != super::pipelines_store::DiskStamp::default() {
+                self.query_history.store = found;
+                self.query_history.seen = seen;
+            }
+        }
+    }
+
     /// [`Self::query_history_apply`] for a change that cannot be refused.
     fn query_history_apply_infallible(&mut self, op: Op) {
         if let Err(e) = self.query_history_apply(op) {
@@ -467,6 +525,8 @@ pub(super) fn bar_of(text: &FindText) -> FindBarState {
 /// bar no longer parses to `query` (it was edited while a guard check held the find back) the
 /// text is not what was sent, so nothing is recorded.
 pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
+    // A find that goes out is a reason to try a failed write again, recording or not.
+    state.query_history.stalled = None;
     if !state.query_history.recording() {
         return state;
     }
@@ -495,10 +555,13 @@ pub(super) fn recorded(mut state: AppState, query: &Query) -> AppState {
 /// at the next write; its backup copy was made at launch). When saving is off (a newer file, a
 /// failed backup) the switch applies for this run and the banner says the file is not updated.
 pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
+    if std::mem::take(&mut state.query_history.paused) && on {
+        state.query_history_resumed();
+    }
     state.query_history_apply_infallible(Op::Remember(on));
-    // A person's choice, whatever the file said: and written even when the setting looks the same
-    // as what is in memory (the file may not say it).
-    if std::mem::take(&mut state.query_history.paused) || state.query_history.pending.is_empty() {
+    // A person's choice, whatever the file said: written even when the setting looks the same as
+    // what is in memory (the file may not say it).
+    if state.query_history.pending.is_empty() {
         state.query_history.queued(Op::Remember(on));
     }
     if !on {
@@ -704,3 +767,7 @@ mod log_tests;
 #[cfg(test)]
 #[path = "query_history_review_tests.rs"]
 mod review_tests;
+
+#[cfg(test)]
+#[path = "query_history_second_tests.rs"]
+mod second_tests;

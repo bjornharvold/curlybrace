@@ -129,7 +129,7 @@ pub(super) fn show_pane(
             )
         }),
         now: now_secs,
-        remembering: history.store.remembering(),
+        remembering: history.recording(),
     });
     let actions = ui
         .push_id(salt, |ui| {
