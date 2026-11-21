@@ -65,6 +65,8 @@ pub enum FindAction {
     /// Create index... in the verdict popup: open the index builder with the suggestion of the
     /// verdict on screen.
     CreateSuggestedIndex,
+    /// Something in the History popup or its dialogs (#72). Needs no connection.
+    History(super::query_history::HistoryAction),
 }
 
 /// A raw user gesture on the find bar, before validation.

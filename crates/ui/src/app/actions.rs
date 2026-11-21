@@ -185,6 +185,10 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
         let open = super::CodeAction::Open(super::CodeSource::Find);
         return super::code_export_actions::on_action(state, open);
     }
+    // The History popup works on the stored queries, so it needs no connection either.
+    if let FindAction::History(action) = action {
+        return super::query_history_app::on_action(state, action);
+    }
     // Opens the index builder; `open_with` gates it on a connection and refuses a read-only one.
     if let FindAction::CreateSuggestedIndex = action {
         return super::verdict_create::create_index(state);
@@ -206,6 +210,7 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
         FindAction::SetAutomaticVerdict(_)
         | FindAction::SetGuard(_)
         | FindAction::GuardCancel
+        | FindAction::History(_)
         | FindAction::CreateSuggestedIndex => (s, Vec::new()),
         FindAction::Clear => {
             let s = AppState {

@@ -311,9 +311,17 @@ pub fn show_modals(
     show_write_warning_modal(ctx, state, i18n, out);
     show_copy(ctx, state, i18n, out);
     out.extend(
-        show_tools_settings(ctx, &state.tools, state.restore.restore, i18n)
-            .into_iter()
-            .map(|a| UiEvent::Input(Input::Tools(a))),
+        show_tools_settings(
+            ctx,
+            &state.tools,
+            (
+                state.restore.restore,
+                state.query_history.store.remembering(),
+            ),
+            i18n,
+        )
+        .into_iter()
+        .map(|a| UiEvent::Input(Input::Tools(a))),
     );
     if let Some(copies) = &state.copies {
         let folder = state.snapshot_dir.as_deref();

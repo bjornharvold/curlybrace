@@ -70,6 +70,8 @@ pub mod queries;
 pub mod queries_chart;
 pub mod queries_consent;
 pub mod queries_rows;
+pub mod query_history;
+pub mod query_history_dialogs;
 pub mod saved_copies;
 pub mod shell;
 mod shell_complete;

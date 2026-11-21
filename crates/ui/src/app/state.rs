@@ -317,6 +317,9 @@ pub struct AppState {
     pub pipelines_guard: PersistGuard,
     /// What this window last read from or wrote to `pipelines.json`, to notice another window.
     pub pipelines_seen: super::pipelines_store::DiskStamp,
+    /// The query history and favourites, and the file they are kept in (see
+    /// `query_history_app`). Boxed: `AppState` is moved by value through every reducer step.
+    pub query_history: Box<super::query_history_app::QueryHistoryState>,
     /// The `PATH` a `PATH` tool choice is searched in: the process's own plus the usual install
     /// folders in the app; `None` (no search at all) by default, so tests never find a program of
     /// the machine they run on.

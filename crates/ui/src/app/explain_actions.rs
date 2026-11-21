@@ -125,6 +125,9 @@ pub(super) fn run(state: AppState, query: Query, explain_enabled: bool) -> super
     else {
         return (state, commands);
     };
+    // The one place a find the person asked for goes out: Previous, Next and Clear page or reset
+    // through `issue_find` and are not queries to remember.
+    let state = super::query_history_app::recorded(state, &query);
     if !explain_enabled {
         return (
             AppState {

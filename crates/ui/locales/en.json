@@ -1395,6 +1395,64 @@
     "message": "Remove the saved SSH host key for {host}:{port}? You will be asked to trust the host's key again on the next connection.",
     "title": "Forget SSH host"
   },
+  "history": {
+    "button": "History",
+    "button_hint": "Recent and favourite queries of this collection. Loading one fills the query bar and does not run it.",
+    "button_icon": "↺",
+    "button_no_collection": "Select a collection to see its history.",
+    "clear": "Clear history",
+    "delete": "Delete",
+    "delete_n": "Delete favourite {name}",
+    "dialog": {
+      "clear_confirm": "Clear",
+      "clear_message": "Remove every recent query of this collection? Favourites are kept.",
+      "clear_title": "Clear history",
+      "delete_confirm": "Delete",
+      "delete_message": "Delete the favourite {name}? Recent queries are not changed.",
+      "delete_title": "Delete favourite",
+      "name_label": "Name",
+      "rename_confirm": "Rename",
+      "rename_title": "Rename favourite",
+      "star_confirm": "Save",
+      "star_title": "Save as favourite"
+    },
+    "empty": {
+      "favourites": "No favourites for this collection yet. Use Save as favourite on a recent query.",
+      "recent": "Nothing has been run in this collection yet.",
+      "recent_off": "Remember queries is off, so nothing is recorded. Turn it on in the settings."
+    },
+    "error": {
+      "empty_name": "Enter a name.",
+      "invalid_name": "A name cannot contain line breaks or other control characters.",
+      "name_taken": "A favourite with this name already exists for this collection.",
+      "name_too_long": "A name can have at most 80 characters.",
+      "too_large": "This query is too large to save as a favourite.",
+      "too_many": "A connection can keep at most 100 favourites. Delete one first.",
+      "unusable": "This query cannot be saved."
+    },
+    "matches_many": "{n} matches",
+    "matches_none": "No matches",
+    "matches_one": "1 match",
+    "privacy": "Queries are stored as typed on this computer and may contain personal values.",
+    "rename": "Rename",
+    "rename_n": "Rename favourite {name}",
+    "row": {
+      "load": "Load query {text}",
+      "load_favourite": "Load favourite {name}: {text}",
+      "no_filter": "(no filter)"
+    },
+    "search": "Search queries",
+    "search_hint": "Name or query text",
+    "section": {
+      "favourites": "Favourites",
+      "recent": "Recent"
+    },
+    "setting": "Remember queries",
+    "setting_hint": "Keeps the queries you run so you can load them again. Queries are stored as typed on this computer and may contain personal values. Turning this off erases the recent queries; favourites are kept.",
+    "star": "Save as favourite",
+    "star_n": "Save query {text} as favourite",
+    "title": "History"
+  },
   "hostkey": {
     "fingerprint": "SHA256 fingerprint",
     "for_connection": "For connection {name}",

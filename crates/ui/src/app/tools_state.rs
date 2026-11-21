@@ -70,6 +70,8 @@ pub enum ToolsAction {
     },
     /// The "Reopen tabs at launch" switch of the same dialog.
     SetRestore(bool),
+    /// The "Remember queries" switch of the same dialog (#72).
+    SetRememberQueries(bool),
     /// The answer of check number `request`.
     Probed {
         scope: ProbeScope,

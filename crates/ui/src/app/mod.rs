@@ -71,6 +71,7 @@ mod pipelines_app;
 pub mod pipelines_store;
 mod queries_actions;
 mod queries_create;
+mod query_history_app;
 pub mod query_history_store;
 pub mod reducer;
 mod reducer_dispatch;
@@ -274,6 +275,7 @@ impl CurlybraceApp {
             .with_explain_path(default_explain_path())
             .with_tools_path(default_tools_path())
             .with_pipelines_path(default_pipelines_path())
+            .with_query_history_path(query_history_store::default_query_history_path())
             .with_workspace_path(workspace_file::default_workspace_path())
     }
 
@@ -406,6 +408,7 @@ impl CurlybraceApp {
             self.save_explain();
         }
         self.tools_changed(tools_before);
+        self.state.query_history_flush();
         self.state = std::mem::take(&mut self.state).with_queued_recovery_shown();
         self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled

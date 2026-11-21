@@ -146,6 +146,8 @@ impl CurlybraceApp {
                 .iter()
                 .fold(store.clone(), |store, id| store.without_connection(*id))
         });
+        // The query history follows the same rule: only a delete that reached the disk.
+        self.forget_queries_of_removed(saved, before);
     }
 
     /// A duplicate starts with the pipelines of the connection it was copied from.
@@ -159,5 +161,6 @@ impl CurlybraceApp {
                 store.with_connection_copied(source, *id)
             })
         });
+        self.copy_queries_to_new(source, before);
     }
 }

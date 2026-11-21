@@ -34,7 +34,7 @@ fn harness(tools: ToolsState) -> Harness<'static, Run> {
                 run.actions.extend(show_tools_settings(
                     ctx,
                     &run.tools,
-                    run.restore,
+                    (run.restore, true),
                     &I18n::english(),
                 ));
             },
@@ -301,6 +301,37 @@ fn switch_is_named_and_keyboard_operable() {
     assert_eq!(
         harness.state().actions,
         vec![ToolsAction::SetRestore(false)]
+    );
+}
+
+#[test]
+fn remember_queries_is_named_described_with_the_privacy_text_and_keyboard_operable() {
+    let mut harness = harness(opened());
+    let label = t("history.setting");
+    let hint = t("history.setting_hint");
+    let privacy = t("history.privacy");
+    let switch = harness.get_by_role_and_label(Role::CheckBox, &label);
+    assert_eq!(
+        switch.accesskit_node().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    assert_eq!(
+        switch.accesskit_node().description().as_deref(),
+        Some(hint.as_str())
+    );
+    assert!(
+        hint.contains("personal values") && hint.contains("as typed"),
+        "the description says what is stored: {hint}"
+    );
+    // The privacy sentence is on screen too, not only in a tooltip.
+    harness.get_by_label(&privacy);
+    switch.focus();
+    harness.run_steps(2);
+    harness.key_press(egui::Key::Space);
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().actions,
+        vec![ToolsAction::SetRememberQueries(false)]
     );
 }
 

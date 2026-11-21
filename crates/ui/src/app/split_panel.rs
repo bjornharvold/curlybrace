@@ -8,7 +8,9 @@
 //! `Input::InTab` (the person touched the pane: it becomes the active one) or `Input::ForTab` (the
 //! pane acted alone, an automatic refresh: the focus stays), so they are applied in the tab and
 //! the connection that drew them.
-use super::browse_panel::{show_code_dialog_once, show_pane as show_page};
+use super::browse_panel::{
+    show_code_dialog_once, show_history_dialog_once, show_pane as show_page,
+};
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
@@ -43,6 +45,7 @@ pub(super) fn show_browse(
     }
     // The dialog is the app's, drawn once in every mode, before the page or the panes.
     show_code_dialog_once(ui.ctx(), state, i18n, out);
+    show_history_dialog_once(ui.ctx(), state, i18n, out);
     let Some(split) = state.tabs.split.clone() else {
         clear_pane_focus(ui.ctx());
         note_single(ui.ctx(), false);
