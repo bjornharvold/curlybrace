@@ -137,8 +137,6 @@ pub enum Recovery {
     },
     /// The query history file was written by a newer version: left as it is, saving is off.
     QueryHistoryNewer,
-    /// Recording was switched on after the file could not be read at launch.
-    QueryHistoryResumed,
 }
 
 impl Recovery {
@@ -201,7 +199,6 @@ impl Recovery {
             Self::QueryHistory { backed_up: true } => "persist.query_history_backed_up",
             Self::QueryHistory { backed_up: false } => "persist.query_history_backup_failed",
             Self::QueryHistoryNewer => "persist.query_history_newer",
-            Self::QueryHistoryResumed => "persist.query_history_resumed",
         }
     }
 }

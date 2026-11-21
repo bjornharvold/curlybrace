@@ -383,11 +383,7 @@ fn the_pause_notice_goes_when_another_windows_file_ends_the_pause() {
         .unwrap();
     a.dispatch(Input::ForgetCancelled);
     assert!(a.state().query_history.recording());
-    assert_eq!(
-        a.state().banner,
-        Some(Banner::Recovery(Recovery::QueryHistoryResumed)),
-        "the stale notice is replaced"
-    );
+    assert_eq!(a.state().banner, None, "the stale notice is gone");
 }
 
 #[test]
@@ -403,11 +399,7 @@ fn a_pause_notice_waiting_behind_another_banner_goes_when_switching_on() {
     ));
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
     a.dispatch(Input::DismissBanner);
-    assert_eq!(
-        a.state().banner,
-        Some(Banner::Recovery(Recovery::QueryHistoryResumed)),
-        "the waiting notice became the short one"
-    );
+    assert_eq!(a.state().banner, None, "the waiting notice was dropped");
 }
 
 fn big_favourite(i: u128) -> Op {
@@ -549,10 +541,7 @@ fn switching_on_ends_the_pause_notice_too() {
     let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
     let mut a = a.with_query_history_path(Ok(file(&dir)));
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
-    assert_eq!(
-        a.state().banner,
-        Some(Banner::Recovery(Recovery::QueryHistoryResumed))
-    );
+    assert_eq!(a.state().banner, None);
 }
 
 #[test]
@@ -614,20 +603,100 @@ fn stubborn_backup(dir: &tempfile::TempDir) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_backup_that_cannot_be_deleted_is_told_and_the_notice_outlives_the_write() {
+fn a_backup_notice_outlives_the_write_that_ends_an_earlier_failure() {
     let dir = tempfile::tempdir().unwrap();
     let (mut a, _ka) = browsing_app(&dir);
+    // A write failure is announced (failing), then dismissed.
+    a.state_mut().query_history.guard = PersistGuard::blocked();
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    a.dispatch(Input::DismissBanner);
+    // Switching off with a backup that cannot be deleted: its notice takes the free slot.
     let bad = stubborn_backup(&dir);
     a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(
+            HistorySaveError::BackupsNotDeleted
+        ))
+    );
+    // The earlier failure ends: a write works while the deletion is still outstanding.
+    a.state_mut().query_history.guard = PersistGuard::default();
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(2), "two"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(
+        on_disk(&dir).favourites(EMBEDDED_SESSION).len(),
+        2,
+        "the write worked"
+    );
     assert!(bad.exists());
     assert_eq!(
         a.state().banner,
         Some(Banner::QueryHistoryPersist(
             HistorySaveError::BackupsNotDeleted
         )),
-        "the file was written, and the failure to delete is still shown"
+        "the notice about the backups is not the failure that ended"
     );
-    assert!(on_disk(&dir).history_len() == 0);
+}
+
+#[test]
+fn the_backup_notice_goes_when_the_deletion_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(a.state().banner.is_some());
+    std::fs::remove_dir_all(&bad).unwrap();
+    std::fs::write(&bad, "SECRET").unwrap();
+    a.state_mut()
+        .query_history_tick(Instant::now() + Duration::from_secs(31));
+    assert!(!bad.exists());
+    assert_eq!(a.state().banner, None, "its notice is taken down");
+}
+
+#[test]
+fn switching_on_cancels_a_wanted_deletion_and_its_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(a.state().banner.is_some());
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert_eq!(a.state().banner, None);
+    std::fs::remove_dir_all(&bad).unwrap();
+    std::fs::write(&bad, "KEEP").unwrap();
+    let wait = a
+        .state_mut()
+        .query_history_tick(Instant::now() + Duration::from_secs(31));
+    assert_eq!(wait, None, "nothing wanted any more");
+    assert!(bad.exists(), "and nothing deleted");
+}
+
+#[test]
+fn a_backup_notice_that_found_the_slot_taken_is_offered_again_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let _bad = stubborn_backup(&dir);
+    a.state_mut().banner = Some(Banner::NotConnected);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::NotConnected),
+        "the slot was taken"
+    );
+    a.dispatch(Input::DismissBanner);
+    a.state_mut()
+        .query_history_tick(Instant::now() + Duration::from_secs(31));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(
+            HistorySaveError::BackupsNotDeleted
+        ))
+    );
 }
 
 #[test]

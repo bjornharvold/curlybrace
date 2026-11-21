@@ -159,9 +159,10 @@ pub struct QueryHistoryState {
     purge_backups: bool,
     /// When the deletion of the backup copies is tried again after it failed.
     purge_retry_at: Option<std::time::Instant>,
-    /// The failure to delete them was shown (once per streak; a successful write of the file does
-    /// not end it, only the deletion does).
+    /// The failure to delete them was logged (once per streak).
     purge_announced: bool,
+    /// The notice of it was put on screen: offered again whenever the slot is free until then.
+    purge_shown: bool,
     /// A failed write was announced; no second banner until a write works.
     failing: bool,
 }
@@ -487,12 +488,7 @@ impl AppState {
         if !std::mem::replace(&mut self.query_history.logged, true) {
             log::warn!("could not save the query history: {error:?}");
         }
-        let slot_free = self.banner.is_none()
-            || matches!(
-                self.banner,
-                Some(Banner::Recovery(Recovery::QueryHistoryResumed))
-            );
-        if !self.query_history.failing && slot_free {
+        if !self.query_history.failing && self.banner.is_none() {
             self.query_history.failing = true;
             self.banner = Some(Banner::QueryHistoryPersist(error.clone()));
         }
@@ -511,16 +507,38 @@ impl AppState {
         }
         match store::remove_backups(&path) {
             Ok(()) => {
-                (qh.purge_backups, qh.purge_retry_at, qh.purge_announced) = (false, None, false);
+                self.query_history_purge_ended();
             }
             Err(e) => {
                 qh.purge_retry_at = Some(now + RETRY_AFTER);
                 if !std::mem::replace(&mut qh.purge_announced, true) {
                     log::warn!("could not delete the query history backups: {:?}", e);
-                    let notice = HistorySaveError::BackupsNotDeleted;
-                    self.query_history_noticed(&notice);
+                }
+                // Offered whenever the banner slot is free, until it has been on screen.
+                if !qh.purge_shown && self.banner.is_none() {
+                    qh.purge_shown = true;
+                    self.banner = Some(Banner::QueryHistoryPersist(
+                        HistorySaveError::BackupsNotDeleted,
+                    ));
                 }
             }
+        }
+    }
+
+    /// The deletion of the backups is over (it worked, or the switch went on and it is no longer
+    /// wanted): its notice goes, and only that notice.
+    fn query_history_purge_ended(&mut self) {
+        let qh = &mut *self.query_history;
+        (qh.purge_backups, qh.purge_retry_at) = (false, None);
+        (qh.purge_announced, qh.purge_shown) = (false, false);
+        let ours = matches!(
+            self.banner,
+            Some(Banner::QueryHistoryPersist(
+                HistorySaveError::BackupsNotDeleted
+            ))
+        );
+        if ours {
+            self.banner = None;
         }
     }
 
@@ -584,9 +602,6 @@ impl AppState {
     /// The pause ended (the person switched on, or another window's valid file was taken as the
     /// base): the notice that said nothing is recorded is no longer true.
     fn query_history_pause_ended(&mut self) {
-        let unreadable = |r: &Recovery| matches!(r, Recovery::QueryHistory { .. });
-        let told = matches!(&self.banner, Some(Banner::Recovery(r)) if unreadable(r))
-            || self.pending_recovery.iter().any(unreadable);
         let stale = matches!(
             self.banner,
             Some(Banner::Recovery(
@@ -603,11 +618,6 @@ impl AppState {
                 Recovery::QueryHistory { .. } | Recovery::QueryHistoryNewer
             )
         });
-        // The person was told the file could not be read and the history started empty: say
-        // once that recording is on again (a failure announced later takes the slot).
-        if told {
-            *self = std::mem::take(self).with_recovery_notice(Recovery::QueryHistoryResumed);
-        }
     }
 
     /// Applies `op` to this window's store when it can, and queues it either way: a change to a
@@ -705,8 +715,11 @@ pub(super) fn remember_set(mut state: AppState, on: bool) -> AppState {
     if state.query_history.pending.is_empty() {
         state.query_history.queued(Op::Remember(on));
     }
-    if !on {
-        state.query_history.purge_backups = true;
+    // Backups are deleted when the switch goes off, and only then: switching on cancels a
+    // deletion still wanted (and its notice).
+    match on {
+        false => state.query_history.purge_backups = true,
+        true => state.query_history_purge_ended(),
     }
     state
 }

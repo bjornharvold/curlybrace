@@ -1699,7 +1699,6 @@
     "query_history_newer": "The saved queries file was written by a newer version of Curlybrace and was left untouched. Queries are not saved, and nothing is recorded until you switch Remember queries on in the settings.",
     "query_history_no_folder": "There is no settings folder, so queries cannot be saved.",
     "query_history_replay_dropped": "Another window changed the saved queries at the same time, and one of your changes to the favourites could not be kept. Check your favourites.",
-    "query_history_resumed": "Remember queries is on again. The saved queries file could not be read earlier, so your history and favourites started empty.",
     "query_history_too_large": "Your favourite queries are too large to save together. Delete some and try again.",
     "query_history_write_failed": "Could not save your queries. They will not be there next time unless saving works again.",
     "read_failed": "Could not read the saved connections file.",
