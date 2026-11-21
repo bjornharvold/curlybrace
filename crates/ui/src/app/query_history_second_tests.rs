@@ -677,6 +677,59 @@ fn switching_on_cancels_a_wanted_deletion_and_its_notice() {
 }
 
 #[test]
+fn a_window_that_follows_a_file_saying_on_drops_its_backup_notice_and_deletion() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let (mut b, _kb) = browsing_app(&dir);
+    let bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(a.state().banner.is_some(), "the notice is up");
+    // The other window switches recording on again.
+    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert!(on_disk(&dir).remembering());
+    // The first window follows that file with its next change.
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(a.state().banner, None, "the notice would be false");
+    std::fs::remove_dir_all(&bad).unwrap();
+    std::fs::write(&bad, "KEEP").unwrap();
+    let wait = a
+        .state_mut()
+        .query_history_tick(Instant::now() + Duration::from_secs(31));
+    assert_eq!(wait, None);
+    assert!(bad.exists(), "and nothing is deleted any more");
+}
+
+#[test]
+fn a_dismissed_backup_notice_is_not_offered_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let _bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    assert!(a.state().banner.is_some());
+    a.dispatch(Input::DismissBanner);
+    for n in 1..=3 {
+        a.state_mut()
+            .query_history_tick(Instant::now() + Duration::from_secs(31 * n));
+        assert_eq!(a.state().banner, None, "tick {n}");
+    }
+}
+
+#[test]
+fn switching_on_leaves_an_unrelated_banner_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    let _bad = stubborn_backup(&dir);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(false)));
+    a.dispatch(Input::DismissBanner);
+    a.state_mut().banner = Some(Banner::NotConnected);
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert_eq!(a.state().banner, Some(Banner::NotConnected));
+}
+
+#[test]
 fn a_backup_notice_that_found_the_slot_taken_is_offered_again_later() {
     let dir = tempfile::tempdir().unwrap();
     let (mut a, _ka) = browsing_app(&dir);

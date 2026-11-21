@@ -388,8 +388,9 @@ impl AppState {
     /// this window are made again on top. A file that cannot be used is kept as a copy first; a
     /// copy that cannot be made blocks saving, so the file is never overwritten unseen.
     fn query_history_followed(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
+        let mut file_says_on = false;
         let qh = &mut *self.query_history;
-        match store::reloaded(path) {
+        let result = match store::reloaded(path) {
             Reload::Usable(base, seen) => {
                 let gone = seen == super::pipelines_store::DiskStamp::default();
                 // A file that is gone says nothing about the switch: this window's stays. One
@@ -409,6 +410,7 @@ impl AppState {
                 });
                 qh.replay_dropped |= dropped;
                 qh.seen = seen;
+                file_says_on = !gone && qh.store.remembering();
                 Ok(())
             }
             Reload::Unusable { seen, tag } => match persistence::back_up(path, tag) {
@@ -422,7 +424,13 @@ impl AppState {
                     Err(HistorySaveError::Blocked)
                 }
             },
+        };
+        // The file says recording is on (another window switched it on): backups are not
+        // deleted any more, and the notice about them would be false.
+        if file_says_on {
+            self.query_history_purge_ended();
         }
+        result
     }
 
     /// A write failed: no retry until something changes, one log line and one banner per streak.
