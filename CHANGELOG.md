@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.0](https://github.com/bjornharvold/curlybrace/compare/v0.17.0...v0.18.0) (2026-11-21)
+
+
+### Features
+
+* **restore:** reopen saved tabs after connecting, without running anything ([#159](https://github.com/bjornharvold/curlybrace/issues/159) slice 4) ([#199](https://github.com/bjornharvold/curlybrace/issues/199)) ([1cdda1b](https://github.com/bjornharvold/curlybrace/commit/1cdda1b3d6e5b05ebd7845ebfac0c7d35ebbed49))
+* **split:** two tabs side by side with a divider ([#159](https://github.com/bjornharvold/curlybrace/issues/159) slice 3) ([#190](https://github.com/bjornharvold/curlybrace/issues/190)) ([6817dc3](https://github.com/bjornharvold/curlybrace/commit/6817dc3d78da521db0f330ef37a5e8f00f0b1875))
+* **tabs:** the tab strip, dormant tabs and bounded pages ([#159](https://github.com/bjornharvold/curlybrace/issues/159) slice 2) ([#188](https://github.com/bjornharvold/curlybrace/issues/188)) ([eb8a167](https://github.com/bjornharvold/curlybrace/commit/eb8a167e32fd3ee6632dd7ee3d7e44ab941b83e8))
+
 ## [0.17.0](https://github.com/bjornharvold/curlybrace/compare/v0.16.0...v0.17.0) (2026-11-19)
 
 
