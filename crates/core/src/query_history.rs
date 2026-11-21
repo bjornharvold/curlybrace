@@ -448,6 +448,11 @@ impl QueryHistory {
         }
     }
 
+    /// No history and no favourites at all (the flag does not count).
+    pub fn is_empty(&self) -> bool {
+        self.history.is_empty() && self.favourites.is_empty()
+    }
+
     /// Whether finds that are run are recorded (the "Remember queries" switch).
     pub fn remembering(&self) -> bool {
         self.remember

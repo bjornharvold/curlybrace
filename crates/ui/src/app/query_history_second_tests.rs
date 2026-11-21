@@ -387,6 +387,154 @@ fn the_pause_notice_goes_when_another_windows_file_ends_the_pause() {
 }
 
 #[test]
+fn a_pause_notice_waiting_behind_another_banner_goes_when_switching_on() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("pipelines.json"), "{ nope").unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
+    let mut a = a.with_query_history_path(Ok(file(&dir)));
+    assert!(matches!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::Pipelines { .. }))
+    ));
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    a.dispatch(Input::DismissBanner);
+    assert_eq!(a.state().banner, None, "the waiting notice was dropped");
+}
+
+fn big_favourite(i: u128) -> Op {
+    Op::Star {
+        id: Uuid::from_u128(1000 + i),
+        connection: EMBEDDED_SESSION,
+        db: "app".into(),
+        collection: "people".into(),
+        name: format!("big {i}"),
+        text: Box::new(text(&"x".repeat(240 * 1024))),
+        now: 1,
+    }
+}
+
+#[test]
+fn a_write_failure_after_the_pause_ended_is_announced_not_blocked_by_the_old_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
+    let mut a = a.with_query_history_path(Ok(file(&dir)));
+    let (mut b, _kb) = browsing_app(&dir);
+    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    // Each window's favourites fit alone; together they do not fit in the file.
+    for i in 0..11 {
+        b.state_mut().query_history_apply(big_favourite(i)).unwrap();
+    }
+    b.dispatch(Input::ForgetCancelled);
+    for i in 11..22 {
+        a.state_mut().query_history_apply(big_favourite(i)).unwrap();
+    }
+    a.dispatch(Input::ForgetCancelled);
+    assert!(a.state().query_history.recording(), "the pause ended");
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::TooLarge)),
+        "the failure is shown, not the stale notice"
+    );
+}
+
+#[test]
+fn a_newer_version_banner_goes_when_a_later_write_works() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        file(&dir),
+        "{\"version\": 99, \"history\": [], \"favourites\": []}",
+    )
+    .unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::NewerVersion))
+    );
+    // The file is replaced by a valid one; the next change is written.
+    std::fs::write(
+        file(&dir),
+        "{\"version\": 1, \"history\": [], \"favourites\": []}\n",
+    )
+    .unwrap();
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(2), "two"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(a.state().banner, None, "the stale failure is gone");
+    assert_eq!(on_disk(&dir).favourites(EMBEDDED_SESSION).len(), 2);
+}
+
+#[test]
+fn a_connection_change_that_changes_nothing_creates_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert!(
+        !file(&dir).exists(),
+        "a duplicate of one with no favourites"
+    );
+    a.dispatch_connection(ConnectionAction::Delete(cfg.id));
+    assert!(
+        !file(&dir).exists(),
+        "a delete of one that never had a query"
+    );
+}
+
+#[test]
+fn a_paused_window_leaves_the_damaged_file_alone_on_an_unrelated_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(file(&dir), "{ nope").unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    a.dispatch_connection(ConnectionAction::Delete(cfg.id));
+    assert_eq!(std::fs::read_to_string(file(&dir)).unwrap(), "{ nope");
+    // So the next launch says again that the file was damaged.
+    let (b, _kb) = app_with_connection(&dir, &cfg);
+    assert!(matches!(
+        b.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistory { .. }))
+    ));
+}
+
+thread_local! {
+    static READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A file signature that is different at every look.
+fn changing_signature(_: &std::path::Path) -> super::Sig {
+    READS.with(|reads| {
+        let n = reads.get();
+        reads.set(n + 1);
+        Some((n, None))
+    })
+}
+
+#[test]
+fn a_failure_is_remembered_against_the_file_as_it_was_before_the_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, _ka) = browsing_app(&dir);
+    a.state_mut().query_history.signature_reader = Some(changing_signature);
+    a.state_mut().query_history.guard = PersistGuard::blocked();
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    let stall = a.state().query_history.stalled.clone().expect("it failed");
+    assert_eq!(
+        stall.file,
+        Some((0, None)),
+        "the first look, taken before the attempt, not a later one"
+    );
+}
+
+#[test]
 fn switching_on_ends_the_pause_notice_too() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(file(&dir), "{ nope").unwrap();

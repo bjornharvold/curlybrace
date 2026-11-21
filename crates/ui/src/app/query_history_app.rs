@@ -151,6 +151,8 @@ pub struct QueryHistoryState {
     paused: bool,
     /// A change made again on top of another window's file was refused there.
     replay_dropped: bool,
+    /// Reads the file's signature; the real one when `None` (a test puts its own here).
+    signature_reader: Option<fn(&std::path::Path) -> Sig>,
     /// The failure of this streak was logged.
     logged: bool,
     /// The backup copies of the file are to be deleted (they hold query text).
@@ -161,6 +163,10 @@ pub struct QueryHistoryState {
 
 /// The most recordings kept waiting for the file after a failed write.
 const MAX_PENDING_RECORDS: usize = 32;
+
+fn file_signature_stamp(path: &std::path::Path) -> Option<super::pipelines_store::DiskStamp> {
+    super::pipelines_store::DiskStamp::read(path).ok()
+}
 
 /// How long a failed write waits before it is tried again with nothing having changed (the
 /// cause may be gone: a full disk freed, a folder made writable).
@@ -173,15 +179,25 @@ struct Stall {
     error: HistorySaveError,
     at: std::time::Instant,
     revision: u64,
-    file: Option<(u64, Option<std::time::SystemTime>)>,
+    file: Sig,
 }
 
-fn file_signature(path: &std::path::Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+/// The size and time of the file: what tells a look at it from the last one.
+type Sig = Option<(u64, Option<std::time::SystemTime>)>;
+
+fn file_signature(path: &std::path::Path) -> Sig {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.len(), meta.modified().ok()))
 }
 
 impl QueryHistoryState {
+    fn signature(&self, path: &std::path::Path) -> Sig {
+        match self.signature_reader {
+            Some(read) => read(path),
+            None => file_signature(path),
+        }
+    }
+
     /// Whether finds that are run are recorded: the setting is on and the file was readable.
     pub fn recording(&self) -> bool {
         self.store.remembering() && !self.paused
@@ -279,17 +295,29 @@ impl AppState {
         };
         // What the file was before this attempt: a failure is remembered against that, so a file
         // replaced while the attempt ran is seen as changed by the next look.
-        let before = file_signature(&path);
+        let before = self.query_history.signature(&path);
         if let Some(stall) = &self.query_history.stalled {
             if stall.revision == self.query_history.revision && stall.file == before {
                 return;
             }
         }
         let was_paused = self.query_history.paused;
-        match self.query_history_written(&path) {
+        let result = self.query_history_written(&path);
+        // Whatever the result: a pause that ended (another window's file was followed) must not
+        // leave its notice holding the banner slot a write failure needs.
+        if was_paused && !self.query_history.paused {
+            self.query_history_pause_ended();
+        }
+        match result {
             Ok(()) => {
-                if was_paused && !self.query_history.paused {
-                    self.query_history_pause_ended();
+                // A failure that was announced is over: its banner goes (a notice stays).
+                let over = self.query_history.failing
+                    && matches!(
+                        &self.banner,
+                        Some(Banner::QueryHistoryPersist(e)) if *e != HistorySaveError::ReplayDropped
+                    );
+                if over {
+                    self.banner = None;
                 }
                 let qh = &mut *self.query_history;
                 (qh.failing, qh.logged, qh.stalled) = (false, false, None);
@@ -301,7 +329,25 @@ impl AppState {
         }
     }
 
+    /// A change to a connection that changes nothing (a delete of one that never had a query, a
+    /// duplicate of one with no favourites) needs no write when the file is as this window last
+    /// saw it and there is nothing in this window's store: no file is created for a history that
+    /// was never used, and a damaged one is left to be reported again. Asked before the first
+    /// attempt only: after following another window's file an empty result must be written.
+    fn query_history_needless(&self, path: &std::path::Path) -> bool {
+        let qh = &*self.query_history;
+        let only_connections = qh
+            .pending
+            .iter()
+            .all(|op| matches!(op, Op::ForgetConnection(_) | Op::CopyConnection { .. }));
+        only_connections && qh.store.is_empty() && file_signature_stamp(path) == Some(qh.seen)
+    }
+
     fn query_history_written(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
+        if self.query_history_needless(path) {
+            self.query_history.pending.clear();
+            return Ok(());
+        }
         let first = self.query_history_try(path);
         if first != Err(HistorySaveError::ChangedOnDisk) {
             return first;
@@ -366,11 +412,7 @@ impl AppState {
     }
 
     /// A write failed: no retry until something changes, one log line and one banner per streak.
-    fn query_history_failed(
-        &mut self,
-        error: &HistorySaveError,
-        file: Option<(u64, Option<std::time::SystemTime>)>,
-    ) {
+    fn query_history_failed(&mut self, error: &HistorySaveError, file: Sig) {
         let qh = &mut *self.query_history;
         qh.stalled = Some(Stall {
             error: error.clone(),
@@ -500,6 +542,13 @@ impl AppState {
         if stale {
             self.banner = None;
         }
+        // One that is still waiting its turn is as stale.
+        self.pending_recovery.retain(|r| {
+            !matches!(
+                r,
+                Recovery::QueryHistory { .. } | Recovery::QueryHistoryNewer
+            )
+        });
     }
 
     /// Applies `op` to this window's store when it can, and queues it either way: a change to a
