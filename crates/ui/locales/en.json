@@ -320,7 +320,7 @@
         "too_large": "This pipeline is too large to save (the limit is {max} MB of stage text).",
         "too_many": "This connection already has {max} saved pipelines. Delete one first.",
         "unreadable_on_disk": "Another window left a saved pipelines file that cannot be read. A backup copy was kept next to it and the file was not changed. Nothing was saved: saving again replaces it with the pipelines in this window.",
-        "unsupported":"pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
+        "unsupported": "pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
       },
       "modified": "Modified",
       "name_label": "Pipeline name",
@@ -1633,6 +1633,14 @@
     "explain_backed_up": "The index check setting file was not readable, so the index check is on again. A backup copy was kept next to it; changing the setting will replace the original file.",
     "explain_backup_failed": "The index check setting file was not readable and a backup copy could not be made. The index check is on, and changes to the setting are not saved so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
+    "query_history_backed_up": "The saved queries file was not readable, so the query history and favourites start empty. A backup copy was kept next to it.",
+    "query_history_backup_failed": "The saved queries file was not readable and a backup copy could not be made. Queries are not saved so nothing is overwritten.",
+    "query_history_blocked": "Queries are not being saved, so the unreadable saved queries file is not overwritten.",
+    "query_history_changed": "Another window changed the saved queries. Try again.",
+    "query_history_newer": "The saved queries file was written by a newer version of Curlybrace and was left untouched. Queries are not saved.",
+    "query_history_no_folder": "There is no settings folder, so queries cannot be saved.",
+    "query_history_too_large": "Your favourite queries are too large to save together. Delete some and try again.",
+    "query_history_write_failed": "Could not save your queries. They will not be there next time unless saving works again.",
     "read_failed": "Could not read the saved connections file.",
     "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only). No connection was dropped; a backup copy of the original file was kept.",
     "repaired_backup_failed": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",

@@ -374,3 +374,44 @@ fn debug_output_never_contains_query_text_or_names() {
         assert!(!shown.contains(needle), "{needle} leaked: {shown}");
     }
 }
+
+#[test]
+fn remembering_is_on_by_default_and_a_file_without_the_flag_remembers() {
+    assert!(QueryHistory::default().remembering());
+    let loaded: QueryHistory =
+        serde_json::from_value(json!({"version": 1, "history": [], "favourites": []})).unwrap();
+    assert!(loaded.remembering());
+}
+
+#[test]
+fn switching_remembering_off_erases_history_keeps_favourites_and_records_nothing() {
+    let (c, db, coll) = ns();
+    let s = star(&record(&QueryHistory::default(), "a", 1), "keep", "a").unwrap();
+    let off = s.with_remembering(false);
+    assert!(!off.remembering());
+    assert_eq!(off.history_len(), 0);
+    assert_eq!(off.favourites(c).len(), 1);
+    let after = off.recorded(c, db, coll, text("b"), 2).unwrap();
+    assert_eq!(after, off, "nothing is recorded while off");
+    // Back on: starts empty, then records again.
+    let on = off.with_remembering(true);
+    assert_eq!(on.history_len(), 0);
+    assert_eq!(
+        on.recorded(c, db, coll, text("b"), 3)
+            .unwrap()
+            .history_len(),
+        1
+    );
+}
+
+#[test]
+fn the_flag_round_trips_and_an_off_file_holds_no_history() {
+    let s = star(&record(&QueryHistory::default(), "SECRET", 1), "n", "z")
+        .unwrap()
+        .with_remembering(false);
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(!json.contains("SECRET"));
+    let back: QueryHistory = serde_json::from_str(&json).unwrap();
+    assert!(!back.remembering());
+    assert_eq!(back, s);
+}

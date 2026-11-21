@@ -136,7 +136,7 @@ impl PipelinesSaveError {
 pub struct DiskStamp(Option<(usize, u64)>);
 
 impl DiskStamp {
-    fn of(bytes: &[u8]) -> Self {
+    pub(super) fn of(bytes: &[u8]) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut hasher);
         Self(Some((bytes.len(), hasher.finish())))

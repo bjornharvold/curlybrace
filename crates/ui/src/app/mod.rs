@@ -71,6 +71,7 @@ mod pipelines_app;
 pub mod pipelines_store;
 mod queries_actions;
 mod queries_create;
+pub mod query_history_store;
 pub mod reducer;
 mod reducer_dispatch;
 mod reducer_lost;

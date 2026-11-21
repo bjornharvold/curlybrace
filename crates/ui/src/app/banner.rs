@@ -18,6 +18,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         }
         Banner::WorkspacePersist(_) => (i18n.t("persist.workspace_write_failed"), None),
         Banner::PipelinesCleanup => (i18n.t("aggregate.saved.cleanup_failed"), None),
+        Banner::QueryHistoryPersist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
         Banner::Recovery(r) => (recovery_headline(r, i18n), None),
@@ -70,7 +71,9 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Pipelines { .. }
         | Recovery::PipelinesNewer
         | Recovery::Workspace { .. }
-        | Recovery::WorkspaceNewer => i18n.t(key),
+        | Recovery::WorkspaceNewer
+        | Recovery::QueryHistory { .. }
+        | Recovery::QueryHistoryNewer => i18n.t(key),
     }
 }
 
@@ -91,6 +94,7 @@ pub fn banner_level(banner: &Banner) -> BannerLevel {
         | Banner::ToolsPersist(_)
         | Banner::WorkspacePersist(_)
         | Banner::PipelinesCleanup
+        | Banner::QueryHistoryPersist(_)
         | Banner::ImportFailed(_)
         | Banner::ExportFailed(_) => BannerLevel::Error,
         Banner::HostForgotten | Banner::FieldsCovered => BannerLevel::Info,
@@ -158,6 +162,7 @@ mod tests {
     use super::*;
     use crate::app::connection_io::ImportError;
     use crate::app::persistence::PersistError;
+    use crate::app::query_history_store::HistorySaveError;
     use curlybrace_core::error::CoreError;
 
     fn resolved(b: &Banner) -> (String, Option<String>) {
@@ -186,6 +191,17 @@ mod tests {
             Banner::ToolsPersist(PersistError::ConfigDirUnknown),
             Banner::ToolsPersist(PersistError::Write(std::io::ErrorKind::Other)),
             Banner::PipelinesCleanup,
+            Banner::QueryHistoryPersist(HistorySaveError::Blocked),
+            Banner::QueryHistoryPersist(HistorySaveError::TooLarge),
+            Banner::QueryHistoryPersist(HistorySaveError::NewerVersion),
+            Banner::QueryHistoryPersist(HistorySaveError::ChangedOnDisk),
+            Banner::QueryHistoryPersist(HistorySaveError::Persist(PersistError::ConfigDirUnknown)),
+            Banner::QueryHistoryPersist(HistorySaveError::Persist(PersistError::Write(
+                std::io::ErrorKind::Other,
+            ))),
+            Banner::Recovery(Recovery::QueryHistory { backed_up: true }),
+            Banner::Recovery(Recovery::QueryHistory { backed_up: false }),
+            Banner::Recovery(Recovery::QueryHistoryNewer),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

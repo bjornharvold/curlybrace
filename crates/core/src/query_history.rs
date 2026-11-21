@@ -133,6 +133,13 @@ struct Wire {
     history: Vec<HistoryGroup>,
     #[serde(default)]
     favourites: Vec<FavouriteGroup>,
+    /// The "Remember queries" switch; a file without it remembers.
+    #[serde(default = "remembering_by_default")]
+    remember: bool,
+}
+
+fn remembering_by_default() -> bool {
+    true
 }
 
 fn first_version() -> u32 {
@@ -140,11 +147,22 @@ fn first_version() -> u32 {
 }
 
 /// Every connection's history and favourites. Within a list the newest comes first.
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Wire", into = "Wire")]
 pub struct QueryHistory {
     history: BTreeMap<NsKey, Vec<Entry>>,
     favourites: BTreeMap<Uuid, Vec<Favourite>>,
+    remember: bool,
+}
+
+impl Default for QueryHistory {
+    fn default() -> Self {
+        Self {
+            history: BTreeMap::new(),
+            favourites: BTreeMap::new(),
+            remember: true,
+        }
+    }
 }
 
 /// Only counts, for the same reason as [`FindText`].
@@ -179,6 +197,7 @@ impl From<QueryHistory> for Wire {
                 .into_iter()
                 .map(|(connection, items)| FavouriteGroup { connection, items })
                 .collect(),
+            remember: store.remember,
         }
     }
 }
@@ -212,8 +231,14 @@ impl TryFrom<Wire> for QueryHistory {
             }
         }
         Ok(Self {
-            history,
+            // A file that says off holds no history, whatever else it carries.
+            history: if wire.remember {
+                history
+            } else {
+                BTreeMap::new()
+            },
             favourites,
+            remember: wire.remember,
         })
     }
 }
@@ -286,7 +311,7 @@ impl QueryHistory {
         if text.bytes() > MAX_ENTRY_BYTES {
             return Err(SavedError::TooLarge);
         }
-        if text.is_blank() {
+        if text.is_blank() || !self.remember {
             return Ok(self.clone());
         }
         let entry = Entry {
@@ -383,7 +408,21 @@ impl QueryHistory {
     pub fn history_erased(&self) -> Self {
         Self {
             history: BTreeMap::new(),
-            favourites: self.favourites.clone(),
+            ..self.clone()
+        }
+    }
+
+    /// Whether finds that are run are recorded (the "Remember queries" switch).
+    pub fn remembering(&self) -> bool {
+        self.remember
+    }
+
+    /// The switch set. Off erases the history at once (it is the person's typed text);
+    /// favourites stay because they were made on purpose. On starts from an empty history.
+    pub fn with_remembering(&self, on: bool) -> Self {
+        Self {
+            remember: on,
+            ..self.history_erased()
         }
     }
 
@@ -402,6 +441,7 @@ impl QueryHistory {
                 .filter(|(id, _)| **id != connection)
                 .map(|(id, list)| (*id, list.clone()))
                 .collect(),
+            remember: self.remember,
         }
     }
 

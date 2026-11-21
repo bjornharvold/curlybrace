@@ -61,6 +61,8 @@ pub enum Banner {
     /// disk (even after one retry). The list was updated in this window; the file is corrected
     /// by the next successful save.
     PipelinesCleanup,
+    /// The query history file could not be written, or was refused (see `HistorySaveError`).
+    QueryHistoryPersist(super::query_history_store::HistorySaveError),
     /// The file chosen for import was refused. Says nothing about the saved list.
     ImportFailed(ImportError),
     /// Writing the export file failed. Says nothing about the saved list.
