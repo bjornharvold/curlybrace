@@ -250,14 +250,14 @@ fn a_duplicate_copies_favourites_but_not_history() {
     let (c, db, coll) = ns();
     let copy = Uuid::from_u128(5);
     let s = star(&record(&QueryHistory::default(), "a", 1), "n", "a").unwrap();
-    let dup = s.with_connection_copied(c, copy);
+    let dup = s.with_connection_copied(c, copy).unwrap();
     assert_eq!(dup.favourites(copy), s.favourites(c));
     assert!(dup.history(copy, db, coll).is_empty());
     assert_eq!(dup.history(c, db, coll).len(), 1);
     // A source with no favourites changes nothing.
     assert_eq!(
         dup.with_connection_copied(Uuid::from_u128(77), Uuid::from_u128(78)),
-        dup
+        Ok(dup.clone())
     );
 }
 

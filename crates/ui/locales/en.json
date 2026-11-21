@@ -1697,6 +1697,7 @@
     "query_history_backups_not_deleted": "Remember queries is off, but some backup copies of the saved queries file could not be deleted. They may hold queries you typed: delete the query_history.json.corrupt-* and query_history.json.unreadable-* files next to your connections file.",
     "query_history_blocked": "Queries are not being saved, so the unreadable saved queries file is not overwritten.",
     "query_history_changed": "Another window changed the saved queries. Try again.",
+    "query_history_copy_refused": "The new connection got no saved queries: your favourites are too large to store together. Delete some and duplicate again.",
     "query_history_newer": "The saved queries file was written by a newer version of Curlybrace and was left untouched. Queries are not saved, and nothing is recorded until you switch Remember queries on in the settings.",
     "query_history_no_folder": "There is no settings folder, so queries cannot be saved.",
     "query_history_replay_dropped": "Another window changed the saved queries at the same time, and one of your changes to the favourites could not be kept. Check your favourites.",

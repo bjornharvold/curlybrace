@@ -143,9 +143,10 @@ fn with_big_favourites(conn: usize, count: usize) -> impl Fn(QueryHistory) -> Qu
 fn a_copy_that_would_not_fit_with_everything_else_copies_nothing() {
     let s = with_big_favourites(1, 15)(with_big_favourites(0, 3)(QueryHistory::default()));
     assert!(s.favourites(conn_of(0)).len() == 3 && s.favourites(conn_of(1)).len() == 15);
-    let copied = s.with_connection_copied(conn_of(0), conn_of(2));
-    assert!(copied.favourites(conn_of(2)).is_empty());
-    assert_eq!(copied, s, "nothing changed");
+    assert_eq!(
+        s.with_connection_copied(conn_of(0), conn_of(2)),
+        Err(SavedError::FavouritesTooLarge)
+    );
     // Small ones are copied as ever.
     let small = QueryHistory::default()
         .starred(conn_of(0), "shop", "c0", "one", text("a"), 1)
@@ -153,6 +154,7 @@ fn a_copy_that_would_not_fit_with_everything_else_copies_nothing() {
     assert_eq!(
         small
             .with_connection_copied(conn_of(0), conn_of(2))
+            .unwrap()
             .favourites(conn_of(2))
             .len(),
         1

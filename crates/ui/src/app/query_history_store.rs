@@ -33,9 +33,24 @@ pub struct HistoryStartup {
     pub seen: DiskStamp,
 }
 
-/// Whether the file on disk is, right now, one written by a newer version.
+/// Whether the file on disk is, right now, one written by a newer version. Reads at most as much
+/// as a file of ours may be (a bigger one is not a readable file of any version).
 pub fn file_is_newer(path: &Path) -> bool {
-    std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes))
+    use std::io::Read;
+    #[cfg(test)]
+    NEWER_CHECKS.with(|n| n.set(n.get() + 1));
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    let read = file.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes);
+    read.is_ok() && bytes.len() <= MAX_FILE_BYTES && is_newer(&bytes)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times `file_is_newer` was asked, for the tests.
+    pub static NEWER_CHECKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 /// Reads the file once (see `settings_file::load` for the rules).
@@ -107,6 +122,9 @@ pub enum HistorySaveError {
     /// A change was made again on top of what another window wrote and was refused there (a
     /// name that window took, a full list): the person saw it succeed, so this says it did not.
     ReplayDropped,
+    /// A duplicated connection got none of the favourites of its source: they would not fit in
+    /// the file together with the others.
+    CopyRefused,
     /// The switch is off but some backup copies of the file (they can hold typed queries) could
     /// not be deleted.
     BackupsNotDeleted,
@@ -122,6 +140,7 @@ impl HistorySaveError {
             Self::NewerVersion => "persist.query_history_newer",
             Self::ChangedOnDisk => "persist.query_history_changed",
             Self::ReplayDropped => "persist.query_history_replay_dropped",
+            Self::CopyRefused => "persist.query_history_copy_refused",
             Self::BackupsNotDeleted => "persist.query_history_backups_not_deleted",
             Self::Persist(PersistError::ConfigDirUnknown) => "persist.query_history_no_folder",
             Self::Persist(_) => "persist.query_history_write_failed",

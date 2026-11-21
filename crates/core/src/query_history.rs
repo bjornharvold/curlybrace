@@ -532,12 +532,13 @@ impl QueryHistory {
     /// history. Unchanged when `from` has none.
     ///
     /// When the copies could not be written together with everything else (see
-    /// [`FAVOURITES_BYTES`]) none are made; the caller says so.
-    pub fn with_connection_copied(&self, from: Uuid, to: Uuid) -> Self {
+    /// [`FAVOURITES_BYTES`]) none are made and the refusal is `FavouritesTooLarge`, so a caller
+    /// (and a replay of the change on another file) can tell it from a copy of nothing.
+    pub fn with_connection_copied(&self, from: Uuid, to: Uuid) -> Result<Self, SavedError> {
         match self.favourites(from) {
-            [] => self.clone(),
-            list if self.favourites_too_big_with(list) => self.clone(),
-            list => self.with_favourites(to, list.to_vec()),
+            [] => Ok(self.clone()),
+            list if self.favourites_too_big_with(list) => Err(SavedError::FavouritesTooLarge),
+            list => Ok(self.with_favourites(to, list.to_vec())),
         }
     }
 

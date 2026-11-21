@@ -203,6 +203,7 @@ mod tests {
             Banner::Recovery(Recovery::QueryHistory { backed_up: false }),
             Banner::Recovery(Recovery::QueryHistoryNewer),
             Banner::QueryHistoryPersist(HistorySaveError::BackupsNotDeleted),
+            Banner::QueryHistoryPersist(HistorySaveError::CopyRefused),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

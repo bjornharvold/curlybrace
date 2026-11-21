@@ -119,7 +119,7 @@ impl Op {
             } => Ok(store.cleared(*connection, db, collection)),
             Self::Remember(on) => Ok(store.with_remembering(*on)),
             Self::ForgetConnection(id) => Ok(store.without_connection(*id)),
-            Self::CopyConnection { from, to } => Ok(store.with_connection_copied(*from, *to)),
+            Self::CopyConnection { from, to } => store.with_connection_copied(*from, *to),
         }
     }
 }
@@ -324,7 +324,9 @@ impl AppState {
                     && matches!(
                         &self.banner,
                         Some(Banner::QueryHistoryPersist(e))
-                            if !matches!(e, HistorySaveError::ReplayDropped | HistorySaveError::BackupsNotDeleted)
+                            if !matches!(e, HistorySaveError::ReplayDropped
+                                | HistorySaveError::BackupsNotDeleted
+                                | HistorySaveError::CopyRefused)
                     );
                 if over {
                     self.banner = None;
@@ -350,16 +352,20 @@ impl AppState {
             .pending
             .iter()
             .all(|op| matches!(op, Op::ForgetConnection(_) | Op::CopyConnection { .. }));
+        // The cheap questions first: the file is looked at only for a connection-only change
+        // that this window's empty store could not account for.
+        if !(only_connections && qh.store.is_empty()) {
+            return false;
+        }
         let stamp = file_signature_stamp(path);
         // No file at all: nothing to scrub. A file that is there is always rewritten (a delete
         // must take the connection's queries out of it, whatever this window's store holds
         // after the delete) except a damaged one this window could not read: there is nothing
         // it can scrub, and the notice should come back at the next launch.
-        let nothing_to_scrub = stamp == Some(super::pipelines_store::DiskStamp::default())
+        stamp == Some(super::pipelines_store::DiskStamp::default())
             || (qh.paused && stamp == Some(qh.seen))
             // Decided now, not at launch: the newer file may have been replaced since.
-            || (qh.newer_file && store::file_is_newer(path));
-        only_connections && qh.store.is_empty() && nothing_to_scrub
+            || (qh.newer_file && store::file_is_newer(path))
     }
 
     fn query_history_written(&mut self, path: &std::path::Path) -> Result<(), HistorySaveError> {
@@ -386,6 +392,8 @@ impl AppState {
         qh.store = written.store;
         qh.seen = written.stamp;
         qh.pending.clear();
+        // A file of ours is there now: it is no longer a newer one to leave alone.
+        qh.newer_file = false;
         Ok(())
     }
 
@@ -405,6 +413,7 @@ impl AppState {
                     false => base,
                 };
                 qh.paused &= gone;
+                qh.newer_file &= gone;
                 let mut dropped = false;
                 qh.store = qh.pending.iter().fold(base, |store, op| {
                     op.apply(&store).unwrap_or_else(|e| {
@@ -640,20 +649,18 @@ impl AppState {
     fn query_history_apply_queued(&mut self, op: Op) {
         match op.apply(&self.query_history.store) {
             Ok(next) => self.query_history.store = next,
-            Err(e) => log::debug!("query history change refused: {}", e.error_variant()),
-        }
-        // A duplicate whose favourites could not all be kept says so (it made none).
-        let copy_refused = match &op {
-            Op::CopyConnection { from, to } => {
-                let store = &self.query_history.store;
-                !store.favourites(*from).is_empty() && store.favourites(*to).is_empty()
+            Err(e) => {
+                log::debug!("query history change refused: {}", e.error_variant());
+                // A duplicate whose favourites would not fit made none, and says so (the notice
+                // comes from the real outcome; nothing is queued to be refused again). On a
+                // replay the same refusal is a dropped change, shown as such.
+                if matches!(op, Op::CopyConnection { .. }) {
+                    self.query_history_noticed(&HistorySaveError::CopyRefused);
+                    return;
+                }
             }
-            _ => false,
-        };
-        self.query_history.queued(op);
-        if copy_refused {
-            self.query_history_noticed(&HistorySaveError::TooLarge);
         }
+        self.query_history.queued(op);
     }
 }
 

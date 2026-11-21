@@ -787,7 +787,7 @@ fn a_duplicate_whose_favourites_cannot_all_be_kept_says_so() {
     a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
     assert_eq!(
         a.state().banner,
-        Some(Banner::QueryHistoryPersist(HistorySaveError::TooLarge))
+        Some(Banner::QueryHistoryPersist(HistorySaveError::CopyRefused))
     );
     let copy = a
         .state()
@@ -802,37 +802,131 @@ fn a_duplicate_whose_favourites_cannot_all_be_kept_says_so() {
 
 #[test]
 fn a_write_failure_after_the_pause_ended_is_announced() {
-    use std::os::unix::fs::PermissionsExt;
+    // A damaged file at launch, and saving blocked (as when its backup could not be made): the
+    // person switches on, which ends the pause and its notice, and the write then fails.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(file(&dir), "{ nope").unwrap();
     let (a, _ka, _ca) = crate::app::pipelines_wiring_tests::app_in(&dir, Vec::new());
     let mut a = a.with_query_history_path(Ok(file(&dir)));
-    let (mut b, _kb) = browsing_app(&dir);
-    b.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
-    // The folder stops taking writes after the other window wrote: this window follows its
-    // file (the pause ends) and then fails to write.
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
-    let probe = dir.path().join("probe");
-    let writable = std::fs::write(&probe, "x").is_ok();
-    if writable {
-        let _ = std::fs::remove_file(&probe);
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
-        return; // permissions are not enforced (root): the failure cannot be produced
+    a.state_mut().query_history.guard = PersistGuard::blocked();
+    assert!(matches!(
+        a.state().banner,
+        Some(Banner::Recovery(Recovery::QueryHistory { .. }))
+    ));
+    a.dispatch(Input::Tools(ToolsAction::SetRememberQueries(true)));
+    assert!(a.state().query_history.recording(), "the pause ended");
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::Blocked)),
+        "the write failure is shown, not the old notice"
+    );
+}
+
+#[test]
+fn a_duplicate_refused_on_the_replay_is_a_dropped_change_not_a_silent_loss() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let other = Uuid::from_u128(77);
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    let (mut b, _kb) = app_with_connection(&dir, &cfg);
+    // The other window wrote the file with the favourites of both connections.
+    for (connection, count) in [(cfg.id, 3), (other, 15)] {
+        for i in 0..count {
+            b.state_mut()
+                .query_history_apply(Op::Star {
+                    id: Uuid::new_v4(),
+                    connection,
+                    db: "app".into(),
+                    collection: "people".into(),
+                    name: format!("f{i}"),
+                    text: Box::new(text(&format!("{i}{}", "x".repeat(250 * 1024)))),
+                    now: 1,
+                })
+                .unwrap();
+        }
     }
+    b.dispatch(Input::ForgetCancelled);
+    assert_eq!(on_disk(&dir).favourites(cfg.id).len(), 3);
+    // This window knows only the first connection's three: the copy fits here.
+    a.state_mut().query_history.store = big_favourites_store(&[(cfg.id, 3)]);
+    a.state_mut().banner = None;
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::ReplayDropped)),
+        "refused on the file it was replayed on: said, not lost"
+    );
+    let copy = a
+        .state()
+        .conn
+        .connections
+        .iter()
+        .find(|c| c.id != cfg.id)
+        .expect("the copy")
+        .id;
+    assert!(on_disk(&dir).favourites(copy).is_empty());
+}
+
+#[test]
+fn the_refused_duplicate_notice_survives_the_write_that_ends_a_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    // A failure is announced (failing), then dismissed and its cause goes.
+    a.state_mut().query_history.guard = PersistGuard::blocked();
     a.state_mut()
         .query_history_apply(star_op(Uuid::from_u128(1), "one"))
         .unwrap();
     a.dispatch(Input::ForgetCancelled);
-    let banner = a.state().banner.clone();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(a.state().query_history.recording(), "the pause ended");
-    assert!(
-        matches!(
-            banner,
-            Some(Banner::QueryHistoryPersist(HistorySaveError::Persist(_)))
-        ),
-        "the write failure is shown, not the old notice: {banner:?}"
+    a.dispatch(Input::DismissBanner);
+    a.state_mut().query_history.guard = PersistGuard::default();
+    // A refused duplicate puts its notice up; the next write works.
+    a.state_mut().query_history.store =
+        big_favourites_store(&[(cfg.id, 3), (Uuid::from_u128(77), 15)]);
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::CopyRefused))
     );
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(2), "two"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(
+        a.state().banner,
+        Some(Banner::QueryHistoryPersist(HistorySaveError::CopyRefused)),
+        "the write that ended the failure left the notice alone"
+    );
+}
+
+#[test]
+fn the_newer_file_is_looked_at_only_for_a_connection_change_and_stops_once_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        file(&dir),
+        "{\"version\": 99, \"history\": [], \"favourites\": []}",
+    )
+    .unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (mut a, _ka) = app_with_connection(&dir, &cfg);
+    let checks = || query_history_store::NEWER_CHECKS.with(|n| n.get());
+    let before = checks();
+    // A change that is not a connection one never asks.
+    a.state_mut()
+        .query_history_apply(star_op(Uuid::from_u128(1), "one"))
+        .unwrap();
+    a.dispatch(Input::ForgetCancelled);
+    assert_eq!(checks(), before, "not asked for a favourite change");
+    // A readable file replaces it; a connection change follows that file and ends the flag.
+    query_history_store::save(&file(&dir), &QueryHistory::default()).unwrap();
+    a.dispatch_connection(ConnectionAction::Delete(cfg.id));
+    assert!(
+        !a.state().query_history.newer_file,
+        "no longer a newer file"
+    );
+    let after_follow = checks();
+    a.dispatch_connection(ConnectionAction::Duplicate(cfg.id));
+    assert_eq!(checks(), after_follow, "and never asked again");
 }
 
 #[test]
