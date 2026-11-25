@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use crate::error::{CoreError, Result};
 
 static FAILING: Mutex<Vec<(PathBuf, bool)>> = Mutex::new(Vec::new());
+static FAILING_WRITES: Mutex<Vec<(PathBuf, u64)>> = Mutex::new(Vec::new());
 
 /// `create` fails right after opening `path`; with `lock_parent` the parent directory also
 /// becomes read-only first, so the removal fails too (the test restores it).
@@ -34,4 +35,17 @@ pub(super) fn inject(path: &Path) -> Result<()> {
     }
     let _ = lock_parent;
     Err(CoreError::ExportWriteFailed)
+}
+
+/// Writes to the export file at `path` fail once `bytes` were written.
+pub(in crate::runtime) fn fail_writes_after(path: &Path, bytes: u64) {
+    FAILING_WRITES
+        .lock()
+        .unwrap()
+        .push((path.to_path_buf(), bytes));
+}
+
+pub(super) fn fail_after(path: &Path) -> Option<u64> {
+    let failing = FAILING_WRITES.lock().unwrap();
+    failing.iter().find(|(p, _)| p == path).map(|(_, n)| *n)
 }

@@ -344,7 +344,7 @@ async fn an_export_for_a_session_that_was_never_opened_is_refused() {
 async fn a_write_failing_after_the_file_exists_removes_it_and_frees_the_slot() {
     let mut r = rig().await;
     let path = r.path("failing.js");
-    super::export_sink::test_hooks::fail_writes_after(&path, 0);
+    crate::runtime::export_file::test_hooks::fail_writes_after(&path, 0);
     let events = export(
         &mut r,
         5,
