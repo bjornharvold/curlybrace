@@ -107,6 +107,20 @@ fn a_failure_right_after_the_open_removes_the_file() {
     assert!(!path.exists());
 }
 
+#[test]
+fn a_failure_right_after_the_open_keeps_a_pre_existing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("f");
+    fs::write(&path, "KEEP").unwrap();
+    super::test_hooks::fail_after_open(&path, false);
+    assert_eq!(
+        FileGuard::create(&path).unwrap_err(),
+        crate::error::CoreError::ExportWriteFailed
+    );
+    assert!(path.exists());
+    assert_eq!(fs::read_to_string(&path).unwrap(), "KEEP");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_failed_removal_after_the_open_is_reported_as_such() {
