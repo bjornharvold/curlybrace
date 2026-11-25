@@ -311,6 +311,10 @@ pub fn show_modals(
     show_write_warning_modal(ctx, state, i18n, out);
     show_copy(ctx, state, i18n, out);
     out.extend(
+        crate::views::doc_export::show_doc_export(ctx, &state.doc_export, i18n)
+            .map(|a| UiEvent::Input(Input::DocExport(a))),
+    );
+    out.extend(
         show_tools_settings(
             ctx,
             &state.tools,

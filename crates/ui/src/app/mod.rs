@@ -50,7 +50,7 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
-mod doc_export;
+pub mod doc_export;
 mod explain_actions;
 mod find_options_actions;
 pub use explain_actions::VerdictState;

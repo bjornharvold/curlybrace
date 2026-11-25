@@ -19,6 +19,8 @@ pub enum DocAction {
     Copy(DocCopy),
     /// Start a bulk update or delete of the documents the shown filter matches.
     Bulk(super::BulkKind),
+    /// Open the document export for the documents the shown filter matches.
+    Export,
 }
 
 /// An entry of the row context menu. Only Copy leaves the connection untouched.

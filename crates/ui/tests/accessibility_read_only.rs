@@ -85,6 +85,7 @@ fn write_actions_are_disabled_with_a_stated_reason() {
                     production: false,
                     read_only: true,
                     bulk: BulkEntry::ReadOnly,
+                    export: None,
                 };
                 show_documents(
                     ui,
@@ -261,6 +262,7 @@ fn row_menu_entries_say_why_they_are_disabled_on_hover() {
                     production: false,
                     read_only: true,
                     bulk: BulkEntry::ReadOnly,
+                    export: None,
                 };
                 let page = Page {
                     docs: vec![doc! { "_id": 1_i32, "name": "x" }],

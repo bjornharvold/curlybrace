@@ -84,7 +84,8 @@ fn a_narrower_pane_needs_a_taller_one() {
     assert_eq!(min_width_at(200.0), None);
     assert_eq!(min_height_at(399.0), None);
     assert_eq!(min_height_at(400.0), Some(430.0));
-    assert_eq!(min_height_at(1000.0), Some(250.0));
+    assert_eq!(min_height_at(1100.0), Some(250.0));
+    assert_eq!(min_height_at(1000.0), Some(280.0));
     // 446 wide panes fit when they are 600 high, not when they are 400 high.
     let tall = layout(vec2(900.0, 600.0), Orientation::SideBySide, 0.5);
     assert!(matches!(tall, SplitLayout::Side { .. }), "{tall:?}");

@@ -4,12 +4,14 @@
 use super::shots::{browsing, build_app};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::file_picker::FilePicker;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::theme;
 use curlybrace_ui::viewmodel::{FindBarState, ViewMode};
 use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use std::sync::Arc;
 
 pub const SIZE_1000: (f32, f32) = (1000.0, 700.0);
 pub const SIZE_800: (f32, f32) = (800.0, 500.0);
@@ -28,11 +30,14 @@ pub const MORE_1000: f32 = 275.0;
 /// With More and the Query options section open (nothing set): the section's share of the window
 /// is on top of [`MORE_1000`]; the first row stays on screen (700 high).
 pub const MORE_AND_OPTIONS_1000: f32 = 545.0;
-/// At 800x500 with More closed: the Filter row and the switches wrap to two rows each.
-pub const CLOSED_800: f32 = 297.0;
+/// At 800x500 with More closed: the Filter row and the switches wrap to two rows each, and the
+/// documents toolbar to three since the Export button joined it (measured 321 with it, 297 before:
+/// one more 24 pt row).
+pub const CLOSED_800: f32 = 330.0;
 /// At 800x500 with More open: the More row wraps to two rows; the first row is on screen
-/// (500 high) with room for at least four rows under it (a row is about 18 pt plus the 4 pt gap).
-pub const MORE_800: f32 = 390.0;
+/// (500 high) with room for at least three rows under it (a row is about 18 pt plus the 4 pt
+/// gap). Measured 413 with the Export button, 389 before.
+pub const MORE_800: f32 = 422.0;
 
 /// The page with the runtime and the temp dir it needs alive.
 pub struct BrowsePage {
@@ -43,12 +48,28 @@ pub struct BrowsePage {
 
 /// The Browse page at `size` with `adjust` applied to the state after the page is installed.
 pub fn browse_page(size: (f32, f32), adjust: impl FnOnce(&mut AppState)) -> BrowsePage {
+    page_with(size, None, adjust)
+}
+
+/// The Browse page whose save dialog is answered by `picker` (never the native one).
+pub fn browse_page_with_picker(size: (f32, f32), picker: Arc<dyn FilePicker>) -> BrowsePage {
+    page_with(size, Some(picker), |_| {})
+}
+
+fn page_with(
+    size: (f32, f32),
+    picker: Option<Arc<dyn FilePicker>>,
+    adjust: impl FnOnce(&mut AppState),
+) -> BrowsePage {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .build()
         .expect("tokio runtime");
     let enter = rt.enter();
     let (mut app, dir) = build_app(vec![], None);
+    if let Some(picker) = picker {
+        app = app.with_file_picker(picker, Arc::new(|| {}));
+    }
     browsing(ViewMode::Table)(app.state_mut());
     adjust(app.state_mut());
     let mut installed = false;

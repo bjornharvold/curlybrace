@@ -41,6 +41,7 @@ fn pane(mode: ViewMode, state: TreeState, read_only: bool) -> Harness<'static, P
                 production: false,
                 read_only: pane.read_only,
                 bulk: BulkEntry::Available,
+                export: None,
             };
             let got = show_documents(ui, mode, &page(), &mut pane.state, target, &I18n::english());
             pane.actions.extend(got);

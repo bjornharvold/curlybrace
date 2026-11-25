@@ -18,7 +18,7 @@ pub const MIN_PANE_HEIGHT: f32 = 250.0;
 /// whole, none squashed, nothing past the edge or overlapping, and three documents in view. A
 /// narrower pane wraps its find bar into more rows, so it needs more height. A pane fits when it
 /// is at least as wide and as high as one corner. The two corners that decide 1000x700 were
-/// measured at 1 pt (608 and 695), the others at 10 pt.
+/// measured at 1 pt (608 and 695), the others at 10 pt (the 550 and 1060 corners moved out from 500 and 960 when the documents toolbar gained its Export button).
 ///
 /// The decision has no hysteresis on purpose: it reads the central area only, and that area is the
 /// same whether one pane or two are drawn (the chip is placed after the decision), so a layout
@@ -27,10 +27,10 @@ pub const MIN_PANE_HEIGHT: f32 = 250.0;
 pub const STAIRS: [(f32, f32); 6] = [
     (400.0, 430.0),
     (470.0, 380.0),
-    (500.0, 350.0),
+    (550.0, 350.0),
     (608.0, 330.0),
     (695.0, 280.0),
-    (960.0, 250.0),
+    (1060.0, 250.0),
 ];
 /// The ratio a divider is reset to.
 pub const DEFAULT_RATIO: f32 = 0.5;
