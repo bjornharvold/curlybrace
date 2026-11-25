@@ -41,6 +41,7 @@ fn source(filter: bool) -> DocExportSource {
         session: SessionId::from_u128(7),
         ns: ns(),
         filter: filter.then(|| doc! { "status": "open" }),
+        ignores_options: false,
     }
 }
 
@@ -251,7 +252,7 @@ fn the_progress_bar_is_named_and_the_text_counts() {
     let h = harness(running(Some(200), 50, false));
     h.get_by_role_and_label(Role::ProgressIndicator, &t("export.running.bar_name"));
     h.get_by_label(&tw(
-        "export.running.progress",
+        "export.running.progress_many",
         &[("done", "50"), ("total", "200")],
     ));
 }
@@ -260,7 +261,44 @@ fn the_progress_bar_is_named_and_the_text_counts() {
 fn an_unknown_total_counts_only_what_is_done() {
     let h = harness(running(None, 50, false));
     h.get_by_role_and_label(Role::ProgressIndicator, &t("export.running.bar_name"));
-    h.get_by_label(&tw("export.running.progress_unknown", &[("done", "50")]));
+    h.get_by_label(&tw(
+        "export.running.progress_unknown_many",
+        &[("done", "50")],
+    ));
+}
+
+#[test]
+fn a_passed_total_is_not_shown_and_the_bar_stays_within_bounds() {
+    let h = harness(running(Some(10), 25, false));
+    h.get_by_label(&tw(
+        "export.running.progress_unknown_many",
+        &[("done", "25")],
+    ));
+}
+
+#[test]
+fn one_document_reads_in_the_singular() {
+    let h = harness(running(None, 1, false));
+    h.get_by_label(&t("export.running.progress_unknown_one"));
+    let h = harness(running(Some(1), 0, false));
+    h.get_by_label(&tw("export.running.progress_one", &[("done", "0")]));
+    let h = harness(finished(Ok(outcome(1, false, false))));
+    h.get_by_label(&t("export.finished.done_one"));
+    assert_eq!(t("export.finished.done_one"), "Exported 1 document.");
+}
+
+#[test]
+fn a_query_export_with_a_sort_or_projection_says_they_are_not_applied() {
+    let ignored = DocExportUi::Configuring {
+        source: DocExportSource {
+            ignores_options: true,
+            ..source(true)
+        },
+        draft: DocExportDraft::default(),
+    };
+    harness(ignored).get_by_label(&t("export.source.query_ignored"));
+    let plain = harness(configuring(true, DocExportDraft::default()));
+    assert!(!shown(&plain, &t("export.source.query_ignored")));
 }
 
 #[test]
@@ -291,7 +329,7 @@ fn a_running_export_ignores_escape() {
 #[test]
 fn a_done_export_says_how_many_and_closes() {
     let mut h = harness(finished(Ok(outcome(42, false, false))));
-    h.get_by_label(&tw("export.finished.done", &[("count", "42")]));
+    h.get_by_label(&tw("export.finished.done_many", &[("count", "42")]));
     assert!(!shown(&h, &t("export.finished.file_left")));
     h.get_by_role_and_label(Role::Button, &t("export.finished.close"))
         .click();
@@ -548,7 +586,7 @@ fn open_choose_and_finish_end_to_end() {
     script(&mut page, done);
     page.harness.run_steps(4);
     page.harness
-        .get_by_label(&tw("export.finished.done", &[("count", "10")]));
+        .get_by_label(&tw("export.finished.done_many", &[("count", "10")]));
     assert!(
         page.harness.state().state().banner.is_none(),
         "the late failure is stale"

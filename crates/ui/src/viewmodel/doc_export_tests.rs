@@ -10,6 +10,7 @@ fn source() -> DocExportSource {
     DocExportSource {
         session: Uuid::nil(),
         ns: Namespace::new("secretdb", "secretcoll"),
+        ignores_options: false,
         filter: Some(doc! { "secretfield": "secretvalue" }),
     }
 }
@@ -34,7 +35,7 @@ fn default_draft_is_ndjson_canonical() {
 fn happy_path_runs_to_finished() {
     let state = running();
     assert!(state.is_busy());
-    let state = state.progressed(7, 4, 10);
+    let state = state.progressed(7, 4, Some(10));
     assert!(matches!(
         state,
         DocExportUi::Running {
@@ -71,7 +72,7 @@ fn edits_apply_only_while_configuring() {
 #[test]
 fn stale_run_changes_nothing() {
     let state = running();
-    assert_eq!(state.clone().progressed(8, 1, 2), state);
+    assert_eq!(state.clone().progressed(8, 1, Some(2)), state);
     assert_eq!(
         state.clone().finished(8, Ok(DocExportOutcome::default())),
         state
@@ -91,25 +92,57 @@ fn closed_is_ignored_while_busy() {
 }
 
 #[test]
-fn done_never_exceeds_a_known_total() {
-    let state = running().progressed(7, 99, 10);
+fn a_total_that_done_has_passed_is_dropped_and_done_stays_the_real_count() {
+    let state = running().progressed(7, 99, Some(10));
     assert!(matches!(
         state,
         DocExportUi::Running {
-            done: 10,
-            total: Some(10),
+            done: 99,
+            total: None,
             ..
         }
     ));
     let unknown = DocExportUi::Idle
         .open(source())
         .started(1, PathBuf::from("/o"), None)
-        .progressed(1, 5, 0);
+        .progressed(1, 5, None);
     assert!(matches!(
         unknown,
         DocExportUi::Running {
             done: 5,
             total: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_known_total_is_kept_while_done_stays_within_it_and_a_real_event_total_replaces_it() {
+    let started = DocExportUi::Idle
+        .open(source())
+        .started(1, PathBuf::from("/o"), Some(10));
+    let kept = started.clone().progressed(1, 4, None);
+    assert!(matches!(
+        kept,
+        DocExportUi::Running {
+            done: 4,
+            total: Some(10),
+            ..
+        }
+    ));
+    let replaced = started.clone().progressed(1, 4, Some(20));
+    assert!(matches!(
+        replaced,
+        DocExportUi::Running {
+            total: Some(20),
+            ..
+        }
+    ));
+    let zero = started.progressed(1, 0, Some(0));
+    assert!(matches!(
+        zero,
+        DocExportUi::Running {
+            total: Some(10),
             ..
         }
     ));

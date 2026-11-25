@@ -54,9 +54,12 @@ scripts will read it.
 
 - If the file exists, the save dialog asks you to confirm, and the export then overwrites it.
 - The file is readable and writable by its owner only.
-- If you cancel, or the export fails, the file is removed. A file is kept only when every document
-  was written. A file that already existed at that path is overwritten in place, so cancelling or
-  failing removes it too.
+- The file is created only after the first documents have been read. If the count or that first
+  read fails (a bad filter, an authentication error, a lost connection) or you cancel before it,
+  nothing is written and a file already at that path is left as it was.
+- Once writing has begun, an existing file at that path has been overwritten. If you cancel then,
+  or the export fails, the file is removed, so a previous export at that path is gone too. A file
+  is kept only when every document was written.
 
 ## Moving data between databases
 
@@ -70,5 +73,9 @@ To copy between connections without a file, see [copy](copy.md).
 
 ## Limits
 
+- Memory: documents are read in batches of at most 500 and at most about 8 MB of BSON each (a
+  single larger document is read alone), so very large documents do not pile up.
+- The progress total is an estimate (an exact count for a filter). If it is slow or already
+  passed, the export shows only the number of documents written.
 - One export runs at a time.
 - Relaxed mode does not preserve BSON types, so do not use it for a round trip.

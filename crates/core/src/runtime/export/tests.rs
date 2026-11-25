@@ -45,6 +45,10 @@ struct Rig {
 }
 
 async fn rig(store: TestStore) -> Rig {
+    rig_with(store, RuntimeConfig::default()).await
+}
+
+async fn rig_with(store: TestStore, config: RuntimeConfig) -> Rig {
     let store = Arc::new(store);
     let cfg = ConnectionConfig::new("c", "mongodb://localhost:27017");
     let mut h = spawn_runtime_with_connector(
@@ -52,7 +56,7 @@ async fn rig(store: TestStore) -> Rig {
         None,
         Arc::new(Fixed(store.clone())),
         Arc::new(|| {}),
-        RuntimeConfig::default(),
+        config,
     );
     h.tx.send(Command::Connect(cfg.clone())).unwrap();
     assert!(matches!(next(&mut h).await, Event::Connected { .. }));
@@ -214,17 +218,17 @@ async fn an_empty_collection_writes_a_valid_empty_file_and_reports_zero() {
 
 #[tokio::test]
 async fn cancel_removes_the_file_and_frees_the_slot_for_the_next_export() {
-    let mut r = rig(seeded(mock_numbered_docs(3))).await;
+    let mut r = rig(seeded(mock_numbered_docs(30))).await;
     let path = r.path("cancelled.ndjson");
     let cancel = Command::Export(ExportCommand::Cancel { run: 1 });
-    r.store.arm_at(&r.h.tx, Point::DuringScan, 1, vec![cancel]);
+    r.store.arm_at(&r.h.tx, Point::DuringScan, 2, vec![cancel]);
     let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
     let done = outcome(&events);
     assert!(done.cancelled && !done.file_left);
     assert!(!path.exists());
     let again = r.path("again.ndjson");
     let events = r.export(2, r.request(&again, DocFormat::Ndjson)).await;
-    assert_eq!(outcome(&events).written, 3);
+    assert_eq!(outcome(&events).written, 30);
     assert!(again.exists());
 }
 
@@ -313,4 +317,96 @@ async fn an_invalid_path_is_refused_before_anything_is_created() {
     let events = r.export(2, r.request(relative, DocFormat::Ndjson)).await;
     assert!(matches!(failure(&events), CoreError::Unsupported(_)));
     assert!(!relative.exists());
+}
+
+const GOOD: &str = "previous good export\n";
+
+fn with_previous_export(r: &Rig, name: &str) -> PathBuf {
+    let path = r.path(name);
+    std::fs::write(&path, GOOD).unwrap();
+    path
+}
+
+#[tokio::test]
+async fn a_failing_first_read_leaves_an_existing_file_untouched() {
+    let store = seeded(mock_numbered_docs(3)).failing_scan("orders", CoreError::AuthFailed);
+    let mut r = rig(store).await;
+    let path = with_previous_export(&r, "keep.ndjson");
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    assert_eq!(failure(&events), CoreError::AuthFailed);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), GOOD);
+}
+
+#[tokio::test]
+async fn cancel_during_the_first_read_leaves_an_existing_file_untouched() {
+    let mut r = rig(seeded(mock_numbered_docs(3))).await;
+    let path = with_previous_export(&r, "keep.ndjson");
+    let cancel = Command::Export(ExportCommand::Cancel { run: 1 });
+    r.store.arm_at(&r.h.tx, Point::DuringScan, 1, vec![cancel]);
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    let done = outcome(&events);
+    assert!(done.cancelled && !done.file_left);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), GOOD);
+}
+
+#[tokio::test]
+async fn cancel_during_a_hung_count_leaves_an_existing_file_untouched() {
+    let mut r = rig(seeded(mock_numbered_docs(3)).hanging_count()).await;
+    let path = with_previous_export(&r, "keep.ndjson");
+    let cancel = Command::Export(ExportCommand::Cancel { run: 1 });
+    r.store.arm_at(&r.h.tx, Point::DuringCount, 1, vec![cancel]);
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    assert!(outcome(&events).cancelled);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), GOOD);
+}
+
+#[tokio::test]
+async fn an_empty_source_replaces_an_existing_file_with_the_valid_empty_file() {
+    let mut r = rig(seeded(vec![])).await;
+    let path = with_previous_export(&r, "old.json");
+    let events = r.export(1, r.request(&path, DocFormat::JsonArray)).await;
+    assert_eq!(outcome(&events).written, 0);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]\n");
+}
+
+#[tokio::test]
+async fn a_hung_whole_collection_count_times_out_and_the_export_goes_on_without_a_total() {
+    let config = RuntimeConfig {
+        command_timeout: std::time::Duration::from_millis(50),
+        ..RuntimeConfig::default()
+    };
+    let mut r = rig_with(seeded(mock_numbered_docs(3)).hanging_count(), config).await;
+    let path = r.path("nototal.ndjson");
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    assert_eq!(outcome(&events).written, 3);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        ExportEvent::Progress {
+            done: 3,
+            total: None,
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn progress_reports_the_real_count_and_drops_a_total_that_was_passed() {
+    let mut r = rig(seeded(mock_numbered_docs(30)).with_estimated_count(2)).await;
+    let path = r.path("stale.ndjson");
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    assert_eq!(outcome(&events).written, 30);
+    let progress: Vec<(u64, Option<u64>)> = events
+        .iter()
+        .filter_map(|e| match e {
+            ExportEvent::Progress { done, total, .. } => Some((*done, *total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(progress.last(), Some(&(30, None)));
+    assert!(
+        progress
+            .iter()
+            .all(|(done, total)| total.is_none_or(|t| *done <= t))
+    );
+    assert!(progress.windows(2).all(|w| w[0].0 < w[1].0));
 }

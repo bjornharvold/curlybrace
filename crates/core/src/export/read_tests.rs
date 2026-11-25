@@ -59,6 +59,57 @@ async fn an_empty_or_missing_collection_yields_no_batches() {
     assert!(drain(&mut missing).await.is_empty());
 }
 
+fn big_docs(count: i32, bytes: usize) -> Vec<Document> {
+    (0..count)
+        .map(|n| doc! { "_id": n, "pad": "x".repeat(bytes) })
+        .collect()
+}
+
+fn size(doc: &Document) -> usize {
+    bson::to_vec(doc).expect("serializes").len()
+}
+
+#[tokio::test]
+async fn a_batch_never_exceeds_the_byte_budget_and_order_and_count_are_unchanged() {
+    let docs = big_docs(25, 100_000);
+    let budget = 350_000;
+    let mut r = reader(docs.clone(), doc! {}, 500).with_byte_budget(budget);
+    let batches = drain(&mut r).await;
+    assert!(batches.len() > 1);
+    for batch in &batches {
+        assert!(
+            batch.iter().map(size).sum::<usize>() <= budget,
+            "over budget"
+        );
+    }
+    let flat: Vec<Document> = batches.into_iter().flatten().collect();
+    assert_eq!(flat, docs);
+}
+
+#[tokio::test]
+async fn a_single_oversized_document_is_still_exported_alone() {
+    let mut docs = big_docs(6, 1_000);
+    docs[2] = doc! { "_id": 2, "pad": "x".repeat(500_000) };
+    let mut r = reader(docs.clone(), doc! {}, 500).with_byte_budget(100_000);
+    let batches = drain(&mut r).await;
+    let oversized: Vec<&Vec<Document>> = batches
+        .iter()
+        .filter(|b| b.iter().any(|d| d.get_i32("_id") == Ok(2)))
+        .collect();
+    assert_eq!(oversized.len(), 1);
+    assert_eq!(oversized[0].len(), 1);
+    let flat: Vec<Document> = batches.into_iter().flatten().collect();
+    assert_eq!(flat, docs);
+}
+
+#[tokio::test]
+async fn small_documents_still_batch_by_count() {
+    let mut r = reader(mock_numbered_docs(20), doc! {}, 5);
+    let batches = drain(&mut r).await;
+    assert!(batches.iter().all(|b| b.len() <= 5));
+    assert!(batches.iter().any(|b| b.len() == 5));
+}
+
 #[tokio::test]
 async fn an_unusable_id_is_a_typed_error_and_ends_the_read() {
     let mut r = reader(vec![doc! { "_id": [1, 2] }], doc! {}, 3);

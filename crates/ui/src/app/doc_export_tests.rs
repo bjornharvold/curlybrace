@@ -492,3 +492,92 @@ fn choose_file_is_refused_after_another_session_became_the_shown_one() {
     assert!(matches!(state.doc_export, DocExportUi::Configuring { .. }));
     assert!(commands.is_empty());
 }
+
+/// The first dialog stays open until `release` is sent; later dialogs answer at once.
+struct GatedPicker {
+    calls: AtomicUsize,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl FilePicker for GatedPicker {
+    fn save_file(&self, _name: &str, _extension: &str) -> Option<PathBuf> {
+        match self.calls.fetch_add(1, Ordering::SeqCst) {
+            0 => {
+                let _ = self.release.lock().unwrap().recv();
+                Some(PathBuf::from("/out/first.ndjson"))
+            }
+            _ => Some(PathBuf::from("/out/second.json")),
+        }
+    }
+}
+
+fn run_frame_once(app: &mut super::CurlybraceApp) {
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| app.run_frame(ctx));
+}
+
+#[test]
+fn going_back_while_the_dialog_is_open_lets_a_new_choose_file_open_a_fresh_one() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let picker = Arc::new(GatedPicker {
+        calls: AtomicUsize::new(0),
+        release: Mutex::new(gate),
+    });
+    let (mut app, mut commands) = app_with(picker.clone());
+    *app.state_mut() = connected();
+    let act = |app: &mut super::CurlybraceApp, a| app.dispatch(Input::DocExport(a));
+    act(
+        &mut app,
+        DocExportAction::Open {
+            ns: ns(),
+            whole_collection: false,
+        },
+    );
+    act(&mut app, DocExportAction::ChooseFile);
+    run_frame_once(&mut app);
+    // Back while the first dialog is still open, then another format and a new Choose file.
+    act(&mut app, DocExportAction::PathCancelled);
+    act(
+        &mut app,
+        DocExportAction::Edit(DocExportDraft {
+            format: DocFormat::JsonArray,
+            ..DocExportDraft::default()
+        }),
+    );
+    act(&mut app, DocExportAction::ChooseFile);
+    frames_until_answered(&mut app);
+    assert_eq!(picker.calls.load(Ordering::SeqCst), 2);
+    let _ = release.send(());
+    let state = std::mem::take(app.state_mut());
+    assert!(matches!(state.doc_export, DocExportUi::Running { .. }));
+    let started = std::iter::from_fn(|| commands.try_recv().ok()).find_map(|c| match c {
+        Command::Export(ExportCommand::Start { request, .. }) => Some(request.path),
+        _ => None,
+    });
+    assert_eq!(started, Some(PathBuf::from("/out/second.json")));
+}
+
+fn ignores_options(state: &AppState) -> bool {
+    match &state.doc_export {
+        DocExportUi::Configuring { source, .. } => source.ignores_options,
+        other => panic!("not configuring: {other:?}"),
+    }
+}
+
+#[test]
+fn open_notes_a_sort_or_projection_the_export_will_not_apply() {
+    assert!(!ignores_options(&open(connected(), false)));
+    for adjust in [
+        (|q: &mut Query| q.sort = Some(doc! { "a": 1 })) as fn(&mut Query),
+        |q: &mut Query| q.projection = Some(doc! { "a": 1 }),
+    ] {
+        let shaped = || {
+            let mut state = connected();
+            adjust(&mut state.page_query);
+            state
+        };
+        assert!(ignores_options(&open(shaped(), false)));
+        // A whole collection export reads no query, so there is nothing to note.
+        assert!(!ignores_options(&open(shaped(), true)));
+    }
+}

@@ -111,6 +111,8 @@ fn open(state: AppState, ns: Namespace, whole_collection: bool) -> Out {
         session: state.session_id(),
         ns,
         filter: (!whole_collection).then(|| state.page_query.filter.clone()),
+        ignores_options: !whole_collection
+            && (state.page_query.sort.is_some() || state.page_query.projection.is_some()),
     };
     let next = state.doc_export.clone().open(source);
     none(with_export(state, next))
@@ -223,10 +225,7 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     };
     match ev {
         ExportEvent::Progress { run, done, total } => {
-            let next = state
-                .doc_export
-                .clone()
-                .progressed(run, done, total.unwrap_or(0));
+            let next = state.doc_export.clone().progressed(run, done, total);
             none(with_export(state, next))
         }
         ExportEvent::Done { run, outcome } => {
@@ -263,7 +262,13 @@ impl CurlybraceApp {
         let DocExportUi::Choosing { source, draft } = &self.state.doc_export else {
             return;
         };
-        if self.doc_pick.is_some() {
+        // A dialog left over from an export the person went back from is replaced: dropping it
+        // drops its receiver, so its late answer is never read.
+        if self
+            .doc_pick
+            .as_ref()
+            .is_some_and(|pick| pick.is_for(source, draft))
+        {
             return;
         }
         self.doc_pick = Some(file_picker::start_doc_pick(

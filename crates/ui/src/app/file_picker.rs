@@ -177,6 +177,11 @@ impl PendingDocPick {
         (self.source, self.draft)
     }
 
+    /// Whether the dialog was opened for exactly this export.
+    pub fn is_for(&self, source: &DocExportSource, draft: &DocExportDraft) -> bool {
+        self.source == *source && self.draft == *draft
+    }
+
     pub fn poll(&self) -> PickPoll {
         poll_dialog(&self.answers)
     }

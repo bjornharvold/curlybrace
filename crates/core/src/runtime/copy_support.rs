@@ -56,6 +56,7 @@ pub(super) struct TestStore {
     finds: AtomicUsize,
     armed: Mutex<Option<Armed>>,
     hang_count: bool,
+    count_override: Option<u64>,
 }
 
 impl TestStore {
@@ -74,6 +75,7 @@ impl TestStore {
             finds: AtomicUsize::new(0),
             armed: Mutex::new(None),
             hang_count: false,
+            count_override: None,
         }
     }
 
@@ -81,6 +83,14 @@ impl TestStore {
     pub(super) fn hanging_count(self) -> Self {
         Self {
             hang_count: true,
+            ..self
+        }
+    }
+
+    /// Makes `estimated_count` answer `count` whatever the collection holds, like a stale estimate.
+    pub(super) fn with_estimated_count(self, count: u64) -> Self {
+        Self {
+            count_override: Some(count),
             ..self
         }
     }
@@ -200,7 +210,10 @@ impl DocumentStore for TestStore {
         if self.hang_count {
             std::future::pending::<()>().await;
         }
-        self.inner.estimated_count(ns).await
+        match self.count_override {
+            Some(count) => Ok(count),
+            None => self.inner.estimated_count(ns).await,
+        }
     }
 
     async fn scan_sorted(

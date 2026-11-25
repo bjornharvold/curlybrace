@@ -30,6 +30,8 @@ pub struct DocExportSource {
     pub session: SessionId,
     pub ns: Namespace,
     pub filter: Option<Document>,
+    /// The applied query has a sort or a projection, which the export does not apply.
+    pub ignores_options: bool,
 }
 
 impl fmt::Debug for DocExportSource {
@@ -178,9 +180,10 @@ impl DocExportUi {
         }
     }
 
-    /// Progress of `event_run`; any other run is stale. `done` never passes a known total, and
-    /// the event's total only fills in an unknown one when it is real (non-zero).
-    pub fn progressed(self, event_run: RunId, done: u64, total: u64) -> Self {
+    /// Progress of `event_run`; any other run is stale. `done` is the real count written. A total
+    /// is only a hint: the event's total (when real, non-zero) replaces the known one, and a
+    /// total that `done` has passed is dropped, so the view shows the plain count.
+    pub fn progressed(self, event_run: RunId, done: u64, total: Option<u64>) -> Self {
         match self {
             Self::Running {
                 run,
@@ -191,8 +194,8 @@ impl DocExportUi {
                 cancel_requested,
                 ..
             } if run == event_run => {
-                let total = known.or((total > 0).then_some(total));
-                let done = total.map_or(done, |t| done.min(t));
+                let event_total = total.filter(|t| *t > 0);
+                let total = event_total.or(known).filter(|t| done <= *t);
                 Self::Running {
                     run,
                     source,

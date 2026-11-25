@@ -69,6 +69,9 @@ fn show_source(ui: &mut egui::Ui, source: &DocExportSource, i18n: &I18n) {
         None => i18n.t_with("export.source.collection", &[("name", &name)]),
     };
     ui.label(line);
+    if source.filter.is_some() && source.ignores_options {
+        ui.label(egui::RichText::new(i18n.t("export.source.query_ignored")).weak());
+    }
 }
 
 fn show_format(ui: &mut egui::Ui, draft: DocExportDraft, i18n: &I18n) -> Option<DocExportAction> {
@@ -160,7 +163,7 @@ fn show_running(
         ui.spinner();
     });
     let fraction = match total {
-        Some(total) if total > 0 => (done as f32 / total as f32).clamp(0.0, 1.0),
+        Some(total) if total > 0 && done <= total => (done as f32 / total as f32).clamp(0.0, 1.0),
         _ => 0.0,
     };
     ui.horizontal(|ui| {
@@ -184,16 +187,35 @@ fn show_running(
     .inner
 }
 
-/// "done of total", or only the documents done while the total is not known.
+/// "done of total", or only the documents done while the total is not known or has been passed.
+/// The noun follows the number it counts: the total, or the done count without one.
 fn progress_text(done: u64, total: Option<u64>, i18n: &I18n) -> String {
-    let done = done.to_string();
-    match total {
-        Some(total) => i18n.t_with(
-            "export.running.progress",
-            &[("done", &done), ("total", &total.to_string())],
-        ),
-        None => i18n.t_with("export.running.progress_unknown", &[("done", &done)]),
+    let shown = done.to_string();
+    match total.filter(|t| done <= *t) {
+        Some(total) => {
+            let key = match total {
+                1 => "export.running.progress_one",
+                _ => "export.running.progress_many",
+            };
+            i18n.t_with(key, &[("done", &shown), ("total", &total.to_string())])
+        }
+        None => {
+            let key = match done {
+                1 => "export.running.progress_unknown_one",
+                _ => "export.running.progress_unknown_many",
+            };
+            i18n.t_with(key, &[("done", &shown)])
+        }
     }
+}
+
+/// "Exported N documents.", with the singular for one.
+fn done_text(written: u64, i18n: &I18n) -> String {
+    let key = match written {
+        1 => "export.finished.done_one",
+        _ => "export.finished.done_many",
+    };
+    i18n.t_with(key, &[("count", &written.to_string())])
 }
 
 fn show_finished(
@@ -225,10 +247,7 @@ fn show_outcome(
     match (outcome.cancelled, outcome.file_left) {
         (true, false) => ui.label(i18n.t("export.finished.cancelled")),
         (true, true) => ui.label(i18n.t("export.finished.cancelled_kept")),
-        (false, _) => {
-            let count = outcome.written.to_string();
-            ui.label(i18n.t_with("export.finished.done", &[("count", &count)]))
-        }
+        (false, _) => ui.label(done_text(outcome.written, i18n)),
     };
     // A removed file has no path worth showing.
     let path = path.filter(|_| !removed);
