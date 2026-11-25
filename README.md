@@ -120,6 +120,11 @@ between databases, and see how your indexes are used, without an account, a tria
 - An alternative to `mongodump` and `mongorestore`, with progress, Cancel, and a report of exactly
   what was written. The full guide is [docs/copy.md](docs/copy.md).
 
+**Export documents**
+- Export a collection, or the documents the applied filter matches, to an NDJSON or JSON array file
+  as canonical (type-exact) or relaxed extended JSON, with progress and Cancel. The full guide is
+  [docs/export.md](docs/export.md).
+
 **Tool paths** ([#49](https://github.com/bjornharvold/curlybrace/issues/49))
 - Curlybrace does not bundle the MongoDB tools. Choose which `mongosh`, `mongodump` and
   `mongorestore` to use from the gear: the one found on your `PATH`, or a file you pick, with the

@@ -28,14 +28,21 @@ impl FileGuard {
     /// was opened is then checked (a regular file with one link) BEFORE it is truncated, so a
     /// link to somebody else's file is never emptied. Anything else is an invalid path.
     pub(in crate::runtime) fn create(path: &Path) -> Result<(File, Self)> {
+        let existed = fs::symlink_metadata(path).is_ok();
         let file = open_checked(path)?;
-        let guard = Self {
+        let mut guard = Self {
             path: path.to_path_buf(),
             armed: true,
         };
         match prepare(&file, path) {
             Ok(()) => Ok((file, guard)),
-            // The file exists now: remove it for real, and say so if that fails too.
+            // It was already there and is still intact (`prepare` fails before it truncates):
+            // leave it alone.
+            Err(error) if existed => {
+                guard.armed = false;
+                Err(error)
+            }
+            // This call created it: remove it for real, and say so if that fails too.
             Err(error) if guard.remove() => Err(error),
             Err(_) => Err(CoreError::ExportFileNotRemoved),
         }

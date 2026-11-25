@@ -50,6 +50,7 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
+pub mod doc_export;
 mod explain_actions;
 mod find_options_actions;
 pub use explain_actions::VerdictState;
@@ -183,6 +184,8 @@ pub struct CurlybraceApp {
     repaint: Repaint,
     /// The save dialog being shown, if any: at most one at a time.
     pick: Option<PendingPick>,
+    /// The save dialog of the document export, if one is shown: at most one at a time.
+    doc_pick: Option<file_picker::PendingDocPick>,
     /// The import/export dialog being shown, if any: at most one at a time.
     conn_pick: Option<connection_picker::ConnPick>,
     /// The runtime was found gone (never reset: it is not restarted); keeps its banner to one.
@@ -229,6 +232,7 @@ impl CurlybraceApp {
             picker: Arc::new(NoFilePicker),
             repaint: Arc::new(|| {}),
             pick: None,
+            doc_pick: None,
             conn_pick: None,
             runtime_gone: false,
             clock: curlybrace_core::clock::now_secs,
@@ -756,6 +760,7 @@ impl CurlybraceApp {
             }
         }
         self.poll_picker();
+        self.poll_doc_picker();
         self.poll_connection_picker();
     }
 
@@ -844,6 +849,7 @@ impl CurlybraceApp {
             self.apply_ui_event(event);
         }
         self.ensure_picker();
+        self.ensure_doc_picker();
         self.flush_clipboard(ctx);
         self.save_workspace_if_changed(ctx, std::time::Instant::now());
     }
@@ -862,6 +868,8 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod aggregate_session_tests;
+#[cfg(test)]
+mod doc_export_tests;
 #[cfg(test)]
 mod file_picker_tests;
 

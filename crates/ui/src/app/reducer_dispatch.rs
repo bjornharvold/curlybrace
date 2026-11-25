@@ -44,6 +44,7 @@ pub(super) fn dispatch(state: AppState, input: Input) -> Out {
         Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
+        Input::DocExport(a) => super::doc_export::on_action(state, a),
         Input::Copy(a) => copy::on_input(state, a),
         Input::Tools(a) => tools_actions::on_action(state, a),
         Input::Bulk(a) => bulk_actions::on_action(state, a),

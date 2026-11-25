@@ -219,6 +219,10 @@ pub struct AppState {
     pub workspace: Workspace,
     /// Compare sessions have their own connections; this survives browsing connect/disconnect.
     pub compare: CompareState,
+    /// The document export of the shown collection: its modal, dialog, job and result.
+    pub doc_export: crate::viewmodel::doc_export::DocExportUi,
+    /// Document export run ids handed out so far.
+    pub doc_export_runs: curlybrace_core::compare::protocol::RunId,
     pub conn: ConnectionsState,
     pub status: ConnStatus,
     /// Open sessions in opening order; the active one is among them.

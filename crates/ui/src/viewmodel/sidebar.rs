@@ -51,6 +51,10 @@ pub enum SidebarAction {
     Open(Namespace),
     /// Open the collection in a new tab of the session instead of replacing the current tab's.
     OpenInNewTab(Namespace),
+    /// Export every document of the collection (the export modal opens).
+    ExportDocuments(Namespace),
+    /// Export the documents the applied filter of the shown collection matches.
+    ExportMatching(Namespace),
     Refresh,
     CompareTo(Namespace),
     CompareDatabaseTo(String),

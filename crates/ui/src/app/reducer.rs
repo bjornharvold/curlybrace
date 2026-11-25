@@ -50,6 +50,8 @@ pub enum Input {
     ShowConnections,
     TestConnection(Box<ConnectionForm>),
     Compare(CompareAction),
+    /// The document export modal and its file dialog.
+    DocExport(super::doc_export::DocExportAction),
     /// The paste dialog.
     Copy(CopyInput),
     /// A choice of tool path, or the answer of a version check.
@@ -124,6 +126,10 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     // debug-build stack limit, and one more arm there overflows it.
     if aggregate_actions::is_preview_event(&ev) {
         return aggregate_actions::on_event(state, ev);
+    }
+    // The export's events carry no session and touch one field: taken ahead for the same reason.
+    if super::doc_export::is_export_event(&ev) {
+        return super::doc_export::on_event(state, ev);
     }
     if super::aggregate_hint_actions::is_hint_list_event(&ev) {
         return super::aggregate_hint_actions::on_event(state, ev);
@@ -469,6 +475,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // Routed before: these have no session, or go to the session's shell or Aggregate draft.
         Event::Compare(_)
         | Event::Copy(_)
+        | Event::Export(_)
         | Event::TestConnection { .. }
         | Event::Snapshots { .. }
         | Event::ShellOutput { .. }

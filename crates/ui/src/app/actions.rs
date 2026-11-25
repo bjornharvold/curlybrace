@@ -21,6 +21,15 @@ pub(super) fn gated(state: AppState, f: impl FnOnce(AppState) -> Out) -> Out {
     (AppState { banner, ..state }, Vec::new())
 }
 
+/// Opens the export modal for `ns`: the whole collection, or what the applied filter matches.
+fn export_open(state: AppState, ns: Namespace, whole_collection: bool) -> Out {
+    let action = super::doc_export::DocExportAction::Open {
+        ns,
+        whole_collection,
+    };
+    super::doc_export::on_action(state, action)
+}
+
 pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
     match action {
         SidebarAction::Toggle(db) => {
@@ -36,6 +45,8 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
                 super::tab_actions::TabAction::OpenInNew { session, ns },
             )
         }
+        SidebarAction::ExportDocuments(ns) => export_open(state, ns, true),
+        SidebarAction::ExportMatching(ns) => export_open(state, ns, false),
         SidebarAction::Refresh => gated(state, refresh),
         SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
         SidebarAction::CompareDatabaseTo(db) => {

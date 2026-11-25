@@ -43,6 +43,8 @@ pub mod copy_dialog;
 pub mod copy_progress;
 pub mod create_index;
 mod dialog_body;
+pub mod doc_export;
+mod doc_export_entry;
 pub mod doc_select;
 #[cfg(test)]
 mod doc_select_tests;

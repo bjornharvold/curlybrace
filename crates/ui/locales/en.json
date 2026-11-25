@@ -1323,6 +1323,63 @@
     "unsupported": "This action is not supported for the current connection.",
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
+  "export": {
+    "choose_file": "Choose file…",
+    "choosing": {
+      "cancel": "Back",
+      "waiting": "Waiting for the file dialog…"
+    },
+    "entry": {
+      "menu": "Export documents…",
+      "query": "Export documents matching the filter…"
+    },
+    "finished": {
+      "cancelled": "The export was cancelled and the unfinished file was removed.",
+      "cancelled_kept": "The export was cancelled.",
+      "close": "Close",
+      "done_many": "Exported {count} documents.",
+      "done_one": "Exported 1 document.",
+      "failed": "The export failed. No documents were exported.",
+      "file_left": "An unfinished file could not be removed. Delete it yourself before you use it."
+    },
+    "format": {
+      "json_array": "JSON array (one array of documents)",
+      "ndjson": "NDJSON (one document per line)",
+      "title": "File format"
+    },
+    "mode": {
+      "canonical": "Canonical",
+      "canonical_hint": "Type-exact: every value keeps its BSON type",
+      "relaxed": "Relaxed",
+      "relaxed_hint": "Readable, not type-exact",
+      "title": "Values"
+    },
+    "note": {
+      "consistency": "The documents are read while the export runs, not as a snapshot of one moment.",
+      "sensitive": "The file holds your data as it is. Keep it somewhere safe."
+    },
+    "reason": {
+      "busy": "An export is already running",
+      "collated": "Exporting reads documents in binary order, so a query with a collation cannot be exported",
+      "not_connected": "Connect to a server to export documents"
+    },
+    "running": {
+      "bar_name": "Export progress",
+      "cancel": "Cancel export",
+      "cancelling": "Cancelling…",
+      "progress_many": "{done} of {total} documents",
+      "progress_one": "{done} of 1 document",
+      "progress_unknown_many": "{done} documents",
+      "progress_unknown_one": "1 document",
+      "title": "Exporting"
+    },
+    "source": {
+      "collection": "All documents of {name}",
+      "query": "All documents of {name} that match the applied filter, not only the page shown",
+      "query_ignored": "The sort and projection of the current query are not applied."
+    },
+    "title": "Export documents"
+  },
   "failures": {
     "aggregate_count": "Could not count the stages",
     "aggregate_explain": "Could not explain the pipeline",
@@ -1359,6 +1416,7 @@
     "drop_index": "Could not drop the index",
     "duplicate_collection": "Could not duplicate the collection",
     "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
+    "export_documents": "Could not export the documents",
     "find": "Could not load documents",
     "index_history": "Could not load the index usage history",
     "insert": "Could not insert the document",

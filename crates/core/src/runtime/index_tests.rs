@@ -674,6 +674,7 @@ fn shared_with_history() -> Arc<Shared> {
         config: RuntimeConfig::default(),
         compare: Default::default(),
         copy: Default::default(),
+        export: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
         cancelled: Default::default(),
