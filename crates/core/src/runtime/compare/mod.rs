@@ -30,9 +30,9 @@ mod duplicates_tests;
 mod export;
 #[cfg(test)]
 mod export_content_tests;
-mod export_file;
+mod export_header;
 #[cfg(test)]
-mod export_file_tests;
+mod export_header_tests;
 #[cfg(test)]
 mod export_lifecycle_tests;
 mod export_sink;

@@ -6,7 +6,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::apply_tests::{Gate, assert_silent, barrier, within};
-use super::export_sink::test_hooks::fail_writes_after;
 use super::export_tests::{collect_export, outcome_of, request, send_export, standard_ops};
 use super::report_tests::{
     file_report, file_target, report, report_request, report_rig, send_report, text_of,
@@ -14,6 +13,7 @@ use super::report_tests::{
 use crate::compare::protocol::{CompareCommand, CompareEvent, ExportFormat, ReportTarget};
 use crate::error::CoreError;
 use crate::runtime::Command;
+use crate::runtime::export_file::test_hooks::fail_writes_after;
 
 #[tokio::test]
 async fn cancel_while_reading_paths_removes_the_file_and_frees_the_slot() {

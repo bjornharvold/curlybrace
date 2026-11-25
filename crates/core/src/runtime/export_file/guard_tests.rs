@@ -1,9 +1,8 @@
-//! The file helpers on their own: path validation, the guard and the header replacement.
+//! The path rules and the guard on their own.
 
 use std::fs;
-use std::io::Write;
 
-use super::export_file::{FileGuard, overwrite_header, validate_path};
+use super::{FileGuard, validate_path};
 
 #[test]
 fn validate_path_accepts_a_new_file_and_an_existing_regular_file() {
@@ -60,39 +59,6 @@ fn a_path_that_cannot_be_opened_is_never_removed_by_a_guard() {
     assert!(existing.exists(), "an existing directory was not touched");
 }
 
-fn file_with(content: &[u8]) -> (tempfile::TempDir, fs::File) {
-    let dir = tempfile::tempdir().unwrap();
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(dir.path().join("f"))
-        .unwrap();
-    file.write_all(content).unwrap();
-    (dir, file)
-}
-
-fn contents(dir: &tempfile::TempDir) -> Vec<u8> {
-    fs::read(dir.path().join("f")).unwrap()
-}
-
-#[test]
-fn overwrite_header_replaces_only_the_head_in_place() {
-    let (dir, mut file) = file_with(b"AAAA body");
-    overwrite_header(&mut file, 4, b"BBBB").unwrap();
-    assert_eq!(contents(&dir), b"BBBB body");
-}
-
-#[test]
-fn overwrite_header_refuses_another_length_without_touching_the_file() {
-    for header in [&b"BBBBB"[..], b"BBB"] {
-        let (dir, mut file) = file_with(b"AAAA body");
-        assert!(overwrite_header(&mut file, 4, header).is_err());
-        assert_eq!(contents(&dir), b"AAAA body");
-    }
-}
-
 #[test]
 fn a_trailing_separator_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -133,7 +99,7 @@ fn create_does_not_block_on_a_fifo() {
 fn a_failure_right_after_the_open_removes_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("f");
-    super::export_file::test_hooks::fail_after_open(&path, false);
+    super::test_hooks::fail_after_open(&path, false);
     assert_eq!(
         FileGuard::create(&path).unwrap_err(),
         crate::error::CoreError::ExportWriteFailed
@@ -158,7 +124,7 @@ fn a_failed_removal_after_the_open_is_reported_as_such() {
     }
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     fs::remove_file(&probe).unwrap();
-    super::export_file::test_hooks::fail_after_open(&path, true);
+    super::test_hooks::fail_after_open(&path, true);
     let result = FileGuard::create(&path);
     let left = path.exists();
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();

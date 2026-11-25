@@ -55,9 +55,11 @@ use super::apply::{
     Group, JobContext, check_destinations, expand_bulk, group_by_pair, internal_error,
     refuse_duplicates, refuse_misshapen, require_results, snapshot, take_slot,
 };
-use super::export_file::{FileGuard, overwrite_header, validate_path};
+use crate::runtime::export_file::{ExportSink, FileGuard, validate_path};
+
+use super::export_header::overwrite_header;
 use super::export_sink::{
-    ExportSink, FormatWriter, Resolved, Section, Tally, Unit, header_bytes, render_error, sections,
+    FormatWriter, Resolved, Section, Tally, Unit, header_bytes, render_error, sections,
 };
 use super::runner::RunSlot;
 use super::{Events, Repaint, Shared, answer_closed, connections};
