@@ -20,6 +20,7 @@ pub mod ejson;
 pub mod error;
 mod error_name;
 pub mod explain;
+pub mod export;
 pub mod guard;
 pub mod history;
 pub mod indexes;
