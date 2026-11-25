@@ -2,6 +2,9 @@
 //! JSON array.
 
 pub mod protocol;
+pub mod read;
+#[cfg(test)]
+mod read_tests;
 pub mod render;
 #[cfg(test)]
 mod render_tests;
