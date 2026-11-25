@@ -7,12 +7,14 @@
 //! is still the one waiting.
 //! Paths are never logged.
 use curlybrace_core::compare::protocol::ExportFormat;
+use curlybrace_core::export::protocol::DocFormat;
 use curlybrace_core::runtime::Repaint;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use crate::viewmodel::compare::{ExportDraft, ExportKind};
+use crate::viewmodel::doc_export::{DocExportDraft, DocExportSource};
 
 /// Asks the person where to save a file. Blocking; the app calls it on a worker thread.
 pub trait FilePicker: Send + Sync {
@@ -82,6 +84,17 @@ pub fn suggested_file(kind: ExportKind, format: ExportFormat) -> (&'static str, 
     }
 }
 
+const DOC_NAME: &str = "export";
+const NDJSON_EXT: &str = "ndjson";
+
+/// The suggested file name and extension for a document export (not translated: file names).
+pub fn suggested_doc_file(format: DocFormat) -> (&'static str, &'static str) {
+    match format {
+        DocFormat::Ndjson => (DOC_NAME, NDJSON_EXT),
+        DocFormat::JsonArray => (DOC_NAME, JSON_EXT),
+    }
+}
+
 /// What a running dialog has answered so far.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PickPoll {
@@ -148,4 +161,41 @@ pub fn start_pick(
         picker.save_file(suggested_name, extension)
     });
     PendingPick { draft, answers }
+}
+
+/// The save dialog of the document export in flight.
+#[derive(Debug)]
+pub struct PendingDocPick {
+    /// The export the dialog was opened for: an answer for any other state is stale.
+    source: DocExportSource,
+    draft: DocExportDraft,
+    answers: Receiver<Option<PathBuf>>,
+}
+
+impl PendingDocPick {
+    pub fn into_parts(self) -> (DocExportSource, DocExportDraft) {
+        (self.source, self.draft)
+    }
+
+    pub fn poll(&self) -> PickPoll {
+        poll_dialog(&self.answers)
+    }
+}
+
+/// Runs the picker for the document export on a worker thread; wakes the UI afterwards.
+pub fn start_doc_pick(
+    picker: Arc<dyn FilePicker>,
+    source: DocExportSource,
+    draft: DocExportDraft,
+    repaint: Repaint,
+) -> PendingDocPick {
+    let (name, extension) = suggested_doc_file(draft.format);
+    let answers = spawn_dialog("curlybrace-doc-export-picker", repaint, move || {
+        picker.save_file(name, extension)
+    });
+    PendingDocPick {
+        source,
+        draft,
+        answers,
+    }
 }

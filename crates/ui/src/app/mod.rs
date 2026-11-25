@@ -50,6 +50,7 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
+mod doc_export;
 mod explain_actions;
 mod find_options_actions;
 pub use explain_actions::VerdictState;
@@ -119,6 +120,7 @@ pub mod write_guard;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::{ExportUi, SessionPhase};
+use crate::viewmodel::doc_export::DocExportUi;
 use crate::views::connections::{ConnectionAction, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
@@ -130,6 +132,7 @@ use curlybrace_core::runtime::{
     default_known_hosts_path, default_snapshot_dir, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
+use doc_export::DocExportAction;
 use eframe::egui;
 use explain_settings::default_explain_path;
 use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
@@ -183,6 +186,8 @@ pub struct CurlybraceApp {
     repaint: Repaint,
     /// The save dialog being shown, if any: at most one at a time.
     pick: Option<PendingPick>,
+    /// The save dialog of the document export, if one is shown: at most one at a time.
+    doc_pick: Option<file_picker::PendingDocPick>,
     /// The import/export dialog being shown, if any: at most one at a time.
     conn_pick: Option<connection_picker::ConnPick>,
     /// The runtime was found gone (never reset: it is not restarted); keeps its banner to one.
@@ -229,6 +234,7 @@ impl CurlybraceApp {
             picker: Arc::new(NoFilePicker),
             repaint: Arc::new(|| {}),
             pick: None,
+            doc_pick: None,
             conn_pick: None,
             runtime_gone: false,
             clock: curlybrace_core::clock::now_secs,
@@ -756,6 +762,7 @@ impl CurlybraceApp {
             }
         }
         self.poll_picker();
+        self.poll_doc_picker();
         self.poll_connection_picker();
     }
 
@@ -801,6 +808,46 @@ impl CurlybraceApp {
         self.dispatch(Input::Compare(action));
     }
 
+    /// Opens the save dialog of the document export when one waits in `Choosing` and none is open.
+    fn ensure_doc_picker(&mut self) {
+        let DocExportUi::Choosing { source, draft } = &self.state.doc_export else {
+            return;
+        };
+        if self.doc_pick.is_some() {
+            return;
+        }
+        self.doc_pick = Some(file_picker::start_doc_pick(
+            self.picker.clone(),
+            source.clone(),
+            *draft,
+            self.repaint.clone(),
+        ));
+    }
+
+    /// Turns the dialog's answer into the matching action, but only when the export it was opened
+    /// for is still the one waiting; a stale answer is dropped.
+    fn poll_doc_picker(&mut self) {
+        let Some(PickPoll::Done(path)) = self.doc_pick.as_ref().map(|p| p.poll()) else {
+            return;
+        };
+        let asked = self
+            .doc_pick
+            .take()
+            .map(file_picker::PendingDocPick::into_parts);
+        let still_waiting = matches!(
+            (&self.state.doc_export, &asked),
+            (DocExportUi::Choosing { source, draft }, Some((s, d))) if source == s && draft == d
+        );
+        if !still_waiting {
+            return;
+        }
+        let action = match path {
+            Some(path) => DocExportAction::PathChosen(path),
+            None => DocExportAction::PathCancelled,
+        };
+        self.dispatch(Input::DocExport(action));
+    }
+
     /// Copies the clipboard report, if one is waiting, exactly once: the state keeps no copy.
     /// The text is never logged.
     fn flush_clipboard(&mut self, ctx: &egui::Context) {
@@ -844,6 +891,7 @@ impl CurlybraceApp {
             self.apply_ui_event(event);
         }
         self.ensure_picker();
+        self.ensure_doc_picker();
         self.flush_clipboard(ctx);
         self.save_workspace_if_changed(ctx, std::time::Instant::now());
     }
@@ -862,6 +910,8 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod aggregate_session_tests;
+#[cfg(test)]
+mod doc_export_tests;
 #[cfg(test)]
 mod file_picker_tests;
 
