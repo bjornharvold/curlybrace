@@ -77,7 +77,7 @@ mod protocol_tests {
     #[test]
     fn debug_of_a_request_never_shows_the_path_or_the_filter() {
         let request = DocExportRequest {
-            session: 1,
+            session: crate::runtime::SessionId::nil(),
             ns: Namespace::new("secretdb", "secretcoll"),
             filter: doc! { "ssn": "123-45-6789" },
             format: DocFormat::Ndjson,

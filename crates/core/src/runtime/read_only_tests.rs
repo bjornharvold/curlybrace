@@ -540,7 +540,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 51;
+const COMMAND_VARIANTS: usize = 52;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -586,6 +586,7 @@ fn classify(command: &Command) -> Class {
         | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::Copy(_)
+        | Command::Export(_)
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }
@@ -652,6 +653,7 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
         },
         Command::PurgeHistory { connection: cfg.id },
         Command::Copy(crate::copy::CopyCommand::Cancel { run: 1 }),
+        Command::Export(crate::export::protocol::ExportCommand::Cancel { run: 1 }),
         Command::SnapshotList { request: 1 },
         Command::SnapshotDelete {
             run: crate::bulk::BulkRunId(Uuid::new_v4()),

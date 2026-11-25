@@ -40,6 +40,7 @@ impl Command {
             | Self::AggregateCount { .. }
             | Self::Compare(_)
             | Self::Copy(_)
+            | Self::Export(_)
             | Self::TestConnection { .. }
             | Self::LockReadOnly { .. }
             | Self::ListIndexes { .. }
@@ -106,6 +107,7 @@ impl Command {
             Self::Clone { .. } => "clone",
             Self::Compare(_) => "compare",
             Self::Copy(_) => "copy",
+            Self::Export(_) => "export_documents",
             Self::TestConnection { .. } => "test_connection",
             Self::LockReadOnly { .. } => "lock_read_only",
             Self::ListIndexes { .. } => "list_indexes",
@@ -195,6 +197,7 @@ impl Command {
             | Self::ClearShellHistory { session } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
+            | Self::Export(_)
             | Self::TestConnection { .. }
             | Self::LockReadOnly { .. }
             | Self::SetSamplingExcluded { .. }
@@ -251,6 +254,7 @@ impl Event {
             | Self::ShellHistoryChanged { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
+            | Self::Export(_)
             | Self::TestConnection { .. }
             | Self::Snapshots { .. } => None,
         }
@@ -287,6 +291,7 @@ impl Event {
             | Self::Failed { .. }
             | Self::Compare(_)
             | Self::Copy(_)
+            | Self::Export(_)
             | Self::TestConnection { .. }
             | Self::ProfilingState { .. }
             | Self::IndexChanged { .. }

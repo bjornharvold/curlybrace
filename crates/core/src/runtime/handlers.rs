@@ -603,6 +603,7 @@ async fn data_command(
         | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::Copy(_)
+        | Command::Export(_)
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }

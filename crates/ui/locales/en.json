@@ -1359,6 +1359,7 @@
     "drop_index": "Could not drop the index",
     "duplicate_collection": "Could not duplicate the collection",
     "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
+    "export_documents": "Could not export the documents",
     "find": "Could not load documents",
     "index_history": "Could not load the index usage history",
     "insert": "Could not insert the document",

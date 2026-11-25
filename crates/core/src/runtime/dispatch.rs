@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::session::Session;
 use super::{
-    Command, CoreError, Event, Repaint, SessionId, Shared, compare, connection_test, copy,
+    Command, CoreError, Event, Repaint, SessionId, Shared, compare, connection_test, copy, export,
     handlers, indexes, profiler_handlers, profiler_start, shell_handlers, snapshots,
 };
 
@@ -25,6 +25,10 @@ pub(super) fn dispatch(
     }
     if let Command::Copy(c) = command {
         copy::dispatch(shared, events, repaint, c);
+        return;
+    }
+    if let Command::Export(c) = command {
+        export::dispatch(shared, events, repaint, c);
         return;
     }
     // Like Compare: independent of the connection epoch (no begin_epoch, no generation read).

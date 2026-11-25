@@ -66,6 +66,7 @@ fn read_of(ev: &Event) -> Option<(Read, u64)> {
         | Event::Failed { .. }
         | Event::Compare(_)
         | Event::Copy(_)
+        | Event::Export(_)
         | Event::TestConnection { .. }
         | Event::ProfilingState { .. }
         | Event::IndexChanged { .. }

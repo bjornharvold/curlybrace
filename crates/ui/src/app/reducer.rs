@@ -469,6 +469,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // Routed before: these have no session, or go to the session's shell or Aggregate draft.
         Event::Compare(_)
         | Event::Copy(_)
+        | Event::Export(_)
         | Event::TestConnection { .. }
         | Event::Snapshots { .. }
         | Event::ShellOutput { .. }

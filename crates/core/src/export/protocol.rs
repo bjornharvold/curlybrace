@@ -5,8 +5,9 @@ use std::path::PathBuf;
 
 use bson::Document;
 
-use crate::compare::protocol::{RunId, SessionId};
+use crate::compare::protocol::RunId;
 use crate::error::CoreError;
+use crate::runtime::SessionId;
 use crate::store::Namespace;
 
 /// Output layout of an exported document file.
