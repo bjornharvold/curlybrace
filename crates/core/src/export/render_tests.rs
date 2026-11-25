@@ -52,6 +52,17 @@ fn a_string_with_line_breaks_stays_on_one_line() {
 }
 
 #[test]
+fn unicode_line_separators_are_escaped_and_round_trip() {
+    let original = doc! { "s": "a\u{2028}b\u{2029}c" };
+    for mode in [JsonMode::Canonical, JsonMode::Relaxed] {
+        let line = doc_line(&original, mode);
+        assert!(!line.contains('\u{2028}') && !line.contains('\u{2029}'));
+        assert!(line.contains("\\u2028") && line.contains("\\u2029"));
+        assert_eq!(editor_json_to_doc(&line).expect("parses"), original);
+    }
+}
+
+#[test]
 fn ndjson_writes_one_line_per_document_and_nothing_for_none() {
     assert_eq!(written(DocFormat::Ndjson, &[]), "");
     let docs = mock_numbered_docs(3);

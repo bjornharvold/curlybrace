@@ -301,14 +301,17 @@ fn a_done_export_says_how_many_and_closes() {
 
 #[test]
 fn a_cancelled_export_says_so() {
-    let h = harness(finished(Ok(outcome(5, true, false))));
-    h.get_by_label(&tw("export.finished.cancelled", &[("count", "5")]));
+    let h = harness(finished(Ok(outcome(0, true, false))));
+    h.get_by_label(&t("export.finished.cancelled"));
+    assert!(!shown(&h, "/out/customers.ndjson"), "the file is gone");
 }
 
 #[test]
 fn a_left_file_asks_the_person_to_delete_it() {
     let h = harness(finished(Ok(outcome(5, true, true))));
+    h.get_by_label(&t("export.finished.cancelled_kept"));
     h.get_by_label(&t("export.finished.file_left"));
+    assert!(shown(&h, "/out/customers.ndjson"));
 }
 
 #[test]

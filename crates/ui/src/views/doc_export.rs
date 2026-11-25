@@ -221,12 +221,17 @@ fn show_outcome(
     path: Option<&RedactedPath>,
     i18n: &I18n,
 ) {
-    let count = outcome.written.to_string();
-    let key = match outcome.cancelled {
-        true => "export.finished.cancelled",
-        false => "export.finished.done",
+    let removed = outcome.cancelled && !outcome.file_left;
+    match (outcome.cancelled, outcome.file_left) {
+        (true, false) => ui.label(i18n.t("export.finished.cancelled")),
+        (true, true) => ui.label(i18n.t("export.finished.cancelled_kept")),
+        (false, _) => {
+            let count = outcome.written.to_string();
+            ui.label(i18n.t_with("export.finished.done", &[("count", &count)]))
+        }
     };
-    ui.label(i18n.t_with(key, &[("count", &count)]));
+    // A removed file has no path worth showing.
+    let path = path.filter(|_| !removed);
     if let Some(path) = path {
         // The path is data the person chose: shown as it is, selectable, never logged.
         let text = path.as_path().to_string_lossy().into_owned();

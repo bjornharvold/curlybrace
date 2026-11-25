@@ -231,5 +231,5 @@ async fn cancelling_mid_export_leaves_no_file() {
     );
     assert!(!outcome.file_left);
     assert!(!path.exists(), "a cancelled export leaves no file");
-    assert!(outcome.written < 200_000);
+    assert_eq!(outcome.written, 0, "a removed file reports no count");
 }

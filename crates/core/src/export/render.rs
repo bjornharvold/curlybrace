@@ -16,7 +16,10 @@ pub fn doc_line(doc: &Document, mode: JsonMode) -> String {
         JsonMode::Relaxed => bson.into_relaxed_extjson(),
     };
     // Infallible: a `Value` has only string keys and finite numbers.
-    serde_json::to_string(&value).expect("serde_json::Value always serializes")
+    let line = serde_json::to_string(&value).expect("serde_json::Value always serializes");
+    // JSON allows U+2028/U+2029 raw, but readers like Python's `str.splitlines` split on them.
+    line.replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 /// Streams documents into `W` as NDJSON or as one JSON array.

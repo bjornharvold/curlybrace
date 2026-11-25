@@ -24,7 +24,9 @@ pub(super) async fn execute(job: Job) -> ExportEvent {
         Ok(created) => created,
         Err(error) => return job.ctx.failed(error),
     };
-    let total = estimate(&job).await;
+    let Some(total) = job.cancel.run_until_cancelled(estimate(&job)).await else {
+        return stopped(&job, guard);
+    };
     let out = buffered(ExportSink::new(file, &path));
     match stream(&job, out, total).await {
         Ok(Streamed::Finished { out, written }) => finish(&job, guard, out, written).await,

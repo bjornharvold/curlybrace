@@ -19,7 +19,9 @@ Right-click a collection in the sidebar:
 - **Export documents matching the filter...** writes the documents the applied filter matches. It
   is offered on the collection shown in the documents pane, while a filter is applied. The applied
   filter, not the text still being typed in the filter box, is the source. It is disabled when the
-  view uses a collation.
+  view uses a collation. Matching always uses simple (binary) collation, so on a collection whose
+  default collation is not simple the matched set can differ from what the grid shows. A whole
+  collection export is not affected.
 
 Choose the format and mode, then pick the file in the save dialog. Progress is shown while the
 export runs, and **Cancel** stops it.
@@ -46,13 +48,15 @@ scripts will read it.
 - The export is not a point-in-time snapshot. Documents that change while it runs may be written
   in either state, and documents added or removed during the run may or may not be included.
 - A document without a usable `_id` stops the export with an error.
+- An empty source gives a valid empty file: `[]` for a JSON array, zero bytes for NDJSON.
 
 ## The file
 
 - If the file exists, the save dialog asks you to confirm, and the export then overwrites it.
 - The file is readable and writable by its owner only.
 - If you cancel, or the export fails, the file is removed. A file is kept only when every document
-  was written.
+  was written. A file that already existed at that path is overwritten in place, so cancelling or
+  failing removes it too.
 
 ## Moving data between databases
 

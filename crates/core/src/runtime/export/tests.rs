@@ -229,6 +229,18 @@ async fn cancel_removes_the_file_and_frees_the_slot_for_the_next_export() {
 }
 
 #[tokio::test]
+async fn cancel_during_a_hung_count_ends_the_run_cancelled_and_frees_the_slot() {
+    let mut r = rig(seeded(mock_numbered_docs(3)).hanging_count()).await;
+    let path = r.path("hung.ndjson");
+    let cancel = Command::Export(ExportCommand::Cancel { run: 1 });
+    r.store.arm_at(&r.h.tx, Point::DuringCount, 1, vec![cancel]);
+    let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
+    let done = outcome(&events);
+    assert!(done.cancelled && !done.file_left);
+    assert!(!path.exists());
+}
+
+#[tokio::test]
 async fn a_write_failure_removes_the_file_and_fails_with_export_write_failed() {
     let mut r = rig(seeded(mock_numbered_docs(3))).await;
     let path = r.path("broken.ndjson");

@@ -1334,7 +1334,8 @@
       "query": "Export documents matching the filter…"
     },
     "finished": {
-      "cancelled": "The export was cancelled. {count} documents were written before it stopped.",
+      "cancelled": "The export was cancelled and the unfinished file was removed.",
+      "cancelled_kept": "The export was cancelled.",
       "close": "Close",
       "done": "Exported {count} documents.",
       "failed": "The export failed. No documents were exported.",

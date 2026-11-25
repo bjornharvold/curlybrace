@@ -41,6 +41,8 @@ pub(super) enum Point {
     DuringScan,
     /// At the start of the n-th `find`, so while the engine reads the target's existing ids.
     DuringFind,
+    /// At the start of the first `estimated_count`.
+    DuringCount,
 }
 
 /// An in-memory store that counts its calls, can show views, fail scans of one collection and
@@ -53,6 +55,7 @@ pub(super) struct TestStore {
     pub(super) writes: AtomicUsize,
     finds: AtomicUsize,
     armed: Mutex<Option<Armed>>,
+    hang_count: bool,
 }
 
 impl TestStore {
@@ -70,6 +73,15 @@ impl TestStore {
             writes: AtomicUsize::new(0),
             finds: AtomicUsize::new(0),
             armed: Mutex::new(None),
+            hang_count: false,
+        }
+    }
+
+    /// Makes `estimated_count` never return, like a count on a hung network.
+    pub(super) fn hanging_count(self) -> Self {
+        Self {
+            hang_count: true,
+            ..self
         }
     }
 
@@ -184,6 +196,10 @@ impl DocumentStore for TestStore {
     }
 
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        self.fire_if_armed(Point::DuringCount, 1).await;
+        if self.hang_count {
+            std::future::pending::<()>().await;
+        }
         self.inner.estimated_count(ns).await
     }
 
