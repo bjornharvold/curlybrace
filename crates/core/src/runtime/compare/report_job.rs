@@ -60,11 +60,11 @@ use crate::store::DocumentStore;
 
 use super::apply::{JobContext, internal_error, take_slot};
 use super::export::{done, failed, nothing_exported, refuse};
-use crate::runtime::export_file::{ExportSink, FileGuard, buffered, validate_path};
 use super::export_sink::{into_file, render_error};
 use super::runner::RunSlot;
 use super::session::Session;
 use super::{Events, Repaint, Shared, answer_closed, connections};
+use crate::runtime::export_file::{ExportSink, FileGuard, buffered, validate_path};
 
 /// Rows between two progress events while documents are read (each row is slow then).
 const PATH_PROGRESS: u64 = 20;

@@ -1,9 +1,9 @@
-//! The header replacement on its own.
+//! `overwrite_header` on its own.
 
 use std::fs;
 use std::io::Write;
 
-use super::export_file::overwrite_header;
+use super::export_header::overwrite_header;
 
 fn file_with(content: &[u8]) -> (tempfile::TempDir, fs::File) {
     let dir = tempfile::tempdir().unwrap();

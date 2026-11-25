@@ -57,7 +57,7 @@ use super::apply::{
 };
 use crate::runtime::export_file::{ExportSink, FileGuard, validate_path};
 
-use super::export_file::overwrite_header;
+use super::export_header::overwrite_header;
 use super::export_sink::{
     FormatWriter, Resolved, Section, Tally, Unit, header_bytes, render_error, sections,
 };

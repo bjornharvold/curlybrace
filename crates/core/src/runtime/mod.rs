@@ -68,9 +68,9 @@ mod copy_tests;
 mod dispatch;
 #[cfg(test)]
 mod epoch_tests;
-mod export_file;
 #[cfg(test)]
 mod explain_tests;
+mod export_file;
 #[cfg(test)]
 mod find_options_tests;
 #[cfg(test)]
