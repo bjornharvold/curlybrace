@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/bjornharvold/curlybrace/compare/v0.19.0...v0.20.0) (2026-11-25)
+
+
+### Features
+
+* **export:** export a collection or query to NDJSON or JSON ([#54](https://github.com/bjornharvold/curlybrace/issues/54), part 1) ([#204](https://github.com/bjornharvold/curlybrace/issues/204)) ([001bc89](https://github.com/bjornharvold/curlybrace/commit/001bc89381eabae08893f29fd8ead3b649223239))
+
 ## [0.19.0](https://github.com/bjornharvold/curlybrace/compare/v0.18.0...v0.19.0) (2026-11-21)
 
 
