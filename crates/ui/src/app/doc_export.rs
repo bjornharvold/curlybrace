@@ -13,7 +13,9 @@ use curlybrace_core::export::protocol::{DocExportRequest, ExportCommand, ExportE
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Namespace, Query};
 
-use super::reducer::Out;
+use super::CurlybraceApp;
+use super::file_picker::{self, PickPoll};
+use super::reducer::{Input, Out};
 use super::state::{AppState, Banner, ConnStatus};
 use crate::viewmodel::doc_export::{
     DocExportDraft, DocExportSource, DocExportUi, doc_export_block,
@@ -22,7 +24,7 @@ use crate::viewmodel::doc_export::{
 /// The banner context of a failed export (`failures.export_documents`).
 const FAILURE_CONTEXT: &str = "export_documents";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum DocExportAction {
     /// Opens the modal for `ns`: the whole collection, or the documents of the applied query.
     Open {
@@ -36,6 +38,26 @@ pub enum DocExportAction {
     PathCancelled,
     Cancel,
     Close,
+}
+
+/// Prints the variant only: the namespace and the chosen path are never shown.
+impl std::fmt::Debug for DocExportAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open {
+                whole_collection, ..
+            } => f
+                .debug_struct("Open")
+                .field("whole_collection", whole_collection)
+                .finish_non_exhaustive(),
+            Self::Edit(draft) => f.debug_tuple("Edit").field(draft).finish(),
+            Self::ChooseFile => f.write_str("ChooseFile"),
+            Self::PathChosen(_) => f.write_str("PathChosen(..)"),
+            Self::PathCancelled => f.write_str("PathCancelled"),
+            Self::Cancel => f.write_str("Cancel"),
+            Self::Close => f.write_str("Close"),
+        }
+    }
 }
 
 fn none(state: AppState) -> Out {
@@ -95,7 +117,11 @@ fn open(state: AppState, ns: Namespace, whole_collection: bool) -> Out {
 }
 
 fn choose_file(state: AppState) -> Out {
-    match connected(&state) {
+    let shown = match &state.doc_export {
+        DocExportUi::Configuring { source, .. } => source.session == state.session_id(),
+        _ => false,
+    };
+    match connected(&state) && shown {
         true => {
             let next = state.doc_export.clone().choosing();
             none(with_export(state, next))
@@ -228,5 +254,47 @@ fn failed(state: AppState, run: u64, error: CoreError) -> Out {
             none(state)
         }
         _ => none(state),
+    }
+}
+
+impl CurlybraceApp {
+    /// Opens the save dialog of the document export when one waits in `Choosing` and none is open.
+    pub(super) fn ensure_doc_picker(&mut self) {
+        let DocExportUi::Choosing { source, draft } = &self.state.doc_export else {
+            return;
+        };
+        if self.doc_pick.is_some() {
+            return;
+        }
+        self.doc_pick = Some(file_picker::start_doc_pick(
+            self.picker.clone(),
+            source.clone(),
+            *draft,
+            self.repaint.clone(),
+        ));
+    }
+
+    /// Turns the dialog's answer into the matching action, but only when the export it was opened
+    /// for is still the one waiting; a stale answer is dropped.
+    pub(super) fn poll_doc_picker(&mut self) {
+        let Some(PickPoll::Done(path)) = self.doc_pick.as_ref().map(|p| p.poll()) else {
+            return;
+        };
+        let asked = self
+            .doc_pick
+            .take()
+            .map(file_picker::PendingDocPick::into_parts);
+        let still_waiting = matches!(
+            (&self.state.doc_export, &asked),
+            (DocExportUi::Choosing { source, draft }, Some((s, d))) if source == s && draft == d
+        );
+        if !still_waiting {
+            return;
+        }
+        let action = match path {
+            Some(path) => DocExportAction::PathChosen(path),
+            None => DocExportAction::PathCancelled,
+        };
+        self.dispatch(Input::DocExport(action));
     }
 }

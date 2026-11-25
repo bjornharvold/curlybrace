@@ -463,3 +463,32 @@ fn the_dialog_asks_for_the_json_suffix_for_an_array() {
     assert!(matches!(state.doc_export, DocExportUi::Configuring { .. }));
     assert!(sent.is_empty());
 }
+
+#[test]
+fn debug_hides_the_path_and_the_namespace() {
+    let chosen = format!(
+        "{:?}",
+        DocExportAction::PathChosen(PathBuf::from("/home/someone/secret.ndjson"))
+    );
+    assert!(!chosen.contains("secret"), "{chosen}");
+    let open = format!(
+        "{:?}",
+        DocExportAction::Open {
+            ns: Namespace::new("secretdb", "secretcoll"),
+            whole_collection: false,
+        }
+    );
+    assert!(!open.contains("secret"), "{open}");
+}
+
+#[test]
+fn choose_file_is_refused_after_another_session_became_the_shown_one() {
+    let state = open(connected(), false);
+    let other = AppState {
+        active: Some(Uuid::from_u128(2)),
+        ..state
+    };
+    let (state, commands) = act(other, DocExportAction::ChooseFile);
+    assert!(matches!(state.doc_export, DocExportUi::Configuring { .. }));
+    assert!(commands.is_empty());
+}

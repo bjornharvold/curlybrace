@@ -120,7 +120,6 @@ pub mod write_guard;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::{ExportUi, SessionPhase};
-use crate::viewmodel::doc_export::DocExportUi;
 use crate::views::connections::{ConnectionAction, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
@@ -132,7 +131,6 @@ use curlybrace_core::runtime::{
     default_known_hosts_path, default_snapshot_dir, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
-use doc_export::DocExportAction;
 use eframe::egui;
 use explain_settings::default_explain_path;
 use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
@@ -806,46 +804,6 @@ impl CurlybraceApp {
             None => CompareAction::ExportPathCancelled,
         };
         self.dispatch(Input::Compare(action));
-    }
-
-    /// Opens the save dialog of the document export when one waits in `Choosing` and none is open.
-    fn ensure_doc_picker(&mut self) {
-        let DocExportUi::Choosing { source, draft } = &self.state.doc_export else {
-            return;
-        };
-        if self.doc_pick.is_some() {
-            return;
-        }
-        self.doc_pick = Some(file_picker::start_doc_pick(
-            self.picker.clone(),
-            source.clone(),
-            *draft,
-            self.repaint.clone(),
-        ));
-    }
-
-    /// Turns the dialog's answer into the matching action, but only when the export it was opened
-    /// for is still the one waiting; a stale answer is dropped.
-    fn poll_doc_picker(&mut self) {
-        let Some(PickPoll::Done(path)) = self.doc_pick.as_ref().map(|p| p.poll()) else {
-            return;
-        };
-        let asked = self
-            .doc_pick
-            .take()
-            .map(file_picker::PendingDocPick::into_parts);
-        let still_waiting = matches!(
-            (&self.state.doc_export, &asked),
-            (DocExportUi::Choosing { source, draft }, Some((s, d))) if source == s && draft == d
-        );
-        if !still_waiting {
-            return;
-        }
-        let action = match path {
-            Some(path) => DocExportAction::PathChosen(path),
-            None => DocExportAction::PathCancelled,
-        };
-        self.dispatch(Input::DocExport(action));
     }
 
     /// Copies the clipboard report, if one is waiting, exactly once: the state keeps no copy.
