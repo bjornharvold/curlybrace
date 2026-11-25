@@ -1323,6 +1323,13 @@
     "unsupported": "This action is not supported for the current connection.",
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
+  "export": {
+    "reason": {
+      "busy": "An export is already running",
+      "collated": "Exporting reads documents in binary order, so a query with a collation cannot be exported",
+      "not_connected": "Connect to a server to export documents"
+    }
+  },
   "failures": {
     "aggregate_count": "Could not count the stages",
     "aggregate_explain": "Could not explain the pipeline",

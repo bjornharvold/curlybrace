@@ -36,6 +36,7 @@ pub mod copy_drag;
 pub mod copy_menu;
 pub mod doc_actions;
 pub mod doc_copy;
+pub mod doc_export;
 pub mod editor;
 pub mod findbar;
 pub mod findbar_more;
