@@ -138,6 +138,7 @@ async fn finish(job: &Job, guard: FileGuard, out: Out, written: u64) -> ExportEv
                     bytes,
                     cancelled: false,
                     file_left: false,
+                    file_created: true,
                 },
             }
         }
@@ -161,12 +162,14 @@ fn stopped(job: &Job, guard: Option<FileGuard>) -> ExportEvent {
         };
         return job.ctx.failed(error);
     }
+    let file_created = guard.is_some();
     let removed = guard.is_none_or(FileGuard::remove);
     ExportEvent::Done {
         run: job.ctx.run,
         outcome: DocExportOutcome {
             cancelled: true,
             file_left: !removed,
+            file_created,
             ..DocExportOutcome::default()
         },
     }

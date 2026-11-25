@@ -3,12 +3,14 @@
 //! The scan includes its start key, so a resumed read asks for one extra document and drops the
 //! one equal to the resume key (the same keyset paging as `copy::engine`).
 //!
-//! What is bounded: a batch returned to the caller holds at most [`EXPORT_BATCH`] documents and,
-//! unless it is a single oversized document, at most the byte budget (the documents that would
-//! pass it are dropped and read again by the next batch). The size of a fetch adapts to the
-//! largest document seen so far, so after the first fetch (a few documents) the documents held
-//! while reading stay near the budget too. A document is never split: one bigger than the budget
-//! is returned alone. Document values and `_id`s are never logged or put in an error.
+//! What is bounded: the batch RETURNED to the caller holds at most the batch size in documents
+//! and, unless it is a single oversized document, at most the byte budget (the documents that
+//! would pass it are dropped and read again by the next batch). What the store holds while a
+//! fetch is in flight is NOT bounded the same way: a fetch is sized from the largest document of
+//! the previous one (at most doubling per fetch), so after a run of small documents a run of huge
+//! ones can still be fetched whole, up to the batch size times the 16 MB BSON maximum, before it
+//! is trimmed. A document is never split: one bigger than the budget is returned alone. Document
+//! values and `_id`s are never logged or put in an error.
 
 use std::sync::Arc;
 
@@ -96,12 +98,18 @@ impl DocReader {
             )
             .await?;
         let may_have_more = fetched.len() >= wanted;
-        let docs = drop_resumed(fetched, &self.key, self.resume.as_ref())?;
+        let mut docs = drop_resumed(fetched, &self.key, self.resume.as_ref())?;
+        // The resume document may have vanished, leaving one document too many; the tail is read
+        // again by the next fetch because the resume key is the last document kept.
+        let cut = docs.len() > self.next_limit;
+        docs.truncate(self.next_limit);
         let sizes: Vec<usize> = docs.iter().map(encoded_size).collect();
         let keep = docs_within(&sizes, self.byte_budget);
-        let more = may_have_more || keep < docs.len();
+        let more = may_have_more || cut || keep < docs.len();
         let largest = sizes.iter().copied().max().unwrap_or(1).max(1);
-        self.next_limit = (self.byte_budget / largest).clamp(1, self.batch);
+        self.next_limit = (self.byte_budget / largest)
+            .min(self.next_limit.saturating_mul(2))
+            .clamp(1, self.batch);
         let docs: Vec<Document> = docs.into_iter().take(keep).collect();
         self.resume = match (more, docs.last()) {
             (true, Some(last)) => Some(extract_key(last, &self.key)?),

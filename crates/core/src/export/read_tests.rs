@@ -103,6 +103,51 @@ async fn a_single_oversized_document_is_still_exported_alone() {
 }
 
 #[tokio::test]
+async fn a_vanished_resume_document_never_makes_a_batch_longer_than_the_batch_size() {
+    let ns = mock_namespace();
+    let mem = Arc::new(InMemoryStore::new().with_docs(&ns, mock_numbered_docs(12)));
+    let store: Arc<dyn DocumentStore> = mem.clone();
+    let mut r = DocReader::new(store, ns.clone(), doc! {}, 3);
+    let first = r.next_batch().await.expect("batch").expect("some");
+    let last = first.last().unwrap().get("_id").unwrap().clone();
+    mem.delete(&ns, &last).await.expect("delete");
+    let mut rest = Vec::new();
+    while let Some(batch) = r.next_batch().await.expect("batch") {
+        assert!(batch.len() <= 3, "batch of {}", batch.len());
+        rest.extend(batch);
+    }
+    assert_eq!(first.len() + rest.len(), 12 - 1 + 1);
+    let ids: Vec<i32> = first
+        .iter()
+        .chain(&rest)
+        .map(|d| d.get_i32("_id").unwrap())
+        .collect();
+    let mut sorted = ids.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(ids, sorted);
+    assert_eq!(ids.len(), 12);
+}
+
+#[tokio::test]
+async fn a_fetch_never_grows_more_than_twofold_after_small_documents() {
+    // Small documents followed by large ones: no batch may hold more than the budget allows,
+    // and the walk still returns everything in order.
+    let mut docs: Vec<Document> = (0..40).map(|n| doc! { "_id": n }).collect();
+    docs.extend((40..48).map(|n| doc! { "_id": n, "pad": "x".repeat(200_000) }));
+    let mut r = reader(docs.clone(), doc! {}, 500).with_byte_budget(450_000);
+    let batches = drain(&mut r).await;
+    let flat: Vec<Document> = batches.iter().flatten().cloned().collect();
+    assert_eq!(flat, docs);
+    for batch in batches
+        .iter()
+        .filter(|b| b.iter().any(|d| d.contains_key("pad")))
+    {
+        assert!(batch.iter().map(size).sum::<usize>() <= 450_000 || batch.len() == 1);
+    }
+}
+
+#[tokio::test]
 async fn small_documents_still_batch_by_count() {
     let mut r = reader(mock_numbered_docs(20), doc! {}, 5);
     let batches = drain(&mut r).await;

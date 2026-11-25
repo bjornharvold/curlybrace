@@ -73,8 +73,10 @@ To copy between connections without a file, see [copy](copy.md).
 
 ## Limits
 
-- Memory: documents are read in batches of at most 500 and at most about 8 MB of BSON each (a
-  single larger document is read alone), so very large documents do not pile up.
+- Memory: each batch handed to the file writer holds at most 500 documents and at most about
+  8 MB of BSON (a single larger document is written alone). The read itself is sized from the
+  previous documents, so a sudden run of very large documents after small ones can briefly hold
+  more than that while it is fetched.
 - The progress total is an estimate (an exact count for a filter). If it is slow or already
   passed, the export shows only the number of documents written.
 - One export runs at a time.

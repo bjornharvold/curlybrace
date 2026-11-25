@@ -243,13 +243,15 @@ fn show_outcome(
     path: Option<&RedactedPath>,
     i18n: &I18n,
 ) {
+    // The file is only reported removed when this run created it; a cancel before that touched
+    // nothing, so it gets the plain "cancelled" text.
     let removed = outcome.cancelled && !outcome.file_left;
-    match (outcome.cancelled, outcome.file_left) {
-        (true, false) => ui.label(i18n.t("export.finished.cancelled")),
-        (true, true) => ui.label(i18n.t("export.finished.cancelled_kept")),
-        (false, _) => ui.label(done_text(outcome.written, i18n)),
+    match (outcome.cancelled, outcome.file_created, outcome.file_left) {
+        (true, true, false) => ui.label(i18n.t("export.finished.cancelled")),
+        (true, _, _) => ui.label(i18n.t("export.finished.cancelled_kept")),
+        (false, _, _) => ui.label(done_text(outcome.written, i18n)),
     };
-    // A removed file has no path worth showing.
+    // A removed or never created file has no path worth showing.
     let path = path.filter(|_| !removed);
     if let Some(path) = path {
         // The path is data the person chose: shown as it is, selectable, never logged.

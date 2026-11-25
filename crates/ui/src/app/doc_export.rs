@@ -112,7 +112,9 @@ fn open(state: AppState, ns: Namespace, whole_collection: bool) -> Out {
         ns,
         filter: (!whole_collection).then(|| state.page_query.filter.clone()),
         ignores_options: !whole_collection
-            && (state.page_query.sort.is_some() || state.page_query.projection.is_some()),
+            && [&state.page_query.sort, &state.page_query.projection]
+                .into_iter()
+                .any(|d| d.as_ref().is_some_and(|d| !d.is_empty())),
     };
     let next = state.doc_export.clone().open(source);
     none(with_export(state, next))

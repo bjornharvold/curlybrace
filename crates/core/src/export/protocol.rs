@@ -74,6 +74,9 @@ pub struct DocExportOutcome {
     pub cancelled: bool,
     /// Whether a partial file was left on disk.
     pub file_left: bool,
+    /// Whether the run created (or truncated) the file at all. False for a cancel before the
+    /// first documents were read, which touches nothing.
+    pub file_created: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -567,6 +567,14 @@ fn ignores_options(state: &AppState) -> bool {
 #[test]
 fn open_notes_a_sort_or_projection_the_export_will_not_apply() {
     assert!(!ignores_options(&open(connected(), false)));
+    for empty in [
+        (|q: &mut Query| q.sort = Some(doc! {})) as fn(&mut Query),
+        |q: &mut Query| q.projection = Some(doc! {}),
+    ] {
+        let mut state = connected();
+        empty(&mut state.page_query);
+        assert!(!ignores_options(&open(state, false)));
+    }
     for adjust in [
         (|q: &mut Query| q.sort = Some(doc! { "a": 1 })) as fn(&mut Query),
         |q: &mut Query| q.projection = Some(doc! { "a": 1 }),

@@ -77,6 +77,7 @@ fn outcome(written: u64, cancelled: bool, file_left: bool) -> DocExportOutcome {
         bytes: 1234,
         cancelled,
         file_left,
+        file_created: true,
     }
 }
 
@@ -335,6 +336,18 @@ fn a_done_export_says_how_many_and_closes() {
         .click();
     h.run_steps(3);
     assert_eq!(actions(&h), vec![DocExportAction::Close]);
+}
+
+#[test]
+fn a_cancel_before_any_file_was_created_does_not_claim_a_file_was_removed() {
+    let untouched = DocExportOutcome {
+        file_created: false,
+        ..outcome(0, true, false)
+    };
+    let h = harness(finished(Ok(untouched)));
+    h.get_by_label(&t("export.finished.cancelled_kept"));
+    assert!(!shown(&h, &t("export.finished.cancelled")));
+    assert!(!shown(&h, "/out/customers.ndjson"));
 }
 
 #[test]

@@ -224,7 +224,7 @@ async fn cancel_removes_the_file_and_frees_the_slot_for_the_next_export() {
     r.store.arm_at(&r.h.tx, Point::DuringScan, 2, vec![cancel]);
     let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
     let done = outcome(&events);
-    assert!(done.cancelled && !done.file_left);
+    assert!(done.cancelled && !done.file_left && done.file_created);
     assert!(!path.exists());
     let again = r.path("again.ndjson");
     let events = r.export(2, r.request(&again, DocFormat::Ndjson)).await;
@@ -345,7 +345,7 @@ async fn cancel_during_the_first_read_leaves_an_existing_file_untouched() {
     r.store.arm_at(&r.h.tx, Point::DuringScan, 1, vec![cancel]);
     let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
     let done = outcome(&events);
-    assert!(done.cancelled && !done.file_left);
+    assert!(done.cancelled && !done.file_left && !done.file_created);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), GOOD);
 }
 
@@ -356,7 +356,8 @@ async fn cancel_during_a_hung_count_leaves_an_existing_file_untouched() {
     let cancel = Command::Export(ExportCommand::Cancel { run: 1 });
     r.store.arm_at(&r.h.tx, Point::DuringCount, 1, vec![cancel]);
     let events = r.export(1, r.request(&path, DocFormat::Ndjson)).await;
-    assert!(outcome(&events).cancelled);
+    let done = outcome(&events);
+    assert!(done.cancelled && !done.file_created);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), GOOD);
 }
 
