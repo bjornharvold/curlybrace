@@ -9,7 +9,6 @@ use crate::theme::{
     tonal_button,
 };
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
-use crate::viewmodel::doc_export::DocExportBlock;
 use crate::viewmodel::{
     BulkEntry, BulkKind, ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview,
     page_key,
@@ -56,8 +55,6 @@ pub struct DocTarget<'a> {
     pub read_only: bool,
     /// Whether the bulk update / delete buttons may start a flow, and if not, why.
     pub bulk: BulkEntry,
-    /// Why the Export button is closed; `None` when an export may start.
-    pub export: Option<DocExportBlock>,
 }
 
 /// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
@@ -171,38 +168,13 @@ fn show_toolbar(
             }
             let write = write_buttons(ui, target, i18n);
             let copy = show_selection_buttons(ui, state, i18n);
-            let export = export_button(ui, target.export, i18n);
-            write.or(copy).or(export)
+            write.or(copy)
         })
         .inner;
     if let Some(key) = reason_key(target) {
         ui.label(i18n.t(key));
     }
-    if let Some(block) = target.export {
-        ui.label(i18n.t(block.i18n_key()));
-    }
     action
-}
-
-/// Export: disabled with the reason as hover text and accessible description (and as the line
-/// under the row) unless an export may start.
-fn export_button(
-    ui: &mut egui::Ui,
-    block: Option<DocExportBlock>,
-    i18n: &I18n,
-) -> Option<DocAction> {
-    let button = gate(ui, block.is_none(), |ui| {
-        tonal_button(ui, i18n.t("export.entry.toolbar"))
-    });
-    match block {
-        Some(reason) => {
-            let reason = i18n.t(reason.i18n_key());
-            super::bulk_dialog::describe(ui, &button, &reason);
-            button.on_hover_text(reason);
-            None
-        }
-        None => button.clicked().then_some(DocAction::Export),
-    }
 }
 
 /// Insert, then "Update matching" and "Delete matching"; the one clicked.
@@ -362,7 +334,6 @@ mod tests {
             production: false,
             read_only: false,
             bulk: BulkEntry::Available,
-            export: None,
         }
     }
 
@@ -507,7 +478,6 @@ mod tests {
                         production,
                         read_only: false,
                         bulk: BulkEntry::Available,
-                        export: None,
                     };
                     show_documents(ui, ViewMode::Tree, &page, state, target, &i18n);
                 },
@@ -537,7 +507,6 @@ mod tests {
                     production,
                     read_only: false,
                     bulk: BulkEntry::Available,
-                    export: None,
                 };
                 show_documents(
                     ui,

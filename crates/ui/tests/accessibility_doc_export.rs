@@ -317,94 +317,103 @@ fn a_failed_result_says_so() {
     h.get_by_label(&t("export.finished.failed"));
 }
 
-// ---- the entry points ----
+// ---- the entry point: the collection's context menu ----
 
-use curlybrace_ui::viewmodel::{BulkEntry, DocAction, TreeState, ViewMode};
-use curlybrace_ui::views::documents::{DocTarget, show_documents};
+use support::shots::{browsing, build_app};
 
-fn toolbar(block: Option<DocExportBlock>) -> Harness<'static, (TreeState, Vec<DocAction>)> {
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 500.0))
-        .build_ui_state(
-            move |ui, (state, seen): &mut (TreeState, Vec<DocAction>)| {
-                let target = DocTarget {
-                    connection: "Vault",
-                    production: false,
-                    read_only: false,
-                    bulk: BulkEntry::Available,
-                    export: block,
-                };
-                let page = curlybrace_core::store::Page {
-                    docs: vec![doc! { "_id": 1_i32 }],
-                    skip: 0,
-                    has_more: false,
-                };
-                let shown =
-                    show_documents(ui, ViewMode::Tree, &page, state, target, &I18n::english());
-                seen.extend(shown);
+const SIZE: (f32, f32) = (1000.0, 700.0);
+
+/// The Browse page of the real app (in-memory store, crm.customers shown) with `adjust` applied
+/// and, when given, `picker` answering the save dialog.
+struct BrowsePage {
+    harness: Harness<'static, CurlybraceApp>,
+    _rt: tokio::runtime::Runtime,
+    _dir: tempfile::TempDir,
+}
+
+fn page_with(
+    picker: Option<std::sync::Arc<dyn curlybrace_ui::app::file_picker::FilePicker>>,
+    adjust: impl FnOnce(&mut curlybrace_ui::app::state::AppState),
+) -> BrowsePage {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .build()
+        .expect("tokio runtime");
+    let enter = rt.enter();
+    let (mut app, dir) = build_app(vec![], None);
+    if let Some(picker) = picker {
+        app = app.with_file_picker(picker, std::sync::Arc::new(|| {}));
+    }
+    browsing(curlybrace_ui::viewmodel::ViewMode::Table)(app.state_mut());
+    adjust(app.state_mut());
+    let mut installed = false;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(SIZE.0, SIZE.1))
+        .with_pixels_per_point(1.0)
+        .build_state(
+            move |ctx, app: &mut CurlybraceApp| {
+                if !installed {
+                    curlybrace_ui::theme::install(ctx);
+                    installed = true;
+                }
+                app.run_frame(ctx)
             },
-            (TreeState::default(), Vec::new()),
+            app,
         );
-    h.run_steps(4);
-    h
-}
-
-#[test]
-fn the_toolbar_button_asks_to_export() {
-    let mut h = toolbar(None);
-    let label = t("export.entry.toolbar");
-    let button = h.get_by_role_and_label(Role::Button, &label);
-    assert!(!button.accesskit_node().is_disabled());
-    button.click();
-    h.run_steps(3);
-    assert_eq!(h.state().1, vec![DocAction::Export]);
-}
-
-#[test]
-fn a_closed_toolbar_button_shows_its_reason_as_text() {
-    for block in [
-        DocExportBlock::NotConnected,
-        DocExportBlock::Collated,
-        DocExportBlock::Busy,
-    ] {
-        let mut h = toolbar(Some(block));
-        let reason = t(block.i18n_key());
-        let label = t("export.entry.toolbar");
-        let button = h.get_by_role_and_label(Role::Button, &label);
-        assert!(button.accesskit_node().is_disabled(), "{block:?}");
-        assert_eq!(
-            button.accesskit_node().description().as_deref(),
-            Some(reason.as_str()),
-            "{block:?}"
-        );
-        h.get_by_label(&reason);
-        h.get_by_role_and_label(Role::Button, &t("export.entry.toolbar"))
-            .click();
-        h.run_steps(3);
-        assert!(h.state().1.is_empty(), "{block:?} emits nothing");
+    harness.run_steps(6);
+    drop(enter);
+    BrowsePage {
+        harness,
+        _rt: rt,
+        _dir: dir,
     }
 }
 
-use support::browse_page::{BrowsePage, SIZE_1000, browse_page};
-
 fn page(adjust: impl FnOnce(&mut curlybrace_ui::app::state::AppState)) -> BrowsePage {
-    browse_page(SIZE_1000, adjust)
+    page_with(None, adjust)
+}
+
+fn filtered(state: &mut curlybrace_ui::app::state::AppState) {
+    state.page_query.filter = doc! { "status": "open" };
+}
+
+fn collated(state: &mut curlybrace_ui::app::state::AppState) {
+    filtered(state);
+    state.page_query.options.collation = Some(curlybrace_core::pipeline_options::CollationOption {
+        locale: "en".into(),
+        strength: None,
+        case_level: None,
+        case_first: None,
+        numeric_ordering: None,
+        alternate: None,
+    });
 }
 
 fn doc_export(page: &BrowsePage) -> &DocExportUi {
     &page.harness.state().state().doc_export
 }
 
-fn open_menu(page: &mut BrowsePage) {
+fn open_menu_of(page: &mut BrowsePage, collection: &str) {
     page.harness
-        .get_by_role_and_label(Role::Button, "notes")
+        .get_by_role_and_label(Role::Button, collection)
         .click_secondary();
     page.harness.run_steps(3);
 }
 
+fn open_menu(page: &mut BrowsePage) {
+    open_menu_of(page, "notes");
+}
+
+fn entry_state(page: &BrowsePage, key: &str) -> Option<bool> {
+    let label = t(key);
+    page.harness
+        .query_by_role_and_label(Role::Button, &label)
+        .map(|n| n.accesskit_node().is_disabled())
+}
+
 #[test]
 fn the_sidebar_menu_exports_the_whole_collection() {
-    let mut page = page(|_| {});
+    let mut page = page(filtered);
     open_menu(&mut page);
     page.harness
         .get_by_role_and_label(Role::Button, &t("export.entry.menu"))
@@ -421,34 +430,61 @@ fn the_sidebar_menu_exports_the_whole_collection() {
 }
 
 #[test]
-fn a_collated_page_does_not_block_the_sidebar_entry() {
-    let mut page = page(|state| {
-        state.page_query.options.collation =
-            Some(curlybrace_core::pipeline_options::CollationOption {
-                locale: "en".into(),
-                strength: None,
-                case_level: None,
-                case_first: None,
-                numeric_ordering: None,
-                alternate: None,
-            });
-    });
+fn a_collated_page_does_not_block_the_whole_collection_entry() {
+    let mut page = page(collated);
     open_menu(&mut page);
-    let label = t("export.entry.menu");
-    let entry = page.harness.get_by_role_and_label(Role::Button, &label);
-    assert!(!entry.accesskit_node().is_disabled());
+    assert_eq!(entry_state(&page, "export.entry.menu"), Some(false));
 }
 
 #[test]
-fn the_sidebar_entry_shows_why_it_is_closed() {
-    // The tree is only drawn while connected, so the open reason is a running export.
+fn the_filter_entry_exports_what_the_filter_matches() {
+    let mut page = page(filtered);
+    open_menu_of(&mut page, "customers");
+    assert_eq!(entry_state(&page, "export.entry.query"), Some(false));
+    page.harness
+        .get_by_role_and_label(Role::Button, &t("export.entry.query"))
+        .click();
+    page.harness.run_steps(4);
+    match doc_export(&page) {
+        DocExportUi::Configuring { source, .. } => {
+            assert_eq!(source.ns, Namespace::new("crm", "customers"));
+            assert_eq!(source.filter, Some(doc! { "status": "open" }));
+        }
+        other => panic!("not configuring: {other:?}"),
+    }
+    page.harness
+        .get_by_label(&tw("export.source.query", &[("name", "crm.customers")]));
+}
+
+#[test]
+fn the_filter_entry_is_absent_without_a_filter_or_on_another_collection() {
     let mut page = page(|_| {});
-    open_menu(&mut page);
+    open_menu_of(&mut page, "customers");
+    assert_eq!(entry_state(&page, "export.entry.query"), None);
+    assert_eq!(entry_state(&page, "export.entry.menu"), Some(false));
+    let mut page = self::page(filtered);
+    open_menu_of(&mut page, "notes");
+    assert_eq!(entry_state(&page, "export.entry.query"), None);
+}
+
+#[test]
+fn a_collation_closes_the_filter_entry_with_its_reason() {
+    let mut page = page(collated);
+    open_menu_of(&mut page, "customers");
+    assert_eq!(entry_state(&page, "export.entry.query"), Some(true));
+    let reason = t(DocExportBlock::Collated.i18n_key());
+    assert!(shown_in(&page.harness, &reason));
+}
+
+#[test]
+fn the_sidebar_entries_show_why_they_are_closed_while_an_export_runs() {
+    // The tree is only drawn while connected, so the open reason is a running export.
+    let mut page = page(filtered);
+    open_menu_of(&mut page, "customers");
     app_of(&mut page).state_mut().doc_export = running(Some(10), 1, false);
     page.harness.run_steps(3);
-    let label = t("export.entry.menu");
-    let entry = page.harness.get_by_role_and_label(Role::Button, &label);
-    assert!(entry.accesskit_node().is_disabled());
+    assert_eq!(entry_state(&page, "export.entry.menu"), Some(true));
+    assert_eq!(entry_state(&page, "export.entry.query"), Some(true));
     let reason = t(DocExportBlock::Busy.i18n_key());
     assert!(shown_in(&page.harness, &reason));
 }
@@ -472,10 +508,11 @@ fn open_choose_and_finish_end_to_end() {
     let dir = tempfile::tempdir().expect("temp dir");
     let target = dir.path().join("customers.ndjson");
     let picker = support::export_flow::FakePicker::answering(vec![target.clone()]);
-    let mut page = support::browse_page::browse_page_with_picker(SIZE_1000, picker.clone());
+    let mut page = page_with(Some(picker.clone()), |_| {});
 
+    open_menu(&mut page);
     page.harness
-        .get_by_role_and_label(Role::Button, &t("export.entry.toolbar"))
+        .get_by_role_and_label(Role::Button, &t("export.entry.menu"))
         .click();
     page.harness.run_steps(4);
     page.harness.get_by_label(&t("export.title"));

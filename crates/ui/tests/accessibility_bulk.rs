@@ -646,7 +646,6 @@ fn toolbar(entry: BulkEntry) -> Harness<'static, TreeState> {
                     production: false,
                     read_only: entry == BulkEntry::ReadOnly,
                     bulk: entry,
-                    export: None,
                 };
                 let page = curlybrace_core::store::Page {
                     docs: vec![doc! { "_id": 1_i32 }],

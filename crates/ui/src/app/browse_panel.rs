@@ -8,7 +8,6 @@ use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
 use crate::I18n;
 use crate::app::AggregateAction;
-use crate::viewmodel::doc_export::doc_export_block;
 use crate::viewmodel::query_history::HistoryAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
@@ -156,11 +155,6 @@ pub(super) fn show_pane(
         production: badge.production,
         read_only: badge.read_only,
         bulk: state.bulk_entry(),
-        export: doc_export_block(
-            state.status == ConnStatus::Connected,
-            &state.page_query,
-            state.doc_export.is_busy(),
-        ),
     };
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
         // The toolbar row stays in its place (and the view can still be switched) without a page.

@@ -21,6 +21,15 @@ pub(super) fn gated(state: AppState, f: impl FnOnce(AppState) -> Out) -> Out {
     (AppState { banner, ..state }, Vec::new())
 }
 
+/// Opens the export modal for `ns`: the whole collection, or what the applied filter matches.
+fn export_open(state: AppState, ns: Namespace, whole_collection: bool) -> Out {
+    let action = super::doc_export::DocExportAction::Open {
+        ns,
+        whole_collection,
+    };
+    super::doc_export::on_action(state, action)
+}
+
 pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
     match action {
         SidebarAction::Toggle(db) => {
@@ -36,13 +45,8 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
                 super::tab_actions::TabAction::OpenInNew { session, ns },
             )
         }
-        SidebarAction::ExportDocuments(ns) => {
-            let action = super::doc_export::DocExportAction::Open {
-                ns,
-                whole_collection: true,
-            };
-            super::doc_export::on_action(state, action)
-        }
+        SidebarAction::ExportDocuments(ns) => export_open(state, ns, true),
+        SidebarAction::ExportMatching(ns) => export_open(state, ns, false),
         SidebarAction::Refresh => gated(state, refresh),
         SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
         SidebarAction::CompareDatabaseTo(db) => {
@@ -274,18 +278,6 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
     (next, vec![command])
 }
 
-/// The documents toolbar's Export: the shown collection, narrowed by the applied query.
-fn export_shown(state: AppState) -> Out {
-    let Some(ns) = state.selected_ns().cloned() else {
-        return (state, Vec::new());
-    };
-    let action = super::doc_export::DocExportAction::Open {
-        ns,
-        whole_collection: false,
-    };
-    super::doc_export::on_action(state, action)
-}
-
 pub(super) fn doc(state: AppState, action: DocAction) -> Out {
     // A projected page holds partial copies: writing one back (Edit/Clone) would drop fields.
     if state.page_is_projected() && matches!(action, DocAction::Edit(_) | DocAction::Clone(_)) {
@@ -297,7 +289,6 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
         DocAction::Bulk(kind) => {
             super::bulk_actions::on_action(state, super::BulkAction::Open(kind))
         }
-        DocAction::Export => export_shown(state),
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
         DocAction::Clone(source) => {

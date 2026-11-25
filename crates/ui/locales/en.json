@@ -1331,7 +1331,7 @@
     },
     "entry": {
       "menu": "Export documents…",
-      "toolbar": "Export"
+      "query": "Export documents matching the filter…"
     },
     "finished": {
       "cancelled": "The export was cancelled. {count} documents were written before it stopped.",

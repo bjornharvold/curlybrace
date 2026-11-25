@@ -5,7 +5,7 @@ use crate::viewmodel::{
     DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
 };
-use crate::views::doc_export_entry::export_entry;
+use crate::views::doc_export_entry::export_entries;
 use crate::views::sidebar_admin::admin_entries;
 use crate::views::sidebar_copy::{
     TreeCtx, collection_node, copy_paste_entries, database_node, is_selected, node_action,
@@ -296,7 +296,7 @@ fn collection_menu(
         }
         let target = ctx.map(|c| row_paste_target(c, &collection_node(ctx, db, name)));
         let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
-        let export = export_entry(ui, ctx, Namespace::new(db, name), i18n);
+        let export = export_entries(ui, ctx, &Namespace::new(db, name), i18n);
         let admin = admin_entries(ui, ctx, db, Some(name), i18n);
         chosen = admin.or(export).or(copy_paste).or(chosen.take());
     });
